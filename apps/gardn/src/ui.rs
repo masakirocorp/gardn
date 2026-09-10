@@ -3205,7 +3205,7 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_sidebar_empty_state_keeps_agents_label() {
+    fn collapsed_sidebar_empty_state_keeps_agent_scope_filter() {
         let mut app = crate::app::state::AppState::test_new();
         app.sidebar_collapsed = true;
         app.workspaces.clear();
@@ -3224,7 +3224,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("f:s"));
+        assert!(text.contains("S ·"));
         assert!(!text.contains("agt"));
     }
 

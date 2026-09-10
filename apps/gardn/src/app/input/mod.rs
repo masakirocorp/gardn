@@ -223,7 +223,10 @@ pub(crate) use self::{
         prepare_workspace_settings_state, update_settings_mouse_for_view,
         update_settings_state_for_view, SettingsAction,
     },
-    sidebar::{AgentMenuAction, GroupDropTarget, GroupMenuAction, WorkspaceDropTarget},
+    sidebar::{
+        agent_menu_rows, group_menu_rows, AgentMenuAction, FilterMenuRow, GroupDropTarget,
+        GroupMenuAction, WorkspaceDropTarget,
+    },
 };
 
 #[cfg(test)]

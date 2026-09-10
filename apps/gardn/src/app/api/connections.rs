@@ -140,7 +140,7 @@ impl App {
                     scope,
                     crate::app::connection_scope::ConnectionScope::Only(
                         crate::app::connection_scope::ConnectionIdentity::Profile(selected)
-                    ) if selected == profile_id
+                    ) if selected.as_str() == profile_id
                 )
             };
             if selected_profile(&self.state.connection_scope) {

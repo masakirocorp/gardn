@@ -33,10 +33,29 @@ use crate::{
 use super::ScrollbarClickTarget;
 
 #[cfg(test)]
-use crate::settings_rows::{
-    CONNECTION_DELETE_INDEX, CONNECTION_DISCARD_INDEX, CONNECTION_SAVE_INDEX,
-    CONNECTION_TARGET_INDEX, CONNECTION_TEST_INDEX,
-};
+fn connection_target_index() -> usize {
+    ConnectionRowId::Field(ConnectionField::Target).selection_index()
+}
+
+#[cfg(test)]
+fn connection_save_index() -> usize {
+    ConnectionRowId::Action(crate::settings_rows::ConnectionAction::Save).selection_index()
+}
+
+#[cfg(test)]
+fn connection_discard_index() -> usize {
+    ConnectionRowId::Action(crate::settings_rows::ConnectionAction::Discard).selection_index()
+}
+
+#[cfg(test)]
+fn connection_delete_index() -> usize {
+    ConnectionRowId::Action(crate::settings_rows::ConnectionAction::Delete).selection_index()
+}
+
+#[cfg(test)]
+fn connection_test_index() -> usize {
+    ConnectionRowId::Action(crate::settings_rows::ConnectionAction::Test).selection_index()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 // The shared `Save` verb is semantic: these actions persist settings.
@@ -8906,7 +8925,7 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_type(&mut app.state, "~/src");
         connection_key(&mut app.state, KeyCode::Down);
-        assert_eq!(app.state.settings.list.selected, CONNECTION_SAVE_INDEX);
+        assert_eq!(app.state.settings.list.selected, connection_save_index());
 
         let action = connection_key(&mut app.state, KeyCode::Enter);
         match &action {
@@ -9031,7 +9050,7 @@ mod tests {
                 .map(|e| e.draft.target.as_str()),
             Some("deploy@example.com")
         );
-        assert_eq!(app.state.settings.list.selected, CONNECTION_SAVE_INDEX);
+        assert_eq!(app.state.settings.list.selected, connection_save_index());
         assert_eq!(
             app.state
                 .settings
@@ -9090,7 +9109,7 @@ mod tests {
         );
         connection_type(&mut app.state, "changed@example.com");
 
-        app.state.settings.list.select(CONNECTION_DISCARD_INDEX);
+        app.state.settings.list.select(connection_discard_index());
         assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
         let editor = app
             .state
@@ -9156,7 +9175,7 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Enter);
-        app.state.settings.list.select(CONNECTION_DELETE_INDEX);
+        app.state.settings.list.select(connection_delete_index());
         let action = connection_key(&mut app.state, KeyCode::Enter);
         assert_eq!(
             action,
@@ -9304,7 +9323,7 @@ mod tests {
             ))
         );
         assert!(app.state.settings.connection_editor.is_some());
-        assert_eq!(app.state.settings.list.selected, CONNECTION_DELETE_INDEX);
+        assert_eq!(app.state.settings.list.selected, connection_delete_index());
         assert_eq!(app.state.ssh_connection_profiles.len(), 1);
     }
 
@@ -9317,26 +9336,26 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Char(' '));
 
         // Empty and whitespace-only targets are refused.
-        app.state.settings.list.select(CONNECTION_SAVE_INDEX);
+        app.state.settings.list.select(connection_save_index());
         assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
         assert!(app.state.settings.connection_editor.is_some());
         assert!(app.state.ssh_connection_profiles.is_empty());
-        app.state.settings.list.select(CONNECTION_TARGET_INDEX);
-        app.state.settings.focused_input = Some(CONNECTION_TARGET_INDEX);
+        app.state.settings.list.select(connection_target_index());
+        app.state.settings.focused_input = Some(connection_target_index());
         connection_type(&mut app.state, "   ");
-        app.state.settings.list.select(CONNECTION_SAVE_INDEX);
+        app.state.settings.list.select(connection_save_index());
         assert_eq!(connection_key(&mut app.state, KeyCode::Enter), None);
         assert!(app.state.ssh_connection_profiles.is_empty());
 
         // A target is sufficient; it becomes the display name when no label is given.
-        app.state.settings.list.select(CONNECTION_TARGET_INDEX);
-        app.state.settings.focused_input = Some(CONNECTION_TARGET_INDEX);
+        app.state.settings.list.select(connection_target_index());
+        app.state.settings.focused_input = Some(connection_target_index());
         update_settings_state(
             &mut app.state,
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
         );
         connection_type(&mut app.state, "builder@example.com");
-        app.state.settings.list.select(CONNECTION_SAVE_INDEX);
+        app.state.settings.list.select(connection_save_index());
         let action = connection_key(&mut app.state, KeyCode::Enter);
         let Some(SettingsAction::SaveSshConnectionProfile(profile)) = &action else {
             panic!("expected save action, got {action:?}");
@@ -9364,7 +9383,7 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Enter);
 
-        app.state.settings.list.select(CONNECTION_TEST_INDEX);
+        app.state.settings.list.select(connection_test_index());
         let action = connection_key(&mut app.state, KeyCode::Enter);
         assert_eq!(
             action,
@@ -9590,7 +9609,7 @@ mod tests {
         assert!(app.state.settings.connection_editor.is_some());
         assert_eq!(
             app.state.settings.focused_input,
-            Some(CONNECTION_TARGET_INDEX)
+            Some(connection_target_index())
         );
 
         // Click the target field to focus it, then type into it.
@@ -9599,11 +9618,11 @@ mod tests {
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             list_area.x + 2,
-            list_area.y + editor_row_for(CONNECTION_TARGET_INDEX),
+            list_area.y + editor_row_for(connection_target_index()),
         ));
         assert_eq!(
             app.state.settings.focused_input,
-            Some(CONNECTION_TARGET_INDEX)
+            Some(connection_target_index())
         );
         connection_type(&mut app.state, "builder@example.com");
         assert_eq!(
@@ -9618,7 +9637,7 @@ mod tests {
         // Scroll to the action rows, then click "cancel" to close without saving.
         let current_rows =
             rows_for_section(&app.state, SettingsSection::Connections).expect("connection rows");
-        let discard_row = selected_visual_row(&current_rows, CONNECTION_DISCARD_INDEX)
+        let discard_row = selected_visual_row(&current_rows, connection_discard_index())
             .expect("cancel row") as u16;
         app.state.settings.scroll =
             settings_section_max_scroll(&app.state, SettingsSection::Connections);
@@ -9628,7 +9647,7 @@ mod tests {
             app.state
                 .settings_list_hit_at(list.rect.x + 2, list.rect.y + visible_discard_row)
                 .map(|target| target.index),
-            Some(CONNECTION_DISCARD_INDEX)
+            Some(connection_discard_index())
         );
         app.state.handle_settings_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -9733,7 +9752,7 @@ mod tests {
         rendered_text_point(&app, "Credentials and host keys stay with OpenSSH", 100, 30);
 
         // Move to the action rows so they scroll into view.
-        for _ in 0..CONNECTION_DISCARD_INDEX {
+        for _ in 0..connection_discard_index() {
             connection_key(&mut app.state, KeyCode::Down);
         }
         rendered_text_point(&app, "SSH Target Is Required", 100, 30);

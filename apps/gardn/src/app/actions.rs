@@ -2748,7 +2748,7 @@ impl AppState {
         };
         workspace.group_id = group_id;
         self.mark_session_dirty();
-        if was_active && !self.workspace_in_active_group(ws_idx) {
+        if was_active && !self.workspace_is_visible(ws_idx) {
             self.select_first_visible_workspace();
         }
 
@@ -3486,6 +3486,7 @@ impl AppState {
                 }
             }
             self.active = Some(self.selected);
+            crate::app::connection_scope::reanchor_state_selection(self);
             self.workspace_scroll = self
                 .workspace_scroll
                 .min(self.workspaces.len().saturating_sub(1));
@@ -7117,6 +7118,45 @@ mod tests {
         assert_eq!(state.workspaces[state.selected].id, focused_id);
         assert_eq!(state.workspaces[0].custom_name.as_deref(), Some("a"));
         assert_eq!(state.workspaces[1].custom_name.as_deref(), Some("c"));
+    }
+
+    #[test]
+    fn close_workspace_reanchors_selection_inside_connection_filter() {
+        let remote_location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox:1")
+                .expect("valid execution host id"),
+            crate::execution_host::HostPath::new("/work").expect("valid host path"),
+        );
+        let mut state = AppState::test_new();
+        let mut selected_remote = Workspace::test_new("selected-remote");
+        selected_remote.default_location = remote_location.clone();
+        let mut first_remaining_remote = Workspace::test_new("first-remaining-remote");
+        first_remaining_remote.default_location = remote_location.clone();
+        let mut second_remaining_remote = Workspace::test_new("second-remaining-remote");
+        second_remaining_remote.default_location = remote_location;
+        state.workspaces = vec![
+            Workspace::test_new("active-local"),
+            selected_remote,
+            Workspace::test_new("hidden-local"),
+            first_remaining_remote,
+            second_remaining_remote,
+        ];
+        state.active = Some(0);
+        state.selected = 1;
+        state.connection_scope = crate::app::connection_scope::ConnectionScope::Only(
+            crate::app::connection_scope::ConnectionIdentity::Profile(
+                crate::execution_host::SshProfileId::new("workbox").expect("valid profile id"),
+            ),
+        );
+
+        state.close_selected_workspace();
+
+        assert_eq!(state.active, Some(0));
+        assert_eq!(state.selected, 2);
+        assert_eq!(
+            state.workspaces[state.selected].display_name(),
+            "first-remaining-remote"
+        );
     }
 
     #[test]

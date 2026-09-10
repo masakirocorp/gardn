@@ -34,7 +34,7 @@ pub(crate) mod view_state;
 mod window_title;
 
 pub(crate) use api_helpers::limit_snapshot_lines;
-pub(crate) use input::rendering_client_may_open_url;
+pub(crate) use input::{rendering_client_may_open_url, FilterMenuRow, GroupMenuAction};
 
 use std::collections::{HashMap, HashSet};
 use std::future::pending;
@@ -101,71 +101,25 @@ pub(crate) fn client_global_menu_rect(state: &AppState, view: &ClientViewState) 
     )
 }
 
-pub(crate) fn client_group_menu_labels(state: &AppState, view: &ClientViewState) -> Vec<String> {
-    let all_marker = if view.group_filter_enabled {
-        " "
-    } else {
-        "✓"
-    };
-    let connection_visible =
-        |idx| connection_scope::workspace_matches(state, idx, &view.connection_scope);
-    let mut labels = vec![
-        "Spaces".to_string(),
-        format!(
-            "{all_marker} All {}",
-            state
-                .workspaces
-                .iter()
-                .enumerate()
-                .filter(|(idx, _)| connection_visible(*idx))
-                .count()
-        ),
-    ];
-    labels.extend(state.groups.iter().enumerate().map(|(idx, group)| {
-        let marker = if view.group_filter_enabled && idx == view.active_group {
-            "✓"
-        } else {
-            " "
-        };
-        let count = state
-            .workspaces
-            .iter()
-            .enumerate()
-            .filter(|(ws_idx, workspace)| {
-                workspace.group_id == group.id && connection_visible(*ws_idx)
-            })
-            .count();
-        format!("{marker} {} {} {count}", group.icon, group.name)
-    }));
-    labels.extend(["---".to_string(), "Connections".to_string()]);
-    labels.extend(
-        connection_scope::choices(state)
-            .into_iter()
-            .map(|(scope, label)| {
-                let marker = if scope == view.connection_scope {
-                    "✓"
-                } else {
-                    " "
-                };
-                format!("{marker} {label}")
-            }),
-    );
-    labels.extend([
-        "---".to_string(),
-        "New".to_string(),
-        "  Space".to_string(),
-        "  Group".to_string(),
-    ]);
-    labels
+pub(crate) fn client_group_menu_rows(
+    state: &AppState,
+    view: &ClientViewState,
+) -> Vec<input::FilterMenuRow<input::GroupMenuAction>> {
+    input::group_menu_rows(
+        state,
+        view.group_filter_enabled,
+        view.active_group,
+        &view.connection_scope,
+    )
 }
 
 pub(crate) fn client_group_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
     let screen = view.screen_rect();
     let selector = crate::ui::group_selector_rect_for_view(state, view);
-    let labels = client_group_menu_labels(state, view);
-    let content_width = labels
+    let rows = client_group_menu_rows(state, view);
+    let content_width = rows
         .iter()
-        .map(|label| label.chars().count() as u16)
+        .map(|row| row.label().chars().count() as u16)
         .max()
         .unwrap_or(8)
         .saturating_add(2);
@@ -177,7 +131,7 @@ pub(crate) fn client_group_menu_rect(state: &AppState, view: &ClientViewState) -
             .min(view.computed.sidebar_rect.width.max(1))
             .min(screen.width.max(1))
     };
-    let height = (labels.len() as u16 + 2).min(screen.height.max(1));
+    let height = (rows.len() as u16 + 2).min(screen.height.max(1));
     Rect::new(
         selector
             .x
@@ -191,55 +145,26 @@ pub(crate) fn client_group_menu_rect(state: &AppState, view: &ClientViewState) -
     )
 }
 
-pub(crate) fn client_agent_menu_labels(state: &AppState, view: &ClientViewState) -> Vec<String> {
-    let marker = |scope| {
-        if view.agent_panel_scope == scope {
-            "✓"
-        } else {
-            " "
-        }
-    };
-    let mut labels = vec![
-        "Agents".to_string(),
-        format!("{} All", marker(state::AgentPanelScope::AllWorkspaces)),
-        format!("{} Space", marker(state::AgentPanelScope::CurrentWorkspace)),
-        format!("{} Group", marker(state::AgentPanelScope::CurrentGroup)),
-        "---".to_string(),
-        "Connections".to_string(),
-    ];
-    labels.extend(
-        connection_scope::choices(state)
-            .into_iter()
-            .map(|(scope, label)| {
-                let marker = if scope == view.connection_scope {
-                    "✓"
-                } else {
-                    " "
-                };
-                format!("{marker} {label}")
-            }),
-    );
-    labels
+pub(crate) fn client_agent_menu_rows(
+    state: &AppState,
+    view: &ClientViewState,
+) -> Vec<input::FilterMenuRow<input::AgentMenuAction>> {
+    input::agent_menu_rows(state, view.agent_panel_scope, &view.connection_scope)
 }
 
 pub(crate) fn client_agent_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
     let screen = view.screen_rect();
     let anchor = client_agent_menu_anchor_rect(state, view);
-    let labels = client_agent_menu_labels(state, view);
-    let content_width = labels
+    let rows = client_agent_menu_rows(state, view);
+    let content_width = rows
         .iter()
-        .enumerate()
-        .filter_map(|(idx, label)| {
-            state
-                .agent_menu_action_for_row(idx)
-                .is_some()
-                .then_some(label.chars().count() as u16)
-        })
+        .filter(|row| row.action().is_some())
+        .map(|row| row.label().chars().count() as u16)
         .max()
         .unwrap_or(8)
         .saturating_add(2);
     let width = content_width.saturating_add(2).min(screen.width.max(1));
-    let height = (labels.len() as u16 + 2).min(screen.height.max(1));
+    let height = (rows.len() as u16 + 2).min(screen.height.max(1));
     Rect::new(
         anchor.x.min(screen.x + screen.width.saturating_sub(width)),
         anchor
@@ -1240,7 +1165,7 @@ impl App {
         if state.group_filter_enabled
             && state
                 .active
-                .is_some_and(|idx| !state.workspace_in_active_group(idx))
+                .is_some_and(|idx| !state.workspace_is_visible(idx))
         {
             state.active = state.first_visible_workspace();
             state.selected = state.active.unwrap_or(0);
@@ -1607,7 +1532,7 @@ impl App {
             && app
                 .state
                 .active
-                .is_some_and(|idx| !app.state.workspace_in_active_group(idx))
+                .is_some_and(|idx| !app.state.workspace_is_visible(idx))
         {
             app.state.active = app.state.first_visible_workspace();
             app.state.selected = app.state.active.unwrap_or(0);
@@ -4598,34 +4523,32 @@ impl App {
         client_view: &mut ClientViewState,
         key: crossterm::event::KeyEvent,
     ) {
-        let len = self.state.group_menu_labels().len();
+        let rows = client_group_menu_rows(&self.state, client_view);
         match key.code {
             crossterm::event::KeyCode::Esc => Self::leave_client_view_command_mode(client_view),
             crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
                 let current = client_view.group_menu.selected;
                 let mut idx = current;
-                let mut next = None;
                 while idx > 0 {
                     idx -= 1;
-                    if self.state.group_menu_action_for_row(idx).is_some() {
-                        next = Some(idx);
-                        break;
+                    if rows[idx].action().is_some() {
+                        client_view.group_menu.select(idx);
+                        return;
                     }
                 }
-                client_view.group_menu.select(next.unwrap_or(current));
+                client_view.group_menu.select(current);
             }
             crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
                 let current = client_view.group_menu.selected;
                 let mut idx = current;
-                let mut next = None;
-                while idx + 1 < len {
+                while idx + 1 < rows.len() {
                     idx += 1;
-                    if self.state.group_menu_action_for_row(idx).is_some() {
-                        next = Some(idx);
-                        break;
+                    if rows[idx].action().is_some() {
+                        client_view.group_menu.select(idx);
+                        return;
                     }
                 }
-                client_view.group_menu.select(next.unwrap_or(current));
+                client_view.group_menu.select(current);
             }
             _ => {}
         }
@@ -4636,7 +4559,7 @@ impl App {
         client_view: &mut ClientViewState,
         key: crossterm::event::KeyEvent,
     ) {
-        let labels = self.state.agent_menu_labels();
+        let rows = client_agent_menu_rows(&self.state, client_view);
         match key.code {
             crossterm::event::KeyCode::Esc => {
                 Self::leave_client_view_agent_menu(client_view);
@@ -4644,28 +4567,26 @@ impl App {
             crossterm::event::KeyCode::Up | crossterm::event::KeyCode::Char('k') => {
                 let current = client_view.agent_menu.selected;
                 let mut idx = current;
-                let mut next = None;
                 while idx > 0 {
                     idx -= 1;
-                    if self.state.agent_menu_action_for_row(idx).is_some() {
-                        next = Some(idx);
-                        break;
+                    if rows[idx].action().is_some() {
+                        client_view.agent_menu.select(idx);
+                        return;
                     }
                 }
-                client_view.agent_menu.select(next.unwrap_or(current));
+                client_view.agent_menu.select(current);
             }
             crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Char('j') => {
                 let current = client_view.agent_menu.selected;
                 let mut idx = current;
-                let mut next = None;
-                while idx + 1 < labels.len() {
+                while idx + 1 < rows.len() {
                     idx += 1;
-                    if self.state.agent_menu_action_for_row(idx).is_some() {
-                        next = Some(idx);
-                        break;
+                    if rows[idx].action().is_some() {
+                        client_view.agent_menu.select(idx);
+                        return;
                     }
                 }
-                client_view.agent_menu.select(next.unwrap_or(current));
+                client_view.agent_menu.select(current);
             }
             _ => {}
         }
@@ -5680,10 +5601,11 @@ impl App {
     }
 
     fn accept_client_view_group_menu_selection(&mut self, client_view: &mut ClientViewState) {
-        let Some(action) = self
-            .state
-            .group_menu_action_for_row(client_view.group_menu.selected)
-        else {
+        let action = client_group_menu_rows(&self.state, client_view)
+            .get(client_view.group_menu.selected)
+            .and_then(input::FilterMenuRow::action)
+            .cloned();
+        let Some(action) = action else {
             return;
         };
 
@@ -5796,10 +5718,11 @@ impl App {
     }
 
     fn accept_client_view_agent_menu_selection(&mut self, client_view: &mut ClientViewState) {
-        let Some(action) = self
-            .state
-            .agent_menu_action_for_row(client_view.agent_menu.selected)
-        else {
+        let action = client_agent_menu_rows(&self.state, client_view)
+            .get(client_view.agent_menu.selected)
+            .and_then(input::FilterMenuRow::action)
+            .cloned();
+        let Some(action) = action else {
             return;
         };
 
@@ -6263,18 +6186,18 @@ impl App {
         }
     }
 
-    fn client_view_workspace_in_active_group(
+    fn client_view_workspace_is_visible(
         &self,
         client_view: &ClientViewState,
         ws_idx: usize,
     ) -> bool {
-        connection_scope::visible_workspace_indices(
+        connection_scope::workspace_is_visible(
             &self.state,
+            ws_idx,
             client_view.active_group,
             client_view.group_filter_enabled,
             &client_view.connection_scope,
         )
-        .contains(&ws_idx)
     }
 
     fn first_client_view_visible_workspace(&self, client_view: &ClientViewState) -> Option<usize> {
@@ -6284,12 +6207,11 @@ impl App {
             client_view.group_filter_enabled,
             &client_view.connection_scope,
         )
-        .into_iter()
         .next()
     }
 
     fn switch_client_view_workspace(&self, client_view: &mut ClientViewState, ws_idx: usize) {
-        if !self.client_view_workspace_in_active_group(client_view, ws_idx) {
+        if !self.client_view_workspace_is_visible(client_view, ws_idx) {
             return;
         }
         let Some(workspace) = self.state.workspaces.get(ws_idx) else {
@@ -7397,7 +7319,7 @@ impl App {
             .iter()
             .enumerate()
             .filter_map(|(idx, _)| {
-                self.client_view_workspace_in_active_group(client_view, idx)
+                self.client_view_workspace_is_visible(client_view, idx)
                     .then_some(idx)
             })
             .collect::<Vec<_>>();
@@ -7421,7 +7343,7 @@ impl App {
             .iter()
             .enumerate()
             .filter_map(|(idx, _)| {
-                self.client_view_workspace_in_active_group(client_view, idx)
+                self.client_view_workspace_is_visible(client_view, idx)
                     .then_some(idx)
             })
             .collect::<Vec<_>>();
@@ -11251,8 +11173,11 @@ impl App {
         input::global_menu_actions(&self.state).get(idx).copied()
     }
 
-    fn client_view_group_menu_labels(&self, client_view: &ClientViewState) -> Vec<String> {
-        client_group_menu_labels(&self.state, client_view)
+    fn client_view_group_menu_rows(
+        &self,
+        client_view: &ClientViewState,
+    ) -> Vec<input::FilterMenuRow<input::GroupMenuAction>> {
+        client_group_menu_rows(&self.state, client_view)
     }
 
     fn client_view_group_menu_rect(&self, client_view: &ClientViewState) -> Rect {
@@ -11273,18 +11198,23 @@ impl App {
         {
             return None;
         }
-        let labels = self.client_view_group_menu_labels(client_view);
+        let rows = self.client_view_group_menu_rows(client_view);
         let offset = connection_scope::menu_scroll_offset(
             client_view.group_menu.selected,
-            labels.len(),
+            rows.len(),
             rect.height.saturating_sub(2) as usize,
         );
         let idx = offset + (row - rect.y - 1) as usize;
-        (idx < labels.len() && self.state.group_menu_action_for_row(idx).is_some()).then_some(idx)
+        rows.get(idx)
+            .is_some_and(|row| row.action().is_some())
+            .then_some(idx)
     }
 
-    fn client_view_agent_menu_labels(&self, client_view: &ClientViewState) -> Vec<String> {
-        client_agent_menu_labels(&self.state, client_view)
+    fn client_view_agent_menu_rows(
+        &self,
+        client_view: &ClientViewState,
+    ) -> Vec<input::FilterMenuRow<input::AgentMenuAction>> {
+        client_agent_menu_rows(&self.state, client_view)
     }
 
     fn client_view_agent_menu_rect(&self, client_view: &ClientViewState) -> Rect {
@@ -11305,14 +11235,16 @@ impl App {
         {
             return None;
         }
-        let labels = self.client_view_agent_menu_labels(client_view);
+        let rows = self.client_view_agent_menu_rows(client_view);
         let offset = connection_scope::menu_scroll_offset(
             client_view.agent_menu.selected,
-            labels.len(),
+            rows.len(),
             rect.height.saturating_sub(2) as usize,
         );
         let idx = offset + (row - rect.y - 1) as usize;
-        (idx < labels.len() && self.state.agent_menu_action_for_row(idx).is_some()).then_some(idx)
+        rows.get(idx)
+            .is_some_and(|row| row.action().is_some())
+            .then_some(idx)
     }
 
     fn client_view_agent_panel_rect(&self, client_view: &ClientViewState) -> Rect {
@@ -12032,7 +11964,7 @@ impl App {
                 if Self::client_view_workspace_group_collapsed(client_view, &workspace.group_id) {
                     return None;
                 }
-                self.client_view_workspace_in_active_group(client_view, idx)
+                self.client_view_workspace_is_visible(client_view, idx)
                     .then_some(idx)
             })
             .collect()
@@ -15699,6 +15631,37 @@ mod tests {
 
         assert_eq!(source, Some(1));
         assert_eq!(group_id, app.state.groups[work_group].id);
+    }
+
+    #[test]
+    fn connection_filter_does_not_change_terminal_mode_workspace_creation_group() {
+        let mut app = test_app();
+        let work_group = app.state.create_group("Work".to_string());
+        let mut active = Workspace::test_new("home");
+        active.group_id = app.state.groups[0].id.clone();
+        let mut selected = Workspace::test_new("api");
+        selected.group_id = app.state.groups[work_group].id.clone();
+        selected.default_location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox:1")
+                .expect("valid execution host id"),
+            crate::execution_host::HostPath::new("/work").expect("valid host path"),
+        );
+        app.state.workspaces = vec![active, selected];
+        app.state.active = Some(0);
+        app.state.selected = 1;
+        app.state.active_group = 0;
+        app.state.group_filter_enabled = false;
+        app.state.connection_scope =
+            connection_scope::ConnectionScope::Only(connection_scope::ConnectionIdentity::Profile(
+                crate::execution_host::SshProfileId::new("workbox").expect("valid profile id"),
+            ));
+        app.state.mode = Mode::Terminal;
+
+        let source = app.workspace_creation_source();
+        let group_id = app.workspace_creation_group_id(source);
+
+        assert_eq!(source, Some(0));
+        assert_eq!(group_id, app.state.groups[0].id);
     }
 
     #[test]
@@ -26828,6 +26791,51 @@ command = "printf literal > '{}'"
         assert_eq!(
             &input[events[1].start..events[1].start + events[1].len],
             b"a"
+        );
+    }
+    #[test]
+    fn attached_client_close_reanchors_selection_inside_connection_filter() {
+        let remote_location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox:1")
+                .expect("valid execution host id"),
+            crate::execution_host::HostPath::new("/work").expect("valid host path"),
+        );
+        let mut app = test_app();
+        app.state.ssh_connection_profiles =
+            vec![crate::persist::ssh_profiles::SshConnectionProfile::new(
+                "workbox", "Workbox", "workbox", None,
+            )
+            .expect("valid SSH profile")];
+        let mut selected_remote = Workspace::test_new("selected-remote");
+        selected_remote.default_location = remote_location.clone();
+        let mut first_remaining_remote = Workspace::test_new("first-remaining-remote");
+        first_remaining_remote.default_location = remote_location.clone();
+        let mut second_remaining_remote = Workspace::test_new("second-remaining-remote");
+        second_remaining_remote.default_location = remote_location;
+        app.state.workspaces = vec![
+            Workspace::test_new("active-local"),
+            selected_remote,
+            Workspace::test_new("hidden-local"),
+            first_remaining_remote,
+            second_remaining_remote,
+        ];
+        app.state.active = Some(0);
+        app.state.selected = 1;
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        view.active_workspace = Some(0);
+        view.selected_workspace = 1;
+        view.connection_scope =
+            connection_scope::ConnectionScope::Only(connection_scope::ConnectionIdentity::Profile(
+                crate::execution_host::SshProfileId::new("workbox").expect("valid profile id"),
+            ));
+
+        app.close_workspace_for_client_view(&mut view, 1);
+
+        assert_eq!(view.active_workspace, Some(0));
+        assert_eq!(view.selected_workspace, 2);
+        assert_eq!(
+            app.state.workspaces[view.selected_workspace].display_name(),
+            "first-remaining-remote"
         );
     }
 }

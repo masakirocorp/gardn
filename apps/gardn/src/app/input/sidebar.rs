@@ -34,6 +34,144 @@ pub(crate) enum AgentMenuAction {
     Connection(crate::app::connection_scope::ConnectionScope),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FilterMenuRow<A> {
+    Heading(String),
+    Separator,
+    Item { label: String, action: A },
+}
+
+impl<A> FilterMenuRow<A> {
+    pub(crate) fn label(&self) -> &str {
+        match self {
+            Self::Heading(label) | Self::Item { label, .. } => label,
+            Self::Separator => "---",
+        }
+    }
+
+    pub(crate) fn action(&self) -> Option<&A> {
+        match self {
+            Self::Item { action, .. } => Some(action),
+            Self::Heading(_) | Self::Separator => None,
+        }
+    }
+}
+
+pub(crate) fn group_menu_rows(
+    state: &AppState,
+    group_filter_enabled: bool,
+    active_group: usize,
+    connection_scope: &crate::app::connection_scope::ConnectionScope,
+) -> Vec<FilterMenuRow<GroupMenuAction>> {
+    let mut all_count = 0;
+    let mut group_counts = vec![0; state.groups.len()];
+    for (ws_idx, workspace) in state.workspaces.iter().enumerate() {
+        if !crate::app::connection_scope::workspace_matches(state, ws_idx, connection_scope) {
+            continue;
+        }
+        all_count += 1;
+        if let Some(group_idx) = state.group_index_by_id(&workspace.group_id) {
+            group_counts[group_idx] += 1;
+        }
+    }
+
+    let all_marker = if group_filter_enabled { " " } else { "✓" };
+    let mut rows = vec![
+        FilterMenuRow::Heading("Spaces".to_string()),
+        FilterMenuRow::Item {
+            label: format!("{all_marker} All {all_count}"),
+            action: GroupMenuAction::AllSpaces,
+        },
+    ];
+    rows.extend(state.groups.iter().enumerate().map(|(idx, group)| {
+        let marker = if group_filter_enabled && idx == active_group {
+            "✓"
+        } else {
+            " "
+        };
+        FilterMenuRow::Item {
+            label: format!(
+                "{marker} {} {} {}",
+                group.icon, group.name, group_counts[idx]
+            ),
+            action: GroupMenuAction::Group(idx),
+        }
+    }));
+    rows.extend([
+        FilterMenuRow::Separator,
+        FilterMenuRow::Heading("Connections".to_string()),
+    ]);
+    rows.extend(
+        crate::app::connection_scope::choices(state)
+            .into_iter()
+            .map(|(scope, label)| FilterMenuRow::Item {
+                label: format!(
+                    "{} {label}",
+                    if &scope == connection_scope {
+                        "✓"
+                    } else {
+                        " "
+                    }
+                ),
+                action: GroupMenuAction::Connection(scope),
+            }),
+    );
+    rows.extend([
+        FilterMenuRow::Separator,
+        FilterMenuRow::Heading("New".to_string()),
+        FilterMenuRow::Item {
+            label: "  Space".to_string(),
+            action: GroupMenuAction::NewWorkspace,
+        },
+        FilterMenuRow::Item {
+            label: "  Group".to_string(),
+            action: GroupMenuAction::NewGroup,
+        },
+    ]);
+    rows
+}
+
+pub(crate) fn agent_menu_rows(
+    state: &AppState,
+    agent_scope: AgentPanelScope,
+    connection_scope: &crate::app::connection_scope::ConnectionScope,
+) -> Vec<FilterMenuRow<AgentMenuAction>> {
+    let marker = |scope| if agent_scope == scope { "✓" } else { " " };
+    let mut rows = vec![
+        FilterMenuRow::Heading("Agents".to_string()),
+        FilterMenuRow::Item {
+            label: format!("{} All", marker(AgentPanelScope::AllWorkspaces)),
+            action: AgentMenuAction::AllAgents,
+        },
+        FilterMenuRow::Item {
+            label: format!("{} Space", marker(AgentPanelScope::CurrentWorkspace)),
+            action: AgentMenuAction::ThisSpace,
+        },
+        FilterMenuRow::Item {
+            label: format!("{} Group", marker(AgentPanelScope::CurrentGroup)),
+            action: AgentMenuAction::ThisGroup,
+        },
+        FilterMenuRow::Separator,
+        FilterMenuRow::Heading("Connections".to_string()),
+    ];
+    rows.extend(
+        crate::app::connection_scope::choices(state)
+            .into_iter()
+            .map(|(scope, label)| FilterMenuRow::Item {
+                label: format!(
+                    "{} {label}",
+                    if &scope == connection_scope {
+                        "✓"
+                    } else {
+                        " "
+                    }
+                ),
+                action: AgentMenuAction::Connection(scope),
+            }),
+    );
+    rows
+}
+
 impl AppState {
     pub(super) fn workspace_list_rect(&self) -> Rect {
         let sidebar = self.view.sidebar_rect;
@@ -378,91 +516,30 @@ impl AppState {
         )
     }
 
-    pub(crate) fn group_menu_labels(&self) -> Vec<String> {
-        let all_marker = if self.group_filter_enabled {
-            " "
-        } else {
-            "✓"
-        };
-        let connection_visible = |idx| {
-            crate::app::connection_scope::workspace_matches(self, idx, &self.connection_scope)
-        };
-        let mut labels = vec![
-            "Spaces".to_string(),
-            format!(
-                "{all_marker} All {}",
-                self.workspaces
-                    .iter()
-                    .enumerate()
-                    .filter(|(idx, _)| connection_visible(*idx))
-                    .count()
-            ),
-        ];
-        labels.extend(self.groups.iter().enumerate().map(|(idx, group)| {
-            let marker = if self.group_filter_enabled && idx == self.active_group {
-                "✓"
-            } else {
-                " "
-            };
-            let count = self
-                .workspaces
-                .iter()
-                .enumerate()
-                .filter(|(ws_idx, workspace)| {
-                    workspace.group_id == group.id && connection_visible(*ws_idx)
-                })
-                .count();
-            format!("{marker} {} {} {count}", group.icon, group.name)
-        }));
-        labels.extend(["---".to_string(), "Connections".to_string()]);
-        labels.extend(crate::app::connection_scope::choices(self).into_iter().map(
-            |(scope, label)| {
-                let marker = if scope == self.connection_scope {
-                    "✓"
-                } else {
-                    " "
-                };
-                format!("{marker} {label}")
-            },
-        ));
-        labels.extend([
-            "---".to_string(),
-            "New".to_string(),
-            "  Space".to_string(),
-            "  Group".to_string(),
-        ]);
-        labels
+    pub(crate) fn group_menu_rows(&self) -> Vec<FilterMenuRow<GroupMenuAction>> {
+        group_menu_rows(
+            self,
+            self.group_filter_enabled,
+            self.active_group,
+            &self.connection_scope,
+        )
     }
 
-    pub(crate) fn group_menu_action_for_row(&self, row_idx: usize) -> Option<GroupMenuAction> {
-        if row_idx == 1 {
-            return Some(GroupMenuAction::AllSpaces);
-        }
-        let group_start = 2;
-        let group_end = group_start + self.groups.len();
-        if (group_start..group_end).contains(&row_idx) {
-            return Some(GroupMenuAction::Group(row_idx - group_start));
-        }
-        let connection_start = group_end + 2;
-        let connection_choices = crate::app::connection_scope::choices(self);
-        if let Some((scope, _)) = connection_choices.get(row_idx.checked_sub(connection_start)?) {
-            return Some(GroupMenuAction::Connection(scope.clone()));
-        }
-        let new_workspace_idx = connection_start + connection_choices.len() + 2;
-        match row_idx {
-            idx if idx == new_workspace_idx => Some(GroupMenuAction::NewWorkspace),
-            idx if idx == new_workspace_idx + 1 => Some(GroupMenuAction::NewGroup),
-            _ => None,
-        }
+    #[cfg(test)]
+    pub(crate) fn group_menu_labels(&self) -> Vec<String> {
+        self.group_menu_rows()
+            .into_iter()
+            .map(|row| row.label().to_string())
+            .collect()
     }
 
     pub(crate) fn group_menu_rect(&self) -> Rect {
         let screen = self.screen_rect();
         let selector = self.group_selector_rect();
-        let labels = self.group_menu_labels();
-        let content_width = labels
+        let rows = self.group_menu_rows();
+        let content_width = rows
             .iter()
-            .map(|label| label.chars().count() as u16)
+            .map(|row| row.label().chars().count() as u16)
             .max()
             .unwrap_or(8)
             .saturating_add(2);
@@ -474,7 +551,7 @@ impl AppState {
                 .min(self.view.sidebar_rect.width.max(1))
                 .min(screen.width.max(1))
         };
-        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let menu_h = (rows.len() as u16 + 2).min(screen.height.max(1));
         let x = selector
             .x
             .min(screen.x + screen.width.saturating_sub(menu_w));
@@ -483,64 +560,31 @@ impl AppState {
         Rect::new(x, y, menu_w, menu_h)
     }
 
-    pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
-        let marker = |scope| {
-            if self.agent_panel_scope == scope {
-                "✓"
-            } else {
-                " "
-            }
-        };
-        let mut labels = vec![
-            "Agents".to_string(),
-            format!("{} All", marker(AgentPanelScope::AllWorkspaces)),
-            format!("{} Space", marker(AgentPanelScope::CurrentWorkspace)),
-            format!("{} Group", marker(AgentPanelScope::CurrentGroup)),
-            "---".to_string(),
-            "Connections".to_string(),
-        ];
-        labels.extend(crate::app::connection_scope::choices(self).into_iter().map(
-            |(scope, label)| {
-                let marker = if scope == self.connection_scope {
-                    "✓"
-                } else {
-                    " "
-                };
-                format!("{marker} {label}")
-            },
-        ));
-        labels
+    pub(crate) fn agent_menu_rows(&self) -> Vec<FilterMenuRow<AgentMenuAction>> {
+        agent_menu_rows(self, self.agent_panel_scope, &self.connection_scope)
     }
 
-    pub(crate) fn agent_menu_action_for_row(&self, row_idx: usize) -> Option<AgentMenuAction> {
-        match row_idx {
-            1 => return Some(AgentMenuAction::AllAgents),
-            2 => return Some(AgentMenuAction::ThisSpace),
-            3 => return Some(AgentMenuAction::ThisGroup),
-            _ => {}
-        }
-        crate::app::connection_scope::choices(self)
-            .get(row_idx.checked_sub(6)?)
-            .map(|(scope, _)| AgentMenuAction::Connection(scope.clone()))
+    #[cfg(test)]
+    pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
+        self.agent_menu_rows()
+            .into_iter()
+            .map(|row| row.label().to_string())
+            .collect()
     }
 
     pub(crate) fn agent_menu_rect(&self) -> Rect {
         let screen = self.screen_rect();
         let header = self.agent_menu_anchor_rect();
-        let labels = self.agent_menu_labels();
-        let content_width = labels
+        let rows = self.agent_menu_rows();
+        let content_width = rows
             .iter()
-            .enumerate()
-            .filter_map(|(idx, label)| {
-                self.agent_menu_action_for_row(idx)
-                    .is_some()
-                    .then_some(label.chars().count() as u16)
-            })
+            .filter(|row| row.action().is_some())
+            .map(|row| row.label().chars().count() as u16)
             .max()
             .unwrap_or(8)
             .saturating_add(2);
         let menu_w = content_width.saturating_add(2).min(screen.width.max(1));
-        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let menu_h = (rows.len() as u16 + 2).min(screen.height.max(1));
         let desired_x = header.x;
         let x = desired_x.min(screen.x + screen.width.saturating_sub(menu_w));
         let max_y = screen.y + screen.height.saturating_sub(menu_h);

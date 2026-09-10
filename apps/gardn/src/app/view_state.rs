@@ -628,7 +628,7 @@ impl ClientViewState {
             if !state
                 .ssh_connection_profiles
                 .iter()
-                .any(|profile| profile.id() == profile_id)
+                .any(|profile| profile.id() == profile_id.as_str())
             {
                 self.connection_scope = crate::app::connection_scope::ConnectionScope::All;
             }
@@ -663,20 +663,34 @@ impl ClientViewState {
 
         let active_group = self.active_group;
         let group_filter_enabled = self.group_filter_enabled;
-        let visible_workspace = |idx: usize| {
+        let in_active_group = |idx: usize| {
+            let Some(workspace) = state.workspaces.get(idx) else {
+                return false;
+            };
             if !group_filter_enabled {
-                return state.workspaces.get(idx).is_some();
+                return true;
             }
-
             let active_group_id = state
                 .groups
                 .get(active_group)
                 .map(|group| group.id.as_str())
                 .unwrap_or(crate::workspace::DEFAULT_GROUP_ID);
+            workspace.group_id == active_group_id
+        };
+        let visible_workspace = |idx: usize| {
+            in_active_group(idx)
+                && crate::app::connection_scope::workspace_matches(
+                    state,
+                    idx,
+                    &self.connection_scope,
+                )
+        };
+        let first_group_workspace = || {
             state
                 .workspaces
-                .get(idx)
-                .is_some_and(|workspace| workspace.group_id == active_group_id)
+                .iter()
+                .enumerate()
+                .find_map(|(idx, _)| in_active_group(idx).then_some(idx))
         };
         let first_visible_workspace = || {
             state
@@ -722,7 +736,7 @@ impl ClientViewState {
                     .iter()
                     .position(|workspace| workspace.id == id)
                 {
-                    if visible_workspace(idx) {
+                    if in_active_group(idx) {
                         self.active_workspace = Some(idx);
                     }
                 }
@@ -742,27 +756,31 @@ impl ClientViewState {
 
         if !self
             .active_workspace
-            .is_some_and(|idx| idx < state.workspaces.len() && visible_workspace(idx))
+            .is_some_and(|idx| idx < state.workspaces.len() && in_active_group(idx))
+            && self.pending_active_workspace.is_none()
         {
-            // Do not steal focus while a deferred remote workspace create is still pending.
-            if self.pending_active_workspace.is_none() {
-                self.active_workspace = if self.group_filter_enabled {
-                    first_visible_workspace()
-                } else {
-                    state
-                        .active
-                        .filter(|idx| *idx < state.workspaces.len())
-                        .or_else(first_visible_workspace)
-                };
-            }
+            self.active_workspace = if self.group_filter_enabled {
+                first_group_workspace()
+            } else {
+                state
+                    .active
+                    .filter(|idx| *idx < state.workspaces.len())
+                    .or_else(first_group_workspace)
+            };
         }
         if self.selected_workspace >= state.workspaces.len()
             || !visible_workspace(self.selected_workspace)
         {
-            self.selected_workspace = self
-                .active_workspace
-                .or_else(first_visible_workspace)
-                .unwrap_or(0);
+            self.selected_workspace = crate::app::connection_scope::nearest_visible(
+                self.selected_workspace,
+                state
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, _)| visible_workspace(idx).then_some(idx)),
+            )
+            .or_else(first_visible_workspace)
+            .unwrap_or(0);
         }
         self.active_workspace_id = self
             .active_workspace
@@ -1684,6 +1702,45 @@ mod tests {
             focused_id
         );
         assert_eq!(view.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn reconcile_reanchors_selection_that_no_longer_matches_connection_filter() {
+        let remote_location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox:1")
+                .expect("valid execution host id"),
+            crate::execution_host::HostPath::new("/work").expect("valid host path"),
+        );
+        let mut state = AppState::test_new();
+        let mut active_remote = Workspace::test_new("active-remote");
+        active_remote.default_location = remote_location.clone();
+        let selected_local = Workspace::test_new("selected-local");
+        let mut hidden_remote = Workspace::test_new("hidden-remote");
+        hidden_remote.default_location = remote_location;
+        state.workspaces = vec![
+            active_remote,
+            selected_local,
+            hidden_remote,
+            Workspace::test_new("first-visible"),
+            Workspace::test_new("second-visible"),
+        ];
+        state.active = Some(0);
+        state.selected = 1;
+
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(0);
+        view.selected_workspace = 1;
+        view.connection_scope = crate::app::connection_scope::ConnectionScope::Only(
+            crate::app::connection_scope::ConnectionIdentity::Coordinator,
+        );
+        view.reconcile(&state);
+
+        state.workspaces.remove(1);
+        view.reconcile(&state);
+
+        assert_eq!(view.active_workspace, Some(0));
+        assert_eq!(view.selected_workspace, 2);
+        assert_eq!(state.workspaces[2].display_name(), "first-visible");
     }
 
     #[test]

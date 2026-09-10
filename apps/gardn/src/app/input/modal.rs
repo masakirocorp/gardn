@@ -467,31 +467,38 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => leave_modal(state),
         KeyCode::Up | KeyCode::Char('k') => {
-            let len = state.group_menu_labels().len();
-            for _ in 0..len {
-                state.group_menu.move_prev();
-                if state
-                    .group_menu_action_for_row(state.group_menu.selected)
-                    .is_some()
-                {
-                    break;
+            let rows = state.group_menu_rows();
+            let current = state.group_menu.selected;
+            let mut idx = current;
+            while idx > 0 {
+                idx -= 1;
+                if rows[idx].action().is_some() {
+                    state.group_menu.select(idx);
+                    return;
                 }
             }
+            state.group_menu.select(current);
         }
         KeyCode::Down | KeyCode::Char('j') => {
-            let len = state.group_menu_labels().len();
-            for _ in 0..len {
-                state.group_menu.move_next(len);
-                if state
-                    .group_menu_action_for_row(state.group_menu.selected)
-                    .is_some()
-                {
-                    break;
+            let rows = state.group_menu_rows();
+            let current = state.group_menu.selected;
+            let mut idx = current;
+            while idx + 1 < rows.len() {
+                idx += 1;
+                if rows[idx].action().is_some() {
+                    state.group_menu.select(idx);
+                    return;
                 }
             }
+            state.group_menu.select(current);
         }
         KeyCode::Enter => {
-            let Some(action) = state.group_menu_action_for_row(state.group_menu.selected) else {
+            let action = state
+                .group_menu_rows()
+                .get(state.group_menu.selected)
+                .and_then(super::sidebar::FilterMenuRow::action)
+                .cloned();
+            let Some(action) = action else {
                 return;
             };
             match action {
@@ -530,11 +537,12 @@ pub(crate) fn handle_agent_menu_key(state: &mut AppState, key: KeyEvent) {
     match key.code {
         KeyCode::Esc => leave_agent_menu(state),
         KeyCode::Up | KeyCode::Char('k') => {
+            let rows = state.agent_menu_rows();
             let current = state.agent_menu.selected;
-            let mut idx = current;
+            let mut idx = state.agent_menu.selected;
             while idx > 0 {
                 idx -= 1;
-                if state.agent_menu_action_for_row(idx).is_some() {
+                if rows[idx].action().is_some() {
                     state.agent_menu.select(idx);
                     return;
                 }
@@ -542,12 +550,12 @@ pub(crate) fn handle_agent_menu_key(state: &mut AppState, key: KeyEvent) {
             state.agent_menu.select(current);
         }
         KeyCode::Down | KeyCode::Char('j') => {
+            let rows = state.agent_menu_rows();
             let current = state.agent_menu.selected;
-            let labels = state.agent_menu_labels();
-            let mut idx = current;
-            while idx + 1 < labels.len() {
+            let mut idx = state.agent_menu.selected;
+            while idx + 1 < rows.len() {
                 idx += 1;
-                if state.agent_menu_action_for_row(idx).is_some() {
+                if rows[idx].action().is_some() {
                     state.agent_menu.select(idx);
                     return;
                 }
@@ -555,7 +563,12 @@ pub(crate) fn handle_agent_menu_key(state: &mut AppState, key: KeyEvent) {
             state.agent_menu.select(current);
         }
         KeyCode::Enter => {
-            let Some(action) = state.agent_menu_action_for_row(state.agent_menu.selected) else {
+            let action = state
+                .agent_menu_rows()
+                .get(state.agent_menu.selected)
+                .and_then(super::sidebar::FilterMenuRow::action)
+                .cloned();
+            let Some(action) = action else {
                 return;
             };
             apply_agent_menu_action(state, action);
@@ -1773,7 +1786,10 @@ impl AppState {
         row: u16,
     ) -> Option<super::sidebar::GroupMenuAction> {
         let row_idx = self.group_menu_row_at(col, row)?;
-        self.group_menu_action_for_row(row_idx)
+        self.group_menu_rows()
+            .get(row_idx)
+            .and_then(super::sidebar::FilterMenuRow::action)
+            .cloned()
     }
 
     pub(crate) fn group_menu_row_at(&self, col: u16, row: u16) -> Option<usize> {
@@ -1785,14 +1801,16 @@ impl AppState {
         {
             return None;
         }
-        let labels = self.group_menu_labels();
+        let rows = self.group_menu_rows();
         let offset = crate::app::connection_scope::menu_scroll_offset(
             self.group_menu.selected,
-            labels.len(),
+            rows.len(),
             rect.height.saturating_sub(2) as usize,
         );
         let idx = offset + (row - rect.y - 1) as usize;
-        (idx < labels.len()).then_some(idx)
+        rows.get(idx)
+            .is_some_and(|row| row.action().is_some())
+            .then_some(idx)
     }
 
     pub(crate) fn agent_menu_item_at(
@@ -1801,7 +1819,10 @@ impl AppState {
         row: u16,
     ) -> Option<super::sidebar::AgentMenuAction> {
         let row_idx = self.agent_menu_row_at(col, row)?;
-        self.agent_menu_action_for_row(row_idx)
+        self.agent_menu_rows()
+            .get(row_idx)
+            .and_then(super::sidebar::FilterMenuRow::action)
+            .cloned()
     }
 
     pub(crate) fn agent_menu_row_at(&self, col: u16, row: u16) -> Option<usize> {
@@ -1813,14 +1834,16 @@ impl AppState {
         {
             return None;
         }
-        let labels = self.agent_menu_labels();
+        let rows = self.agent_menu_rows();
         let offset = crate::app::connection_scope::menu_scroll_offset(
             self.agent_menu.selected,
-            labels.len(),
+            rows.len(),
             rect.height.saturating_sub(2) as usize,
         );
         let idx = offset + (row - rect.y - 1) as usize;
-        (idx < labels.len() && self.agent_menu_action_for_row(idx).is_some()).then_some(idx)
+        rows.get(idx)
+            .is_some_and(|row| row.action().is_some())
+            .then_some(idx)
     }
 }
 

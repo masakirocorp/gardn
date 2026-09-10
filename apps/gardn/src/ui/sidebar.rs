@@ -2029,6 +2029,7 @@ fn visible_workspace_indices_for_view(app: &AppState, view: &ClientViewState) ->
         view.group_filter_enabled,
         &view.connection_scope,
     )
+    .collect()
 }
 
 fn workspace_group_collapsed_for_view(view: &ClientViewState, group_id: &str) -> bool {
@@ -2179,28 +2180,98 @@ fn collapsed_workspace_rows_rect_for_split(
         ws_area.height.saturating_sub(COLLAPSED_SECTION_HEADER_ROWS),
     )
 }
+fn collapsed_filter_line(
+    app: &AppState,
+    primary: String,
+    primary_style: Style,
+    scope: &crate::app::connection_scope::ConnectionScope,
+) -> Line<'static> {
+    let connection_style = crate::app::connection_scope::scope_color(app, scope)
+        .map(|color| Style::default().fg(color).add_modifier(Modifier::BOLD))
+        .unwrap_or_else(|| Style::default().fg(app.palette.overlay0));
+    Line::from(vec![
+        Span::styled(primary, primary_style),
+        Span::raw(" "),
+        Span::styled(
+            if matches!(scope, crate::app::connection_scope::ConnectionScope::All) {
+                "·"
+            } else {
+                "■"
+            },
+            connection_style,
+        ),
+    ])
+}
 
-fn collapsed_group_label(app: &AppState) -> String {
-    let spaces = if app.group_filter_enabled {
-        app.active_group_icon().to_string()
+fn collapsed_group_line(app: &AppState) -> Line<'static> {
+    let (primary, color) = if app.group_filter_enabled {
+        (
+            app.active_group_icon().to_string(),
+            app.group_accent_color(app.active_group),
+        )
     } else {
-        "All".to_string()
+        ("A".to_string(), app.active_workspace_accent_color())
     };
-    format!(
-        "{spaces} · {}",
-        crate::app::connection_scope::scope_label(app, &app.connection_scope)
+    collapsed_filter_line(
+        app,
+        primary,
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+        &app.connection_scope,
     )
 }
 
-fn collapsed_agent_scope_label(app: &AppState) -> String {
-    let agents = match app.agent_panel_scope {
-        AgentPanelScope::AllWorkspaces => "All",
-        AgentPanelScope::CurrentGroup => "f:g",
-        AgentPanelScope::CurrentWorkspace => "f:s",
+fn collapsed_agent_scope_line(app: &AppState) -> Line<'static> {
+    let primary = match app.agent_panel_scope {
+        AgentPanelScope::AllWorkspaces => "A",
+        AgentPanelScope::CurrentGroup => "G",
+        AgentPanelScope::CurrentWorkspace => "S",
     };
-    format!(
-        "{agents} · {}",
-        crate::app::connection_scope::scope_label(app, &app.connection_scope)
+    collapsed_filter_line(
+        app,
+        primary.to_string(),
+        Style::default()
+            .fg(app.palette.overlay1)
+            .add_modifier(Modifier::BOLD),
+        &app.connection_scope,
+    )
+}
+
+fn collapsed_group_line_for_view(app: &AppState, view: &ClientViewState) -> Line<'static> {
+    let (primary, color) = if view.group_filter_enabled {
+        (
+            app.groups
+                .get(view.active_group)
+                .map(|group| group.icon.clone())
+                .unwrap_or_else(|| "A".to_string()),
+            app.group_accent_color(view.active_group),
+        )
+    } else {
+        (
+            "A".to_string(),
+            active_workspace_accent_color_for_view(app, view),
+        )
+    };
+    collapsed_filter_line(
+        app,
+        primary,
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+        &view.connection_scope,
+    )
+}
+
+fn collapsed_agent_scope_line_for_view(app: &AppState, view: &ClientViewState) -> Line<'static> {
+    let primary = match view.agent_panel_scope {
+        AgentPanelScope::AllWorkspaces => "A",
+        AgentPanelScope::CurrentGroup => "G",
+        AgentPanelScope::CurrentWorkspace => "S",
+    };
+    collapsed_filter_line(
+        app,
+        primary.to_string(),
+        Style::default()
+            .fg(app.palette.overlay1)
+            .add_modifier(Modifier::BOLD),
+        &view.connection_scope,
     )
 }
 
@@ -2300,11 +2371,7 @@ fn render_collapsed_agent_panel(
     let toggle_rect = collapsed_agent_panel_toggle_rect(area);
     if toggle_rect != Rect::default() {
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                collapsed_agent_scope_label(app),
-                Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Center),
+            Paragraph::new(collapsed_agent_scope_line(app)).alignment(Alignment::Center),
             toggle_rect,
         );
     }
@@ -2377,21 +2444,9 @@ fn render_collapsed_agent_panel_for_view(
 
     let toggle_rect = collapsed_agent_panel_toggle_rect(area);
     if toggle_rect != Rect::default() {
-        let agents = match view.agent_panel_scope {
-            AgentPanelScope::AllWorkspaces => "All",
-            AgentPanelScope::CurrentGroup => "f:g",
-            AgentPanelScope::CurrentWorkspace => "f:s",
-        };
-        let label = format!(
-            "{agents} · {}",
-            crate::app::connection_scope::scope_label(app, &view.connection_scope)
-        );
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                label,
-                Style::default().fg(p.overlay1).add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Center),
+            Paragraph::new(collapsed_agent_scope_line_for_view(app, view))
+                .alignment(Alignment::Center),
             toggle_rect,
         );
     }
@@ -2790,18 +2845,8 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         collapsed_group_header_rect(area)
     };
     if group_header != Rect::default() {
-        let label = collapsed_group_label(app);
-        let style = if app.group_filter_enabled {
-            Style::default()
-                .fg(app.group_accent_color(app.active_group))
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-                .fg(app.active_workspace_accent_color())
-                .add_modifier(Modifier::BOLD)
-        };
         frame.render_widget(
-            Paragraph::new(Span::styled(label, style)).alignment(Alignment::Center),
+            Paragraph::new(collapsed_group_line(app)).alignment(Alignment::Center),
             group_header,
         );
     }
@@ -2968,18 +3013,8 @@ pub(super) fn render_sidebar_collapsed_for_view(
         collapsed_group_header_rect(area)
     };
     if group_header != Rect::default() {
-        let label = group_selector_label_for_view(app, view);
-        let color = if view.group_filter_enabled {
-            app.group_accent_color(view.active_group)
-        } else {
-            active_workspace_accent_color_for_view(app, view)
-        };
         frame.render_widget(
-            Paragraph::new(Span::styled(
-                label,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Center),
+            Paragraph::new(collapsed_group_line_for_view(app, view)).alignment(Alignment::Center),
             group_header,
         );
     }
@@ -5780,7 +5815,7 @@ mod tests {
             .map(str::to_string)
             .collect::<Vec<_>>();
 
-        assert_eq!(rows[0], "All│");
+        assert_eq!(rows[0], "A ·│");
         assert_eq!(rows[1], "───│");
         assert_eq!(buffer[(0, 2)].symbol(), "▾");
         assert_eq!(
@@ -6158,8 +6193,8 @@ mod tests {
         let idle_agent_row = idle_header_row + 1;
 
         assert!(
-            agent_header.contains("All"),
-            "collapsed agent header should expose the scope affordance; rendered row: {agent_header:?}"
+            agent_header.contains("A ·"),
+            "collapsed agent header should expose both scope filters; rendered row: {agent_header:?}"
         );
         assert!(
             !agent_header.contains("agt"),
@@ -6221,9 +6256,9 @@ mod tests {
         let (_, _, detail_area) = collapsed_sidebar_sections(area, true);
 
         for (scope, expected) in [
-            (AgentPanelScope::AllWorkspaces, "All"),
-            (AgentPanelScope::CurrentGroup, "f:g"),
-            (AgentPanelScope::CurrentWorkspace, "f:s"),
+            (AgentPanelScope::AllWorkspaces, "A"),
+            (AgentPanelScope::CurrentGroup, "G"),
+            (AgentPanelScope::CurrentWorkspace, "S"),
         ] {
             app.agent_panel_scope = scope;
             let backend = TestBackend::new(area.width, area.height);
@@ -6244,6 +6279,51 @@ mod tests {
             assert!(
                 !row.contains('*'),
                 "{scope:?} should not switch to a group icon while the other scopes use text; row: {row:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn collapsed_scope_headers_expose_active_connection_filter() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.sidebar_collapsed = true;
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.ssh_connection_profiles = vec![
+            crate::persist::ssh_profiles::SshConnectionProfile::new_with_accent(
+                "workbox",
+                "Workbox",
+                "workbox",
+                None,
+                Some(crate::config::TerminalAccent::Cyan),
+            )
+            .expect("valid SSH profile"),
+        ];
+        app.connection_scope = crate::app::connection_scope::ConnectionScope::Only(
+            crate::app::connection_scope::ConnectionIdentity::Profile(
+                crate::execution_host::SshProfileId::new("workbox").expect("valid profile id"),
+            ),
+        );
+        let area = Rect::new(0, 0, 4, 24);
+        let group_header = collapsed_group_header_rect(area);
+        let (_, _, agent_area) = collapsed_sidebar_sections(area, true);
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
+            .expect("render collapsed sidebar");
+
+        let buffer = terminal.backend().buffer();
+        for row in [group_header.y, agent_area.y] {
+            let connection_cell = (area.x..area.x + area.width)
+                .find(|x| buffer[(*x, row)].symbol() == "■")
+                .expect("active connection marker");
+            assert_eq!(
+                buffer[(connection_cell, row)].fg,
+                app.global_palette
+                    .theme_accent_color(crate::config::TerminalAccent::Cyan)
             );
         }
     }
@@ -7943,7 +8023,7 @@ mod tests {
         let working_header_row = follow_up_header_row + 1;
         let working_agent_row = working_header_row + 1;
 
-        assert_eq!(rows[0], "│All");
+        assert_eq!(rows[0], "│A ·");
         assert_eq!(rows[1], "│───");
         assert_eq!(buffer[(content.x, triage_header_row)].symbol(), "▾");
         assert_eq!(buffer[(content.x + 2, triage_agent_row)].symbol(), "1");

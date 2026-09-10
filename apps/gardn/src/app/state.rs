@@ -3970,13 +3970,24 @@ impl AppState {
     }
 
     pub fn workspace_in_active_group(&self, ws_idx: usize) -> bool {
-        crate::app::connection_scope::visible_workspace_indices(
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
+            return false;
+        };
+        !self.group_filter_enabled
+            || self
+                .groups
+                .get(self.active_group)
+                .is_some_and(|group| workspace.group_id == group.id)
+    }
+
+    pub fn workspace_is_visible(&self, ws_idx: usize) -> bool {
+        crate::app::connection_scope::workspace_is_visible(
             self,
+            ws_idx,
             self.active_group,
             self.group_filter_enabled,
             &self.connection_scope,
         )
-        .contains(&ws_idx)
     }
 
     pub fn visible_workspace_indices(&self) -> Vec<usize> {
@@ -3986,6 +3997,7 @@ impl AppState {
             self.group_filter_enabled,
             &self.connection_scope,
         )
+        .collect()
     }
 
     pub fn workspace_group_collapsed(&self, group_id: &str) -> bool {
@@ -4048,24 +4060,11 @@ impl AppState {
         self.workspace_scroll = self
             .workspace_scroll
             .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
-        if !self
-            .sidebar_visible_workspace_indices()
-            .contains(&self.selected)
-        {
-            let visible = self.sidebar_visible_workspace_indices();
-            if let Some(next) = visible
-                .iter()
-                .copied()
-                .find(|idx| *idx > previous_selected)
-                .or_else(|| {
-                    visible
-                        .iter()
-                        .rev()
-                        .copied()
-                        .find(|idx| *idx < previous_selected)
-                })
-                .or_else(|| visible.first().copied())
-            {
+        if let Some(next) = crate::app::connection_scope::nearest_visible(
+            previous_selected,
+            self.sidebar_visible_workspace_indices(),
+        ) {
+            if next != self.selected {
                 self.selected = next;
                 self.ensure_workspace_visible(next);
             }
@@ -4074,7 +4073,13 @@ impl AppState {
     }
 
     pub fn first_visible_workspace(&self) -> Option<usize> {
-        self.visible_workspace_indices().into_iter().next()
+        crate::app::connection_scope::visible_workspace_indices(
+            self,
+            self.active_group,
+            self.group_filter_enabled,
+            &self.connection_scope,
+        )
+        .next()
     }
 
     pub(crate) fn mark_session_dirty(&mut self) {

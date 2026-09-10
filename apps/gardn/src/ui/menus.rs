@@ -1,6 +1,6 @@
 use ratatui::{
     layout::{Alignment, Rect},
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
     Frame,
@@ -10,12 +10,13 @@ use super::{
     text::display_width,
     widgets::{panel_contrast_fg, render_panel_shell},
 };
-use crate::app::{state::ContextMenuState, AppState, ClientViewState};
+use crate::app::{
+    state::ContextMenuState, AppState, ClientViewState, FilterMenuRow, GroupMenuAction,
+};
 
 fn count_suffix(text: &str) -> Option<(&str, &str)> {
-    let start = text.rfind(" (")?;
-    text.ends_with(')')
-        .then_some((&text[..start], &text[start..]))
+    let (label, count) = text.rsplit_once(' ')?;
+    (!count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit())).then_some((label, count))
 }
 
 fn menu_separator_bounds(width: u16) -> (u16, u16) {
@@ -82,15 +83,6 @@ fn render_menu_row(
     frame.render_widget(Paragraph::new(line).style(style), rect);
 }
 
-fn group_menu_group_index(app: &AppState, row_idx: usize) -> Option<usize> {
-    let group_start = 2;
-    if (group_start..group_start + app.groups.len()).contains(&row_idx) {
-        Some(row_idx - group_start)
-    } else {
-        None
-    }
-}
-
 fn right_aligned_count_gap(width: u16, left_width: usize, count_width: usize) -> String {
     let target_width = (width as usize).saturating_sub(1);
     let gap = target_width
@@ -99,111 +91,86 @@ fn right_aligned_count_gap(width: u16, left_width: usize, count_width: usize) ->
     " ".repeat(gap)
 }
 
-fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'static> {
-    let marker = if app.group_filter_enabled { " " } else { "✓" };
-    let left = format!("{marker} All");
+fn counted_menu_line(
+    app: &AppState,
+    label: &str,
+    selected: bool,
+    accent: Option<Color>,
+    width: u16,
+) -> Line<'static> {
     let selected_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
         .bg(app.palette.accent)
         .add_modifier(Modifier::BOLD);
-    let text_style = if selected {
+    let label_style = if selected {
         selected_style
+    } else if let Some(accent) = accent {
+        Style::default().fg(accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(app.palette.text)
     };
-    let mut spans = vec![Span::styled(left.clone(), text_style)];
-    if app.show_counters {
-        let count = app.workspaces.len().to_string();
-        let count_style = if selected {
-            selected_style
-        } else {
-            Style::default().fg(app.palette.overlay0)
-        };
-        spans.push(Span::styled(
-            right_aligned_count_gap(width, display_width(&left), display_width(&count)),
-            text_style,
-        ));
-        spans.push(Span::styled(count, count_style));
+    let Some((left, count)) = count_suffix(label) else {
+        return Line::from(Span::styled(label.to_string(), label_style));
+    };
+    if !app.show_counters {
+        return Line::from(Span::styled(left.to_string(), label_style));
     }
-    Line::from(spans)
+    let count_style = if selected {
+        selected_style
+    } else {
+        Style::default().fg(app.palette.overlay0)
+    };
+    Line::from(vec![
+        Span::styled(left.to_string(), label_style),
+        Span::styled(
+            right_aligned_count_gap(width, display_width(left), display_width(count)),
+            label_style,
+        ),
+        Span::styled(count.to_string(), count_style),
+    ])
 }
 
+#[cfg(test)]
+fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'static> {
+    let label = app
+        .group_menu_rows()
+        .into_iter()
+        .find_map(|row| match row {
+            FilterMenuRow::Item {
+                label,
+                action: GroupMenuAction::AllSpaces,
+            } => Some(label),
+            _ => None,
+        })
+        .unwrap_or_else(|| "  All 0".to_string());
+    counted_menu_line(app, &label, selected, None, width)
+}
+
+#[cfg(test)]
 fn group_menu_group_line(
     app: &AppState,
     group_idx: usize,
     selected: bool,
     width: u16,
 ) -> Line<'static> {
-    group_menu_group_line_for_selection(
+    let label = app
+        .group_menu_rows()
+        .into_iter()
+        .find_map(|row| match row {
+            FilterMenuRow::Item {
+                label,
+                action: GroupMenuAction::Group(idx),
+            } if idx == group_idx => Some(label),
+            _ => None,
+        })
+        .unwrap_or_default();
+    counted_menu_line(
         app,
-        app.group_filter_enabled,
-        app.active_group,
-        group_idx,
+        &label,
         selected,
+        Some(app.group_accent_color(group_idx)),
         width,
     )
-}
-
-fn group_menu_group_line_for_selection(
-    app: &AppState,
-    group_filter_enabled: bool,
-    active_group: usize,
-    group_idx: usize,
-    selected: bool,
-    width: u16,
-) -> Line<'static> {
-    let Some(group) = app.groups.get(group_idx) else {
-        return Line::raw("");
-    };
-    let marker = if group_filter_enabled && group_idx == active_group {
-        "✓"
-    } else {
-        " "
-    };
-    let selected_style = Style::default()
-        .fg(panel_contrast_fg(&app.palette))
-        .bg(app.palette.accent)
-        .add_modifier(Modifier::BOLD);
-    let group_style = if selected {
-        selected_style
-    } else {
-        Style::default()
-            .fg(app.group_accent_color(group_idx))
-            .add_modifier(Modifier::BOLD)
-    };
-    let icon_width = display_width(&group.icon);
-    let icon_padding = " ".repeat(2usize.saturating_sub(icon_width));
-    let icon_padding_width = icon_padding.len();
-    let mut spans = vec![
-        Span::styled(format!("{marker} "), group_style),
-        Span::styled(group.icon.clone(), group_style),
-        Span::styled(icon_padding, group_style),
-        Span::styled(group.name.clone(), group_style),
-    ];
-    if app.show_counters {
-        let count = app
-            .workspaces
-            .iter()
-            .filter(|workspace| workspace.group_id == group.id)
-            .count()
-            .to_string();
-        let count_style = if selected {
-            selected_style
-        } else {
-            Style::default().fg(app.palette.overlay0)
-        };
-        let left_width = display_width(marker)
-            + 1
-            + icon_width
-            + icon_padding_width
-            + display_width(&group.name);
-        spans.push(Span::styled(
-            right_aligned_count_gap(width, left_width, display_width(&count)),
-            group_style,
-        ));
-        spans.push(Span::styled(count, count_style));
-    }
-    Line::from(spans)
 }
 
 fn prefix_rhs_label(bindings: &crate::config::ActionKeybinds) -> String {
@@ -613,7 +580,6 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
     else {
         return;
     };
-
     let selected_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
         .bg(app.palette.accent)
@@ -621,82 +587,51 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
     let text_style = Style::default().fg(app.palette.text);
     let dim_style = Style::default().fg(app.palette.overlay0);
     let visible = app.group_menu.visible();
-    let labels = app.group_menu_labels();
+    let rows = app.group_menu_rows();
     let offset = crate::app::connection_scope::menu_scroll_offset(
         app.group_menu.selected,
-        labels.len(),
+        rows.len(),
         inner.height as usize,
     );
 
-    for (row_idx, (idx, item)) in labels
+    for (row_idx, (idx, row)) in rows
         .iter()
         .enumerate()
         .skip(offset)
         .take(inner.height as usize)
         .enumerate()
     {
-        let selected = visible == Some(idx);
-        if idx == 1 {
-            render_menu_row(
-                frame,
-                inner,
-                row_idx,
-                group_menu_all_line(app, selected, inner.width),
-                selected,
-                selected_style,
-                text_style,
-            );
-            continue;
-        }
-        if let Some(group_idx) = group_menu_group_index(app, idx) {
-            render_menu_row(
-                frame,
-                inner,
-                row_idx,
-                group_menu_group_line(app, group_idx, selected, inner.width),
-                selected,
-                selected_style,
-                text_style,
-            );
-        } else if app.group_menu_action_for_row(idx).is_none() {
-            if item == "---" {
+        let selected = visible == Some(idx) && row.action().is_some();
+        match row {
+            FilterMenuRow::Separator => {
                 render_menu_separator(frame, inner, row_idx, dim_style);
-            } else {
+            }
+            FilterMenuRow::Heading(label) => {
                 render_menu_row(
                     frame,
                     inner,
                     row_idx,
-                    Line::from(format!(" {item}")),
+                    Line::from(format!(" {label}")),
                     false,
                     selected_style,
                     dim_style,
                 );
             }
-        } else if let Some((name, count)) = count_suffix(item) {
-            let line_style = if selected { selected_style } else { text_style };
-            let count_style = if selected { selected_style } else { dim_style };
-            render_menu_row(
-                frame,
-                inner,
-                row_idx,
-                Line::from(vec![
-                    Span::styled(name.to_string(), line_style),
-                    Span::styled(count.to_string(), count_style),
-                ]),
-                selected,
-                selected_style,
-                text_style,
-            );
-        } else {
-            render_menu_row(
-                frame,
-                inner,
-                row_idx,
-                Line::from(item.clone()),
-                selected,
-                selected_style,
-                text_style,
-            );
+            FilterMenuRow::Item { label, action } => {
+                let accent = match action {
+                    GroupMenuAction::Group(group_idx) => Some(app.group_accent_color(*group_idx)),
+                    _ => None,
+                };
+                render_menu_row(
+                    frame,
+                    inner,
+                    row_idx,
+                    counted_menu_line(app, label, selected, accent, inner.width),
+                    selected,
+                    selected_style,
+                    text_style,
+                );
+            }
         }
     }
 }
@@ -707,7 +642,6 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
     else {
         return;
     };
-
     let selected_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
         .bg(app.palette.accent)
@@ -715,60 +649,47 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
     let text_style = Style::default().fg(app.palette.text);
     let dim_style = Style::default().fg(app.palette.overlay0);
     let visible = app.agent_menu.visible();
-    let labels = app.agent_menu_labels();
+    let rows = app.agent_menu_rows();
     let offset = crate::app::connection_scope::menu_scroll_offset(
         app.agent_menu.selected,
-        labels.len(),
+        rows.len(),
         inner.height as usize,
     );
 
-    for (row_idx, (idx, item)) in labels
+    for (row_idx, (idx, row)) in rows
         .iter()
         .enumerate()
         .skip(offset)
         .take(inner.height as usize)
         .enumerate()
     {
-        let selected = visible == Some(idx);
-        if app.agent_menu_action_for_row(idx).is_none() {
-            if item == "---" {
+        let selected = visible == Some(idx) && row.action().is_some();
+        match row {
+            FilterMenuRow::Separator => {
                 render_menu_separator(frame, inner, row_idx, dim_style);
-            } else {
+            }
+            FilterMenuRow::Heading(label) => {
                 render_menu_row(
                     frame,
                     inner,
                     row_idx,
-                    Line::from(format!(" {item}")),
+                    Line::from(format!(" {label}")),
                     false,
                     selected_style,
                     dim_style,
                 );
             }
-        } else if let Some((name, count)) = count_suffix(item) {
-            let line_style = if selected { selected_style } else { text_style };
-            let count_style = if selected { selected_style } else { dim_style };
-            render_menu_row(
-                frame,
-                inner,
-                row_idx,
-                Line::from(vec![
-                    Span::styled(name.to_string(), line_style),
-                    Span::styled(count.to_string(), count_style),
-                ]),
-                selected,
-                selected_style,
-                text_style,
-            );
-        } else {
-            render_menu_row(
-                frame,
-                inner,
-                row_idx,
-                Line::from(item.clone()),
-                selected,
-                selected_style,
-                text_style,
-            );
+            FilterMenuRow::Item { label, .. } => {
+                render_menu_row(
+                    frame,
+                    inner,
+                    row_idx,
+                    counted_menu_line(app, label, selected, None, inner.width),
+                    selected,
+                    selected_style,
+                    text_style,
+                );
+            }
         }
     }
 }
@@ -1138,48 +1059,64 @@ pub(super) fn render_context_menu_for_view(
     }
 }
 
-fn render_client_list_menu(
+fn render_client_filter_menu<A>(
     app: &AppState,
     frame: &mut Frame,
     rect: Rect,
-    labels: &[String],
+    rows: &[FilterMenuRow<A>],
     selection_anchor: usize,
     visible: Option<usize>,
+    accent_for: impl Fn(&A) -> Option<Color>,
 ) {
     let Some(inner) = render_panel_shell(frame, rect, app.palette.accent, app.palette.panel_bg)
     else {
         return;
     };
-    let selected = Style::default()
+    let selected_style = Style::default()
         .fg(panel_contrast_fg(&app.palette))
         .bg(app.palette.accent)
         .add_modifier(Modifier::BOLD);
-    let text = Style::default().fg(app.palette.text);
-    let dim = Style::default().fg(app.palette.overlay0);
+    let text_style = Style::default().fg(app.palette.text);
+    let dim_style = Style::default().fg(app.palette.overlay0);
     let offset = crate::app::connection_scope::menu_scroll_offset(
         selection_anchor,
-        labels.len(),
+        rows.len(),
         inner.height as usize,
     );
-    for (row_idx, (idx, label)) in labels
+    for (row_idx, (idx, row)) in rows
         .iter()
         .enumerate()
         .skip(offset)
         .take(inner.height as usize)
         .enumerate()
     {
-        if label == "---" {
-            render_menu_separator(frame, inner, row_idx, dim);
-        } else {
-            render_menu_row(
-                frame,
-                inner,
-                row_idx,
-                Line::from(format!(" {label}")),
-                visible == Some(idx),
-                selected,
-                text,
-            );
+        let selected = visible == Some(idx) && row.action().is_some();
+        match row {
+            FilterMenuRow::Separator => {
+                render_menu_separator(frame, inner, row_idx, dim_style);
+            }
+            FilterMenuRow::Heading(label) => {
+                render_menu_row(
+                    frame,
+                    inner,
+                    row_idx,
+                    Line::from(format!(" {label}")),
+                    false,
+                    selected_style,
+                    dim_style,
+                );
+            }
+            FilterMenuRow::Item { label, action } => {
+                render_menu_row(
+                    frame,
+                    inner,
+                    row_idx,
+                    counted_menu_line(app, label, selected, accent_for(action), inner.width),
+                    selected,
+                    selected_style,
+                    text_style,
+                );
+            }
         }
     }
 }
@@ -1238,61 +1175,19 @@ pub(super) fn render_group_menu_for_view(
     view: &ClientViewState,
     frame: &mut Frame,
 ) {
-    let labels = crate::app::client_group_menu_labels(app, view);
-    let Some(inner) = render_panel_shell(
+    let rows = crate::app::client_group_menu_rows(app, view);
+    render_client_filter_menu(
+        app,
         frame,
         crate::app::client_group_menu_rect(app, view),
-        app.palette.accent,
-        app.palette.panel_bg,
-    ) else {
-        return;
-    };
-    let selected_style = Style::default()
-        .fg(panel_contrast_fg(&app.palette))
-        .bg(app.palette.accent)
-        .add_modifier(Modifier::BOLD);
-    let text_style = Style::default().fg(app.palette.text);
-    let dim_style = Style::default().fg(app.palette.overlay0);
-    let visible = view.group_menu.visible();
-    let offset = crate::app::connection_scope::menu_scroll_offset(
+        &rows,
         view.group_menu.selected,
-        labels.len(),
-        inner.height as usize,
+        view.group_menu.visible(),
+        |action| match action {
+            GroupMenuAction::Group(group_idx) => Some(app.group_accent_color(*group_idx)),
+            _ => None,
+        },
     );
-    for (row_idx, (idx, label)) in labels
-        .iter()
-        .enumerate()
-        .skip(offset)
-        .take(inner.height as usize)
-        .enumerate()
-    {
-        if label == "---" {
-            render_menu_separator(frame, inner, row_idx, dim_style);
-            continue;
-        }
-        let selected = visible == Some(idx) && app.group_menu_action_for_row(idx).is_some();
-        let line = if let Some(group_idx) = group_menu_group_index(app, idx) {
-            group_menu_group_line_for_selection(
-                app,
-                view.group_filter_enabled,
-                view.active_group,
-                group_idx,
-                selected,
-                inner.width,
-            )
-        } else {
-            Line::from(format!(" {label}"))
-        };
-        render_menu_row(
-            frame,
-            inner,
-            row_idx,
-            line,
-            selected,
-            selected_style,
-            text_style,
-        );
-    }
 }
 
 pub(super) fn render_agent_menu_for_view(
@@ -1300,16 +1195,15 @@ pub(super) fn render_agent_menu_for_view(
     view: &ClientViewState,
     frame: &mut Frame,
 ) {
-    let labels = crate::app::client_agent_menu_labels(app, view);
-    render_client_list_menu(
+    let rows = crate::app::client_agent_menu_rows(app, view);
+    render_client_filter_menu(
         app,
         frame,
         crate::app::client_agent_menu_rect(app, view),
-        &labels,
+        &rows,
         view.agent_menu.selected,
-        view.agent_menu
-            .visible()
-            .filter(|idx| app.agent_menu_action_for_row(*idx).is_some()),
+        view.agent_menu.visible(),
+        |_| None,
     );
 }
 #[cfg(test)]
@@ -1362,28 +1256,6 @@ mod tests {
                 "new actions should render consecutively: {rows:?}"
             );
         }
-    }
-
-    #[test]
-    fn group_menu_group_line_uses_group_accent() {
-        let mut app = AppState::test_new();
-        app.show_counters = true;
-        let group_idx = app.create_group("work".to_string());
-        app.groups[group_idx].icon = "■".to_string();
-        app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
-
-        let line = group_menu_group_line(&app, group_idx, false, 18);
-
-        assert_eq!(line.spans[1].content.as_ref(), "■");
-        assert_eq!(
-            line.spans[1].style.fg,
-            Some(app.group_accent_color(group_idx))
-        );
-        assert_eq!(
-            line.spans[3].style.fg,
-            Some(app.group_accent_color(group_idx))
-        );
-        assert_eq!(line.spans[5].content.as_ref(), "0");
     }
 
     #[test]

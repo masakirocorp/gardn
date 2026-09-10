@@ -524,7 +524,6 @@ pub(crate) fn command_palette_commands_for_view(
             view.group_filter_enabled,
             &view.connection_scope,
         )
-        .into_iter()
         .enumerate()
         .filter_map(|(shortcut_idx, idx)| {
             let workspace = state.workspaces.get(idx)?;

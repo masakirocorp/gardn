@@ -1,11 +1,11 @@
 use crate::app::state::AppState;
-use crate::execution_host::ExecutionHostId;
+use crate::execution_host::{ExecutionHostId, SshProfileId};
 use crate::layout::PaneId;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) enum ConnectionIdentity {
     Coordinator,
-    Profile(String),
+    Profile(SshProfileId),
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -15,27 +15,12 @@ pub(crate) enum ConnectionScope {
     Only(ConnectionIdentity),
 }
 
-pub(crate) fn identity_for_host(host: &ExecutionHostId) -> Option<ConnectionIdentity> {
-    if host.is_local() {
-        return Some(ConnectionIdentity::Coordinator);
-    }
-
-    let mut segments = host.as_str().split(':');
-    match (
-        segments.next(),
-        segments.next(),
-        segments.next(),
-        segments.next(),
-    ) {
-        (Some("ssh"), Some(profile_id), Some(generation), None)
-            if !profile_id.is_empty()
-                && generation
-                    .parse::<u64>()
-                    .is_ok_and(|generation| generation > 0) =>
-        {
-            Some(ConnectionIdentity::Profile(profile_id.to_string()))
+fn host_matches_identity(host: &ExecutionHostId, identity: &ConnectionIdentity) -> bool {
+    match identity {
+        ConnectionIdentity::Coordinator => host.is_local(),
+        ConnectionIdentity::Profile(profile_id) => {
+            host.ssh_profile_id() == Some(profile_id.as_str())
         }
-        _ => None,
     }
 }
 
@@ -78,14 +63,13 @@ pub(crate) fn workspace_matches(state: &AppState, ws_idx: usize, scope: &Connect
             continue;
         };
         has_resolved_terminal = true;
-        if identity_for_host(&terminal.location.execution_host_id).as_ref() == Some(selected) {
+        if host_matches_identity(&terminal.location.execution_host_id, selected) {
             return true;
         }
     }
 
     !has_resolved_terminal
-        && identity_for_host(&workspace.default_location.execution_host_id).as_ref()
-            == Some(selected)
+        && host_matches_identity(&workspace.default_location.execution_host_id, selected)
 }
 
 pub(crate) fn pane_matches(
@@ -102,31 +86,50 @@ pub(crate) fn pane_matches(
         .get(ws_idx)
         .and_then(|workspace| workspace.pane_state(pane_id))
         .and_then(|pane| state.terminals.get(&pane.attached_terminal_id))
-        .and_then(|terminal| identity_for_host(&terminal.location.execution_host_id))
-        .is_some_and(|identity| &identity == selected)
+        .is_some_and(|terminal| {
+            host_matches_identity(&terminal.location.execution_host_id, selected)
+        })
 }
 
-pub(crate) fn visible_workspace_indices(
+pub(crate) fn workspace_is_visible(
     state: &AppState,
+    ws_idx: usize,
     active_group: usize,
     group_filter_enabled: bool,
     connection_scope: &ConnectionScope,
-) -> Vec<usize> {
+) -> bool {
+    let Some(workspace) = state.workspaces.get(ws_idx) else {
+        return false;
+    };
     let group_id = state
         .groups
         .get(active_group)
         .map(|group| group.id.as_str())
         .unwrap_or(crate::workspace::DEFAULT_GROUP_ID);
+    (!group_filter_enabled || workspace.group_id == group_id)
+        && workspace_matches(state, ws_idx, connection_scope)
+}
+
+pub(crate) fn visible_workspace_indices<'a>(
+    state: &'a AppState,
+    active_group: usize,
+    group_filter_enabled: bool,
+    connection_scope: &'a ConnectionScope,
+) -> impl DoubleEndedIterator<Item = usize> + 'a {
     state
         .workspaces
         .iter()
         .enumerate()
-        .filter_map(|(idx, workspace)| {
-            ((!group_filter_enabled || workspace.group_id == group_id)
-                && workspace_matches(state, idx, connection_scope))
+        .filter_map(move |(idx, _)| {
+            workspace_is_visible(
+                state,
+                idx,
+                active_group,
+                group_filter_enabled,
+                connection_scope,
+            )
             .then_some(idx)
         })
-        .collect()
 }
 
 pub(crate) fn scope_label(state: &AppState, scope: &ConnectionScope) -> String {
@@ -138,7 +141,7 @@ pub(crate) fn scope_label(state: &AppState, scope: &ConnectionScope) -> String {
         ConnectionScope::Only(ConnectionIdentity::Profile(profile_id)) => state
             .ssh_connection_profiles
             .iter()
-            .find(|profile| profile.id() == profile_id)
+            .find(|profile| profile.id() == profile_id.as_str())
             .map(|profile| profile.name().to_string())
             .unwrap_or_else(|| "All connections".to_string()),
     }
@@ -152,19 +155,37 @@ pub(crate) fn choices(state: &AppState) -> Vec<(ConnectionScope, String)> {
             state.host_display.coordinator().to_string(),
         ),
     ];
-    choices.extend(state.ssh_connection_profiles.iter().map(|profile| {
-        (
-            ConnectionScope::Only(ConnectionIdentity::Profile(profile.id().to_string())),
+    choices.extend(state.ssh_connection_profiles.iter().filter_map(|profile| {
+        Some((
+            ConnectionScope::Only(ConnectionIdentity::Profile(SshProfileId::new(
+                profile.id(),
+            )?)),
             profile.name().to_string(),
-        )
+        ))
     }));
     choices
 }
 
+pub(crate) fn scope_color(
+    state: &AppState,
+    scope: &ConnectionScope,
+) -> Option<ratatui::style::Color> {
+    match scope {
+        ConnectionScope::All => None,
+        ConnectionScope::Only(ConnectionIdentity::Coordinator) => Some(state.palette.accent),
+        ConnectionScope::Only(ConnectionIdentity::Profile(profile_id)) => state
+            .ssh_connection_profiles
+            .iter()
+            .find(|profile| profile.id() == profile_id.as_str())
+            .and_then(|profile| profile.accent())
+            .map(|accent| state.global_palette.theme_accent_color(accent))
+            .or(Some(state.palette.surface1)),
+    }
+}
+
 pub(crate) fn reanchor_state_selection(state: &mut AppState) {
     let previous = state.selected;
-    let visible = state.sidebar_visible_workspace_indices();
-    if let Some(next) = nearest_visible(previous, &visible) {
+    if let Some(next) = nearest_visible(previous, state.sidebar_visible_workspace_indices()) {
         state.selected = next;
         state.ensure_workspace_visible(next);
     }
@@ -174,43 +195,57 @@ pub(crate) fn reanchor_view_selection(
     state: &AppState,
     view: &mut crate::app::view_state::ClientViewState,
 ) {
-    let visible = if view.sidebar_collapsed || view.group_filter_enabled {
-        visible_workspace_indices(
-            state,
-            view.active_group,
-            view.group_filter_enabled,
-            &view.connection_scope,
+    let next = if view.sidebar_collapsed || view.group_filter_enabled {
+        nearest_visible(
+            view.selected_workspace,
+            visible_workspace_indices(
+                state,
+                view.active_group,
+                view.group_filter_enabled,
+                &view.connection_scope,
+            ),
         )
     } else {
-        state
-            .workspaces
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, workspace)| {
-                (!view
-                    .collapsed_workspace_groups
-                    .iter()
-                    .any(|group_id| group_id == &workspace.group_id)
-                    && workspace_matches(state, idx, &view.connection_scope))
-                .then_some(idx)
-            })
-            .collect()
+        nearest_visible(
+            view.selected_workspace,
+            state
+                .workspaces
+                .iter()
+                .enumerate()
+                .filter_map(|(idx, workspace)| {
+                    (!view
+                        .collapsed_workspace_groups
+                        .iter()
+                        .any(|group_id| group_id == &workspace.group_id)
+                        && workspace_matches(state, idx, &view.connection_scope))
+                    .then_some(idx)
+                }),
+        )
     };
-    if let Some(next) = nearest_visible(view.selected_workspace, &visible) {
+    if let Some(next) = next {
         view.selected_workspace = next;
     }
 }
 
-fn nearest_visible(previous: usize, visible: &[usize]) -> Option<usize> {
-    if visible.contains(&previous) {
-        return Some(previous);
+pub(crate) fn nearest_visible(
+    previous: usize,
+    visible: impl IntoIterator<Item = usize>,
+) -> Option<usize> {
+    let mut first = None;
+    let mut previous_visible = None;
+    let mut next_visible = None;
+    for idx in visible {
+        first.get_or_insert(idx);
+        if idx == previous {
+            return Some(idx);
+        }
+        if idx < previous {
+            previous_visible = Some(idx);
+        } else if next_visible.is_none() {
+            next_visible = Some(idx);
+        }
     }
-    visible
-        .iter()
-        .copied()
-        .find(|idx| *idx > previous)
-        .or_else(|| visible.iter().rev().copied().find(|idx| *idx < previous))
-        .or_else(|| visible.first().copied())
+    next_visible.or(previous_visible).or(first)
 }
 
 pub(crate) fn menu_scroll_offset(selected: usize, total_rows: usize, visible_rows: usize) -> usize {
@@ -225,9 +260,7 @@ pub(crate) fn profile_for_host<'a>(
     state: &'a AppState,
     host: &ExecutionHostId,
 ) -> Option<&'a crate::persist::ssh_profiles::SshConnectionProfile> {
-    let ConnectionIdentity::Profile(profile_id) = identity_for_host(host)? else {
-        return None;
-    };
+    let profile_id = host.ssh_profile_id()?;
     state
         .ssh_connection_profiles
         .iter()
@@ -247,6 +280,12 @@ mod tests {
         )
     }
 
+    fn profile_scope(profile_id: &str) -> ConnectionScope {
+        ConnectionScope::Only(ConnectionIdentity::Profile(
+            SshProfileId::new(profile_id).expect("valid profile id"),
+        ))
+    }
+
     #[test]
     fn workspace_uses_resolved_terminal_hosts_instead_of_default_location() {
         let mut state = AppState::test_new();
@@ -258,16 +297,8 @@ mod tests {
         state.workspaces[0].default_location = location("ssh:default:1");
         state.terminals.get_mut(&terminal_id).unwrap().location = location("ssh:actual:3");
 
-        assert!(workspace_matches(
-            &state,
-            0,
-            &ConnectionScope::Only(ConnectionIdentity::Profile("actual".into()))
-        ));
-        assert!(!workspace_matches(
-            &state,
-            0,
-            &ConnectionScope::Only(ConnectionIdentity::Profile("default".into()))
-        ));
+        assert!(workspace_matches(&state, 0, &profile_scope("actual")));
+        assert!(!workspace_matches(&state, 0, &profile_scope("default")));
     }
 
     #[test]
@@ -277,11 +308,7 @@ mod tests {
         workspace.default_location = location("ssh:default:4");
         state.workspaces = vec![workspace];
 
-        assert!(workspace_matches(
-            &state,
-            0,
-            &ConnectionScope::Only(ConnectionIdentity::Profile("default".into()))
-        ));
+        assert!(workspace_matches(&state, 0, &profile_scope("default")));
     }
 
     #[test]
@@ -299,7 +326,7 @@ mod tests {
             .unwrap()
             .location = location("ssh:workbox:7");
 
-        let remote = ConnectionScope::Only(ConnectionIdentity::Profile("workbox".into()));
+        let remote = profile_scope("workbox");
         let coordinator = ConnectionScope::Only(ConnectionIdentity::Coordinator);
         assert!(pane_matches(&state, 0, remote_pane, &remote));
         assert!(!pane_matches(&state, 0, coordinator_pane, &remote));
@@ -317,10 +344,13 @@ mod tests {
         second.default_location = location("ssh:workbox:2");
         state.workspaces = vec![first, second];
 
-        let scope = ConnectionScope::Only(ConnectionIdentity::Profile("workbox".into()));
-        assert_eq!(visible_workspace_indices(&state, 0, true, &scope), vec![0]);
+        let scope = profile_scope("workbox");
         assert_eq!(
-            visible_workspace_indices(&state, 0, false, &scope),
+            visible_workspace_indices(&state, 0, true, &scope).collect::<Vec<_>>(),
+            vec![0]
+        );
+        assert_eq!(
+            visible_workspace_indices(&state, 0, false, &scope).collect::<Vec<_>>(),
             vec![0, 1]
         );
     }
@@ -334,8 +364,7 @@ mod tests {
         state.workspaces = vec![local, remote];
         state.active = Some(0);
         state.selected = 0;
-        state.connection_scope =
-            ConnectionScope::Only(ConnectionIdentity::Profile("workbox".into()));
+        state.connection_scope = profile_scope("workbox");
 
         reanchor_state_selection(&mut state);
 
