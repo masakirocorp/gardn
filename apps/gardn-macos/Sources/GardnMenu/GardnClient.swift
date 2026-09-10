@@ -144,6 +144,15 @@ struct GardnClient {
         return json
     }
 
+    func startPresenterStream(onRequest: @escaping ([String: Any], @escaping ([String: Any]) -> Void) -> Void) -> GardnPresenterStream? {
+        let stream = GardnPresenterStream(
+            socketPath: socketPath,
+            requestHandler: onRequest
+        )
+        guard stream.start() else { return nil }
+        return stream
+    }
+
 
 
     private static func assemble(
@@ -323,4 +332,131 @@ private func unixRequest(path: String, payload: Data) throws -> Data {
     }
     if collected.last == 0x0A { collected.removeLast() }
     return collected
+}
+
+final class GardnPresenterStream {
+    private(set) var active = false
+
+    private let socketPath: String
+    private let requestHandler: ([String: Any], @escaping ([String: Any]) -> Void) -> Void
+    private let lock = NSLock()
+    private var fd: Int32 = -1
+    private var source: DispatchSourceRead?
+    private var buffer = Data()
+
+    init(
+        socketPath: String,
+        requestHandler: @escaping ([String: Any], @escaping ([String: Any]) -> Void) -> Void
+    ) {
+        self.socketPath = socketPath
+        self.requestHandler = requestHandler
+    }
+
+    func start() -> Bool {
+        guard let connected = try? connect() else { return false }
+        fd = connected
+        let registration: [String: Any] = [
+            "id": "menu:notification.presenter.register",
+            "method": "notification.presenter.register",
+            "params": [
+                "name": "GardnMenu",
+                "rendering_host_id": Host.current().localizedName ?? "macos",
+                "capabilities": ["system": true, "terminal": false, "sound": true],
+            ],
+        ]
+        guard send(registration) else {
+            close(fd)
+            fd = -1
+            return false
+        }
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .userInitiated))
+        source.setEventHandler { [weak self] in self?.readAvailable() }
+        source.setCancelHandler { [fd] in close(fd) }
+        self.source = source
+        source.activate()
+        active = true
+        return true
+    }
+
+    deinit {
+        source?.cancel()
+    }
+
+    private func connect() throws -> Int32 {
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { throw GardnClientError(message: "socket() failed") }
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        guard socketPath.utf8.count + 1 <= 104 else {
+            close(fd)
+            throw GardnClientError(message: "socket path too long")
+        }
+        withUnsafeMutablePointer(to: &addr) { ptr in
+            let dest = UnsafeMutableRawPointer(ptr)
+                .advanced(by: MemoryLayout<sockaddr_un>.offset(of: \.sun_path)!)
+                .assumingMemoryBound(to: CChar.self)
+            _ = socketPath.withCString { strlcpy(dest, $0, 104) }
+        }
+        let result = withUnsafePointer(to: &addr) { ptr in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        guard result == 0 else {
+            close(fd)
+            throw GardnClientError(message: "Gardn isn’t running")
+        }
+        return fd
+    }
+
+    private func send(_ object: [String: Any]) -> Bool {
+        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return false }
+        var line = data
+        line.append(0x0A)
+        lock.lock()
+        defer { lock.unlock() }
+        return line.withUnsafeBytes { bytes in
+            var offset = 0
+            while offset < bytes.count {
+                let count = Darwin.send(fd, bytes.baseAddress!.advanced(by: offset), bytes.count - offset, 0)
+                if count <= 0 { return false }
+                offset += count
+            }
+            return true
+        }
+    }
+
+    private func readAvailable() {
+        var chunk = [UInt8](repeating: 0, count: 4096)
+        let count = recv(fd, &chunk, chunk.count, 0)
+        guard count > 0 else {
+            active = false
+            source?.cancel()
+            return
+        }
+        buffer.append(contentsOf: chunk.prefix(count))
+        while let newline = buffer.firstIndex(of: 0x0A) {
+            let line = buffer.prefix(upTo: newline)
+            buffer.removeSubrange(...newline)
+            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { continue }
+            let params = (object["params"] as? [String: Any]) ?? (object["result"] as? [String: Any]) ?? [:]
+            if params["notification"] is [String: Any] {
+                requestHandler(params) { [weak self] receipt in
+                    self?.sendReceipt(receipt)
+                }
+            }
+        }
+    }
+
+    private func sendReceipt(_ receipt: [String: Any]) {
+        let request: [String: Any] = [
+            "id": "menu:notification.presenter.receipt",
+            "method": "notification.presenter.receipt",
+            "params": receipt,
+        ]
+        guard let payload = try? JSONSerialization.data(withJSONObject: request) else { return }
+        var line = payload
+        line.append(0x0A)
+        _ = try? unixRequest(path: socketPath, payload: line)
+    }
 }

@@ -33,14 +33,33 @@ final class ExtraMenuPanel {
         panel.becomesKeyOnlyIfNeeded = true
         panel.isReleasedWhenClosed = false
         panel.collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
-        let glass = NSGlassEffectView()
-        glass.style = .regular
-        glass.cornerRadius = 12
-        glass.contentView = hosting.view
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = 12
+            glass.contentView = hosting.view
+            panel.contentView = glass
+        } else {
+            let material = NSVisualEffectView()
+            material.material = .popover
+            material.blendingMode = .behindWindow
+            material.state = .active
+            material.wantsLayer = true
+            material.layer?.cornerRadius = 12
+            material.layer?.masksToBounds = true
+            material.addSubview(hosting.view)
+            hosting.view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                hosting.view.leadingAnchor.constraint(equalTo: material.leadingAnchor),
+                hosting.view.trailingAnchor.constraint(equalTo: material.trailingAnchor),
+                hosting.view.topAnchor.constraint(equalTo: material.topAnchor),
+                hosting.view.bottomAnchor.constraint(equalTo: material.bottomAnchor),
+            ])
+            panel.contentView = material
+        }
         hosting.view.wantsLayer = true
         hosting.view.layer?.backgroundColor = NSColor.clear.cgColor
         hosting.view.postsFrameChangedNotifications = true
-        panel.contentView = glass
         self.panel = panel
         frameObserver = NotificationCenter.default.addObserver(
             forName: NSView.frameDidChangeNotification,

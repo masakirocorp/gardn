@@ -1,9 +1,10 @@
+import AppKit
 import Foundation
 import os
 import UserNotifications
 
 enum AgentNotifications {
-    static let terminalIdKey = "terminalId"
+    static let terminalIdKey = "terminal_id"
     private static let log = Logger(subsystem: "com.masakiro.gardn.menu", category: "notifications")
     private static let lock = NSLock()
     private static var isAuthorized = false
@@ -34,65 +35,70 @@ enum AgentNotifications {
         }
     }
 
-    static func post(agent: AgentRecord, kind: Kind) {
+    static func present(request: [String: Any], receipt: @escaping ([String: Any]) -> Void) {
+        let registration = request["registration_id"] as? [String: Any]
+        let notification = request["notification"] as? [String: Any]
+        let registrationId = registration ?? [:]
+        let notificationId = notification?["id"] as? [String: Any] ?? [:]
+        let baseReceipt: (Any) -> Void = { outcome in
+            receipt([
+                "registration_id": registrationId,
+                "notification_id": notificationId,
+                "outcome": outcome,
+            ])
+        }
+        guard let notification else {
+            baseReceipt(["rejected": "missing_notification"])
+            return
+        }
+
+        let visual = notification["visual"] as? String ?? "none"
+        let sound = notification["sound"] as? String ?? "none"
+        if visual == "none" {
+            guard sound != "none" else {
+                baseReceipt(["rejected": "empty_presentation"])
+                return
+            }
+            DispatchQueue.main.async {
+                NSSound.beep()
+                baseReceipt("submitted")
+            }
+            return
+        }
+        guard visual == "system" else {
+            baseReceipt(["rejected": "unsupported_visual"])
+            return
+        }
+
         lock.lock()
         let allowed = isAuthorized
         lock.unlock()
-        guard allowed else { return }
+        guard allowed else {
+            baseReceipt(["rejected": "not_authorized"])
+            return
+        }
         let content = UNMutableNotificationContent()
-        content.title = agent.title
-        content.subtitle = kind.headline
-        let details = detailLine(agent)
-        content.body = details.isEmpty ? kind.headline : details
-        content.sound = .default
-        content.userInfo = [terminalIdKey: agent.terminalId]
-        content.threadIdentifier = agent.terminalId
-        let identifier = agent.terminalId
-        let request = UNNotificationRequest(
-            identifier: identifier,
-            content: content,
-            trigger: nil
-        )
+        content.title = notification["title"] as? String ?? "Gardn"
+        content.body = notification["body"] as? String ?? ""
+        content.sound = sound == "none" ? nil : .default
+        var userInfo: [String: Any] = [
+            "notification_id": notificationId,
+        ]
+        if let target = notification["target"] as? [String: Any], let terminalId = target["terminal_id"] as? String {
+            userInfo[terminalIdKey] = terminalId
+            content.threadIdentifier = terminalId
+        }
+        content.userInfo = userInfo
+        let identifier = "gardn-\(notificationId["coordinator_epoch"] as? String ?? "epoch")-\(notificationId["sequence"] as? NSNumber ?? 0)"
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         let center = UNUserNotificationCenter.current()
-        center.removeDeliveredNotifications(withIdentifiers: [identifier])
-        center.removePendingNotificationRequests(withIdentifiers: [identifier])
         center.add(request) { error in
             if let error {
                 log.error("notification post failed: \(error.localizedDescription, privacy: .public)")
+                baseReceipt(["rejected": error.localizedDescription])
+            } else {
+                baseReceipt("submitted")
             }
         }
     }
-
-    private static func detailLine(_ agent: AgentRecord) -> String {
-        var parts: [String] = []
-        if let group = agent.groupName?.trimmingCharacters(in: .whitespacesAndNewlines), !group.isEmpty {
-            parts.append(group)
-        }
-        if let status = agent.statusLabel, !status.isEmpty {
-            parts.append(status)
-        }
-        if let age = agent.age, !age.isEmpty {
-            parts.append(age)
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    enum Kind: Equatable {
-        case blocked
-        case done
-
-        var headline: String {
-            switch self {
-            case .blocked: return "Needs attention"
-            case .done: return "Finished"
-            }
-        }
-
-        static func of(_ agent: AgentRecord) -> Kind? {
-            if agent.status == .blocked { return .blocked }
-            if agent.status == .done { return .done }
-            return nil
-        }
-    }
-
 }
