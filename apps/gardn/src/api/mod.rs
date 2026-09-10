@@ -74,6 +74,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
 pub struct ApiRequestMessage {
     pub request: Request,
     pub respond_to: std::sync::mpsc::Sender<String>,
+    pub presentation_tx: Option<std::sync::mpsc::SyncSender<gardn_local_api::PresentationRequest>>,
     pub response_written: Option<std::sync::mpsc::Receiver<()>>,
     pub stream_active: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }

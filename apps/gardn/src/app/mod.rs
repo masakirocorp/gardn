@@ -379,7 +379,8 @@ pub struct App {
     pub(crate) render_dirty: Arc<crate::render_signal::RenderSignal>,
     pub(crate) full_redraw_pending: bool,
     pub(crate) overlay_panes: HashMap<crate::layout::PaneId, OverlayPaneState>,
-    pub(crate) local_terminal_notifications: bool,
+    pub(crate) local_notification_coordinator:
+        Option<crate::server::notifications::NotificationCoordinator>,
     /// Whether this process applies `AppEvent::PrefixInputSource` to the host input source.
     /// Headless mode disables this; the foreground client owns the host-local switch.
     pub(crate) local_input_source_switch: bool,
@@ -588,7 +589,6 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
 
     groups
 }
-
 fn restored_connection_profile_ids(
     profiles: &[crate::persist::ssh_profiles::SshConnectionProfile],
     host_ids: &HashSet<crate::execution_host::ExecutionHostId>,
@@ -598,6 +598,31 @@ fn restored_connection_profile_ids(
         .filter(|profile| host_ids.contains(&profile.execution_host_id()))
         .map(|profile| profile.id().to_string())
         .collect()
+}
+
+fn local_notification_coordinator() -> crate::server::notifications::NotificationCoordinator {
+    use gardn_local_api::{PresenterCapabilities, PresenterRegistration};
+
+    let mut coordinator = crate::server::notifications::NotificationCoordinator::new(format!(
+        "gardn-{}",
+        std::process::id()
+    ));
+    coordinator.register(
+        crate::server::notifications::PresenterTransport::Embedded,
+        PresenterRegistration {
+            name: "gardn".to_owned(),
+            rendering_host_id: crate::platform::hostname()
+                .filter(|name| !name.trim().is_empty())
+                .unwrap_or_else(|| "gardn".to_owned()),
+            capabilities: PresenterCapabilities {
+                terminal: true,
+                system: true,
+                sound: true,
+            },
+        },
+        true,
+    );
+    coordinator
 }
 
 impl App {
@@ -979,6 +1004,7 @@ impl App {
             config_issue,
             toast: startup_config_toast,
             pending_agent_notifications: std::collections::HashMap::new(),
+            agent_notification_outbox: std::collections::VecDeque::new(),
             copy_feedback: None,
             outer_terminal_focus: None,
             prefix_code,
@@ -1053,7 +1079,6 @@ impl App {
             new_terminal_cwd: config.terminal.new_cwd.clone(),
             pane_scrollback_limit_bytes: config.advanced.scrollback_limit_bytes,
             sound: config.ui.sound.clone(),
-            local_sound_playback: true,
             toast_config: config.ui.toast.clone(),
             update_version_check: config.update.version_check,
             update_manifest_check: config.update.manifest_check,
@@ -1393,7 +1418,7 @@ impl App {
             render_dirty,
             full_redraw_pending: false,
             overlay_panes: HashMap::new(),
-            local_terminal_notifications: true,
+            local_notification_coordinator: Some(local_notification_coordinator()),
             local_input_source_switch: true,
             config_reloaded_from_disk: false,
             pane_graphics: pane_graphics::Runtime::default(),
@@ -2737,7 +2762,9 @@ impl App {
                 self.state.sidebar_collapsed_mode = config.ui.sidebar_collapsed_mode;
                 self.state.sidebar_arrangement = config.ui.sidebar_arrangement;
                 self.state.sidebar_config = config.ui.sidebar.clone();
-                if !self.state.local_sound_playback && self.state.sound != config.ui.sound {
+                if self.local_notification_coordinator.is_none()
+                    && self.state.sound != config.ui.sound
+                {
                     self.state.request_client_config_reload = true;
                 }
                 self.state.sound = config.ui.sound.clone();

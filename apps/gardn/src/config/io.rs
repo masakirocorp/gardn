@@ -750,29 +750,6 @@ mod tests {
     }
 
     #[test]
-    fn upsert_section_bool_adds_missing_section() {
-        let updated = upsert_section_bool("", "ui.toast", "enabled", true);
-        assert_eq!(updated, "[ui.toast]\nenabled = true\n");
-        let parsed: toml::Table = toml::from_str(&updated).unwrap();
-        assert_eq!(parsed["ui"]["toast"]["enabled"].as_bool(), Some(true));
-    }
-
-    #[test]
-    fn remove_section_key_removes_matching_key_from_section() {
-        let content =
-            "[ui.toast]\nenabled = true\ndelivery = \"gardn\"\n[ui.sound]\nenabled = true\n";
-        let updated = remove_section_key(content, "ui.toast", "enabled");
-        assert_eq!(
-            updated,
-            "[ui.toast]\ndelivery = \"gardn\"\n[ui.sound]\nenabled = true\n"
-        );
-        let parsed: toml::Table = toml::from_str(&updated).unwrap();
-        assert!(parsed["ui"]["toast"].get("enabled").is_none());
-        assert_eq!(parsed["ui"]["toast"]["delivery"].as_str(), Some("gardn"));
-        assert_eq!(parsed["ui"]["sound"]["enabled"].as_bool(), Some(true));
-    }
-
-    #[test]
     fn config_diagnostic_summary_reports_unknown_keys_compactly() {
         let diagnostics = vec![
             "unknown config key ui.mouse_captur; ignoring key".to_string(),

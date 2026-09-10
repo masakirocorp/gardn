@@ -1440,11 +1440,13 @@ impl<'de> Deserialize<'de> for ToastConfig {
         }
 
         let raw = RawToastConfig::deserialize(deserializer)?;
-        let legacy_delivery = match raw.enabled {
-            Some(true) => ToastDelivery::Gardn,
-            Some(false) | None => ToastDelivery::Off,
+        let delivery = match raw.delivery {
+            Some(delivery) => delivery,
+            None => match raw.enabled {
+                Some(true) => ToastDelivery::Gardn,
+                Some(false) | None => ToastDelivery::Off,
+            },
         };
-        let delivery = raw.delivery.unwrap_or(legacy_delivery);
         let default = Self::default();
         let delay_seconds = raw.delay_seconds.unwrap_or(default.delay_seconds);
         if delay_seconds > MAX_TOAST_DELAY_SECONDS {
@@ -2098,34 +2100,37 @@ delivery = "system"
     }
 
     #[test]
-    fn toast_config_legacy_enabled_true_maps_to_gardn() {
+    fn toast_config_maps_legacy_enabled_true_to_gardn_delivery() {
         let toml = r#"
 [ui.toast]
 enabled = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
+
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Gardn);
     }
 
     #[test]
-    fn toast_config_legacy_enabled_false_maps_to_off() {
+    fn toast_config_maps_legacy_enabled_false_to_off_delivery() {
         let toml = r#"
 [ui.toast]
 enabled = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
+
         assert_eq!(config.ui.toast.delivery, ToastDelivery::Off);
     }
 
     #[test]
-    fn toast_config_delivery_wins_over_legacy_enabled() {
+    fn toast_config_prefers_explicit_delivery_over_legacy_enabled() {
         let toml = r#"
 [ui.toast]
-enabled = true
-delivery = "terminal"
+delivery = "system"
+enabled = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.ui.toast.delivery, ToastDelivery::Terminal);
+
+        assert_eq!(config.ui.toast.delivery, ToastDelivery::System);
     }
 
     #[test]

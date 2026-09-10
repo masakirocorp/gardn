@@ -272,8 +272,8 @@ fn explicit_detach_message_keeps_server_available_for_new_clients() {
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Drain initial frames.
@@ -298,8 +298,8 @@ fn explicit_detach_message_keeps_server_available_for_new_clients() {
 
     let mut reattached = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut reattached, 13, 80, 24).expect("reattach handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut reattached, 14, 80, 24).expect("reattach handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     cleanup_spawned_gardn(spawned, base);
@@ -327,8 +327,8 @@ fn reattach_after_detach_shows_current_state() {
     // --- Client A ---
     let mut stream_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream_a, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream_a, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Drain initial frames.
@@ -366,8 +366,8 @@ fn reattach_after_detach_shows_current_state() {
     // --- Client B (reattach) ---
     let mut stream_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream_b, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream_b, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(
         error.is_none(),
         "reattach handshake should succeed: {:?}",
@@ -446,8 +446,8 @@ fn processes_survive_during_and_after_detach() {
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Drain initial frames.
@@ -480,8 +480,8 @@ fn processes_survive_during_and_after_detach() {
     // Reattach — verify we can connect and receive a frame.
     let mut stream_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream_b, 13, 80, 24).expect("reattach handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream_b, 14, 80, 24).expect("reattach handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Verify the reattached client receives a frame.
@@ -529,8 +529,8 @@ fn server_persists_after_client_connection_drop() {
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Drain initial frames.
@@ -556,8 +556,8 @@ fn server_persists_after_client_connection_drop() {
     // Reattach — verify we can connect and handshake again.
     let mut stream_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream_b, 13, 80, 24).expect("reattach handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream_b, 14, 80, 24).expect("reattach handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "reattach should succeed: {:?}", error);
 
     cleanup_spawned_gardn(spawned, base);
@@ -578,8 +578,8 @@ fn detached_output_preserves_last_attached_pty_size() {
 
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 120, 40).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 120, 40).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
     drain_messages(&mut stream);
 
@@ -647,8 +647,8 @@ fn output_accumulated_while_detached_visible_on_reattach() {
     // Connect and handshake client A.
     let mut stream_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream_a, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream_a, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Detach client A immediately.
@@ -705,8 +705,8 @@ fn output_accumulated_while_detached_visible_on_reattach() {
     // --- Client B (reattach) ---
     let mut stream_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream_b, 13, 80, 24).expect("reattach handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream_b, 14, 80, 24).expect("reattach handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Client B should receive a frame with the current state.

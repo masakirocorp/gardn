@@ -269,7 +269,7 @@ Reloads agent manifests from disk, replaces the in-memory summaries, and resets 
 
 ## Notifications and window titles
 
-These methods are client-facing. Headless mode sends terminal/system notifications and window-title commands to the current foreground client. With no foreground client, the request still succeeds with a negative result. Interactive App mode has no API foreground-client transport for window titles, so its title methods return `no_foreground_client`.
+These methods are client-facing. The coordinator creates typed presentation requests and selects at most one presenter. System delivery prefers the oldest eligible native presenter, then a foreground thin client. Terminal delivery uses the foreground thin client. Interactive App mode has no API foreground-client transport for window titles, so its title methods return `no_foreground_client`.
 
 ### `notification.show`
 
@@ -282,19 +282,19 @@ Shows a notification using the configured `toast.delivery` mode.
 | `title`    | `string`                     | required | Control characters are removed, whitespace is collapsed, the value is trimmed, and the result is capped at 80 characters. An empty result is invalid. |
 | `body`     | `string \| null`             | `null`   | Sanitized like `title`, capped at 240 characters. A value that sanitizes to empty is treated as absent.                                               |
 | `position` | `ToastGardnPosition \| null` | `null`   | Optional built-in toast position: `top-left`, `top-right`, `bottom-left`, or `bottom-right`. It has no effect for terminal/system delivery.           |
-| `sound`    | `NotificationShowSound`      | `"none"` | `"none"`, `"done"`, or `"request"`. Sound is played/forwarded only when local sound playback and the configured sound set allow it.                   |
+| `sound`    | `NotificationSound`          | `"none"` | `"none"`, `"done"`, or `"request"`. The coordinator sends visual and sound work to one selected presenter.                                            |
 
 **Success:** `ResponseResult::NotificationShow`, discriminator `"notification_show"`, with `shown: boolean` and `reason`.
 
-| `reason`               | `shown` | Meaning                                                                                              |
-| ---------------------- | ------- | ---------------------------------------------------------------------------------------------------- |
-| `shown`                | `true`  | A toast or foreground notification sink accepted the notification.                                   |
-| `disabled`             | `false` | `toast.delivery` is `off`.                                                                           |
-| `busy`                 | `false` | Built-in Gardn delivery already has a toast.                                                         |
-| `rate_limited`         | `false` | Another API notification was shown less than 250 ms ago.                                             |
-| `no_foreground_client` | `false` | Terminal/system delivery has no foreground client, or its notification helper returned false/failed. |
+| `reason`               | `shown` | Meaning                                                                  |
+| ---------------------- | ------- | ------------------------------------------------------------------------ |
+| `queued`               | `true`  | Gardn stored the toast or a presenter queue accepted the request.        |
+| `suppressed`           | `false` | `toast.delivery` is `off`.                                               |
+| `busy`                 | `false` | Built-in Gardn delivery already has a toast.                             |
+| `rate_limited`         | `false` | Another API notification was queued less than 250 ms ago.                |
+| `no_foreground_client` | `false` | No eligible presenter accepted terminal, system, or sound-only delivery. |
 
-Built-in `gardn` delivery checks `busy` before the rate limit, stores the toast in App state, and can play the requested sound. `terminal` and `system` delivery rate-limit first and then send to the foreground client (headless) or invoke the configured helper (interactive).
+Built-in `gardn` delivery checks `busy` before the rate limit and stores one toast in App state. The coordinator sends its optional sound to one presenter. `terminal` and `system` delivery rate-limit first and then enqueue one typed presentation request. A queued result does not mean that a person saw the notification.
 
 | Error                | Meaning                                                                  |
 | -------------------- | ------------------------------------------------------------------------ |
@@ -303,8 +303,18 @@ Built-in `gardn` delivery checks `busy` before the rate limit, stores the toast 
 
 ```json
 {"id":"notify-1","method":"notification.show","params":{"title":"Build finished","body":"api workspace","position":"top-right","sound":"done"}}
-{"id":"notify-1","result":{"type":"notification_show","shown":true,"reason":"shown"}}
+{"id":"notify-1","result":{"type":"notification_show","shown":true,"reason":"queued"}}
 ```
+
+### `notification.presenter.register`
+
+Registers a native presenter on a persistent JSON-lines connection. Params are `PresenterRegistration`: `name`, `rendering_host_id`, and boolean `terminal`, `system`, and `sound` capabilities. The first response returns `NotificationPresenterRegistered` with `registration_id`. The presenter becomes eligible only after Gardn writes this response.
+
+Gardn writes later `PresentationRequest` objects to the same downstream stream. Each request contains the registration ID and one typed state notification. Closing the stream unregisters the presenter. Gardn does not replay pending requests after reconnect.
+
+### `notification.presenter.receipt`
+
+Records a `PresentationReceipt` on a separate Local API connection. Params contain `registration_id`, `notification_id`, and `outcome`. Outcome is `"submitted"`, `"unknown"`, or `{"rejected":"reason"}`. The result reports `accepted: true` only when both IDs and the owning presenter match one outstanding request. A receipt never triggers fallback or replay.
 
 ### `client.window_title.set`
 

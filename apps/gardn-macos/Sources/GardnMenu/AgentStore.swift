@@ -20,9 +20,9 @@ final class AgentStore: ObservableObject {
     private var runtimePoll: DispatchSourceTimer?
     private var runtimeProbeGeneration = 0
     private var runtimeTask: Task<Void, Never>?
-    private var knownAttention = [String: AgentNotifications.Kind]()
-    private var hasBaseline = false
     @Published private(set) var runtimeNotice: RuntimeNotice?
+    private var presenterStream: GardnPresenterStream?
+    private var presenterTask: Task<Void, Never>?
 
 
     private static let collapsedKey = "gardn.extra.collapsedSections"
@@ -64,9 +64,23 @@ final class AgentStore: ObservableObject {
         }
         runtimePoll.resume()
         self.runtimePoll = runtimePoll
+        presenterTask?.cancel()
+        presenterTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if self.presenterStream?.active != true {
+                    self.presenterStream = self.client.startPresenterStream { request, receipt in
+                        AgentNotifications.present(request: request, receipt: receipt)
+                    }
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
     }
-
     func stop() {
+        retirePresenterStream()
+        presenterTask?.cancel()
+        presenterTask = nil
         runtimeProbeGeneration += 1
         poll?.cancel()
         poll = nil
@@ -76,21 +90,24 @@ final class AgentStore: ObservableObject {
         runtimeTask = nil
         catalog.stopConnectProcess()
     }
+
     func selectCoordinator(_ id: String) {
         catalog.select(id)
+        finishCoordinatorChange()
+    }
+
+
+    func addRemoteCoordinator(target: String, session: String) {
+        if catalog.addRemote(target: target, session: session) != nil {
+            finishCoordinatorChange()
+        }
+    }
+
+    private func finishCoordinatorChange() {
         runtimeNotice = .unknown
         reconnectToSelected()
         refresh()
         refreshRuntimeStatus()
-    }
-
-    func addRemoteCoordinator(target: String, session: String) {
-        if catalog.addRemote(target: target, session: session) != nil {
-            runtimeNotice = .unknown
-            reconnectToSelected()
-            refresh()
-            refreshRuntimeStatus()
-        }
     }
 
     func openSettings() {
@@ -123,6 +140,7 @@ final class AgentStore: ObservableObject {
 
 
     private func reconnectToSelected() {
+        retirePresenterStream()
         catalog.refreshLocals()
         guard let selected = catalog.selected else {
             client = GardnClient(socketPath: GardnClient.defaultSocketPath())
@@ -139,6 +157,11 @@ final class AgentStore: ObservableObject {
         }
     }
 
+    private func retirePresenterStream() {
+        presenterStream?.cancel()
+        presenterStream = nil
+    }
+
 
     func refresh() {
         do {
@@ -152,7 +175,6 @@ final class AgentStore: ObservableObject {
         }
         needsAttention = agents.contains { $0.needsAttention }
         onNeedsAttentionChange?(needsAttention)
-        publishAttentionChanges()
     }
 
 
@@ -189,21 +211,6 @@ final class AgentStore: ObservableObject {
         }
     }
 
-    private func publishAttentionChanges() {
-        guard connected else { return }
-        var next = [String: AgentNotifications.Kind]()
-        var seen = Set<String>()
-        for agent in agents {
-            guard let kind = AgentNotifications.Kind.of(agent) else { continue }
-            guard seen.insert(agent.terminalId).inserted else { continue }
-            next[agent.terminalId] = kind
-            if hasBaseline, knownAttention[agent.terminalId] != kind {
-                AgentNotifications.post(agent: agent, kind: kind)
-            }
-        }
-        knownAttention = next
-        hasBaseline = true
-    }
 
 
     private static func friendlyError(_ error: Error) -> String {

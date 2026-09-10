@@ -3336,6 +3336,8 @@ pub struct PendingAgentNotification {
 pub struct AgentNotificationDelivery {
     pub pane_id: PaneId,
     pub workspace_id: String,
+    pub tab_id: String,
+    pub terminal_id: String,
     pub agent_label: String,
     pub known_agent: Option<crate::detect::Agent>,
     pub kind: ToastKind,
@@ -3590,6 +3592,7 @@ pub struct AppState {
     pub config_issue: Option<ConfigIssue>,
     pub toast: Option<ToastNotification>,
     pub pending_agent_notifications: std::collections::HashMap<PaneId, PendingAgentNotification>,
+    pub agent_notification_outbox: std::collections::VecDeque<AgentNotificationDelivery>,
     pub copy_feedback: Option<CopyFeedback>,
     /// Last reported focus state for the outer terminal hosting Gardn.
     /// None means unsupported or not yet reported, which preserves active-pane suppression.
@@ -3690,7 +3693,6 @@ pub struct AppState {
     pub new_terminal_cwd: NewTerminalCwdConfig,
     pub pane_scrollback_limit_bytes: usize,
     pub sound: SoundConfig,
-    pub local_sound_playback: bool,
     pub toast_config: ToastConfig,
     pub update_version_check: bool,
     pub update_manifest_check: bool,
@@ -4738,6 +4740,7 @@ impl AppState {
             config_issue: None,
             toast: None,
             pending_agent_notifications: std::collections::HashMap::new(),
+            agent_notification_outbox: std::collections::VecDeque::new(),
             outer_terminal_focus: None,
             prefix_code: KeyCode::Char('b'),
             prefix_mods: KeyModifiers::CONTROL,
@@ -4819,7 +4822,6 @@ impl AppState {
                 enabled: false,
                 ..SoundConfig::default()
             },
-            local_sound_playback: false,
             toast_config: ToastConfig {
                 delay_seconds: 0,
                 ..ToastConfig::default()

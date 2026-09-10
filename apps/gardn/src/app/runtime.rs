@@ -157,6 +157,7 @@ impl App {
         let crate::api::ApiRequestMessage {
             request,
             respond_to,
+            presentation_tx: _,
             response_written: _,
             stream_active: _,
         } = msg;
@@ -519,16 +520,28 @@ impl App {
             self.state.copy_feedback = None;
             changed = true;
         }
-        if self
-            .state
-            .next_pending_agent_notification_deadline()
-            .is_some_and(|deadline| now >= deadline)
+        if self.local_notification_coordinator.is_some()
+            && self
+                .state
+                .next_pending_agent_notification_deadline()
+                .is_some_and(|deadline| now >= deadline)
         {
             let previous_toast = self.state.toast.clone();
-            let mut deliveries = self.state.drain_due_agent_notifications(now);
+            let due_deliveries = self
+                .state
+                .drain_due_agent_notifications_with_context(now, |state, ws_idx, pane_id| {
+                    state.pane_is_in_active_tab(ws_idx, pane_id)
+                });
+            let mut deliveries: Vec<_> = self
+                .state
+                .take_agent_notification_deliveries()
+                .into_iter()
+                .collect();
             self.refresh_agent_notification_delivery_contexts(&mut deliveries);
-            self.emit_delayed_client_local_agent_notifications(&deliveries);
-            if !deliveries.is_empty() {
+            for delivery in &deliveries {
+                self.dispatch_agent_notification_delivery(delivery);
+            }
+            if !due_deliveries.is_empty() {
                 self.sync_toast_deadline(previous_toast);
                 changed = true;
             }
@@ -1617,6 +1630,7 @@ mod tests {
                 ),
             },
             respond_to,
+            presentation_tx: None,
             response_written: None,
             stream_active: None,
         });
@@ -1672,6 +1686,7 @@ mod tests {
                 ),
             },
             respond_to,
+            presentation_tx: None,
             response_written: None,
             stream_active: None,
         });

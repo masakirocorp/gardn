@@ -109,6 +109,12 @@ struct RuntimeNotice: Equatable, Sendable {
 enum BundledGardn {
     private static let log = Logger(subsystem: "com.masakiro.gardn.menu", category: "bundled-gardn")
 
+    enum SoundPlaybackOutcome: Sendable {
+        case played
+        case suppressed
+        case failed(String)
+    }
+
     static func binaryURL() throws -> URL {
         guard let folder = Bundle.main.executableURL?.deletingLastPathComponent() else {
             throw GardnClientError(message: "This app is missing its bundled CLI")
@@ -155,6 +161,42 @@ enum BundledGardn {
                     continuation.resume(returning: try RuntimeStatus.decode(data))
                 } catch {
                     continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    static func playSound(_ sound: NotificationSound) async -> SoundPlaybackOutcome {
+        guard sound != .none else { return .suppressed }
+
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let process = try process(arguments: ["sound", "play", sound.rawValue])
+                    process.standardOutput = FileHandle.nullDevice
+                    process.standardError = FileHandle.nullDevice
+                    process.standardInput = FileHandle.nullDevice
+                    try process.run()
+                    process.waitUntilExit()
+                    guard process.terminationReason == .exit else {
+                        continuation.resume(returning: .failed("sound helper terminated"))
+                        return
+                    }
+                    switch process.terminationStatus {
+                    case 0:
+                        continuation.resume(returning: .played)
+                    case 3:
+                        continuation.resume(returning: .suppressed)
+                    default:
+                        continuation.resume(
+                            returning: .failed(
+                                "sound helper exited with status \(process.terminationStatus)"
+                            )
+                        )
+                    }
+                } catch {
+                    log.error("bundled sound failed: \(error.localizedDescription, privacy: .public)")
+                    continuation.resume(returning: .failed(error.localizedDescription))
                 }
             }
         }

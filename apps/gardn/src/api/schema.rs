@@ -37,11 +37,11 @@ impl TryFrom<ResourceLocationParams> for ResourceLocation {
 }
 
 /// Map a wire notification sound to the runtime sound engine value.
-pub fn notification_show_sound_to_sound(sound: NotificationShowSound) -> Option<Sound> {
+pub fn notification_sound_to_sound(sound: NotificationSound) -> Option<Sound> {
     match sound {
-        NotificationShowSound::None => None,
-        NotificationShowSound::Done => Some(Sound::Done),
-        NotificationShowSound::Request => Some(Sound::Request),
+        NotificationSound::None => None,
+        NotificationSound::Done => Some(Sound::Done),
+        NotificationSound::Request => Some(Sound::Request),
     }
 }
 

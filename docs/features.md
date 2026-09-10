@@ -122,14 +122,14 @@ Supported built-in detection includes:
 ### Agent UI
 
 - **Activity sidebar** — shows agents in Triage (when nonempty), always-present Follow Up, Working, and Idle. An expanded empty Follow Up section shows a muted `Drop an agent here` row on desktop and mobile. Its full desktop width and the section header accept drops. Follow Up is shared placement, not a lifecycle state: drag an agent row onto the Follow Up header or body to queue it, or right-click any agent row to add it to or remove it from Follow Up. Queued agents keep their real runtime state and waiting age, ordered oldest-added first. Successful unmodified Enter from the human terminal input path clears that pane's placement; typing, paste, failed sends, and API automation do not. Closing a pane or restoring without that target drops stale queue entries. Triage lists oldest meaningful activity first (no activity counts as oldest); Working and Idle stay newest-first.
-- **macOS app** — Gardn.app is the macOS install. It owns `~/.local/bin/gardn` by linking it to the bundled CLI. The menu bar surface lists the same Triage, Follow Up, Working, and Idle groups as the Agents sidebar. The header picks which coordinator to observe: this Mac's local sessions, or a saved remote Coordinator Host (`gardn extra connect --remote`). Add a remote server from the app. Settings… in the extra header opens a Settings window for servers and updates. Sparkle owns updates when the running `gardn` is that bundled CLI. Use Check for Updates in Gardn, or install the latest DMG from GitHub. A real standalone `gardn` binary keeps Direct updates even if the app is present. `gardn-beta`, `gardn-dev`, mise, and Nix keep their own update owners. The menu bar leaf fills when Follow Up or Triage needs attention. Click a row to focus that agent in an attached client, or launch the bundled `gardn` / `gardn --remote` if none is attached. Right-click to add or remove Follow Up. The app posts Notification Center alerts when an agent enters Follow Up or Triage; clicking an alert focuses that agent. While the app is running, terminal and system agent toasts defer to it.
+- **macOS app** — Gardn.app is the macOS install. It owns `~/.local/bin/gardn` by linking it to the bundled CLI. The menu bar surface lists the same Triage, Follow Up, Working, and Idle groups as the Agents sidebar. The header picks which coordinator to observe: this Mac's local sessions, or a saved remote Coordinator Host (`gardn extra connect --remote`). Add a remote server from the app. Settings… in the extra header opens a Settings window for servers and updates. Sparkle owns updates when the runtime supports it. GardnMenu registers as the native system-notification presenter and opens the stable terminal target when a notification is selected.
 - **Runtime version alert** — The macOS menu panel keeps a version notice visible when its bundled CLI and the selected coordinator do not match. The notice identifies whether to restart the server, update the client, repair the app installation, or inspect an unusual compatible version skew.
 
 
 - **Agent focus** — focus agents from the activity panel, command surfaces, CLI, or socket API.
 - **Agent labels** — manual, detected, and integration-reported labels are surfaced in lists and pane borders.
 - **Agent metadata tokens** — pane metadata token patches are exposed consistently through pane/agent API snapshots and rendered without leaking one client's sidebar view into another.
-- **State notifications** — background state changes can trigger Gardn toasts, terminal toasts, system toasts, and sounds.
+- **State notifications** — the coordinator produces one typed notification from each accepted effective state transition. It selects one eligible presenter for the configured Gardn, terminal, or system visual and its sound. System delivery prefers the oldest live native presenter. Thin clients provide the foreground terminal fallback.
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Kilo and MastraCode hooks own lifecycle state. Qwen Code and Antigravity CLI hooks report session identity only while their screen manifests own lifecycle state.
 - **Pi settled lifecycle** — the Pi integration reports only TUI sessions and keeps an active root agent working through compaction. It reports the root agent idle only after Pi emits `agent_settled` while the root session is actually idle. Stale or non-idle settlement signals do not end active work.
 - **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Gardn hook, session, or metadata report arrives for that pane, Gardn shows a pane-targeted toast with the matching `gardn integration install <agent>` command.
@@ -406,11 +406,12 @@ Gardn supports terminal-derived colors and built-in palettes.
 
 ### Sound and toasts
 
-- **Toast delivery** — off, Gardn, terminal, or system.
-- **Sound notifications** — request and done sounds for background agent activity.
+- **Toast delivery** — off, Gardn, terminal, or system. Off suppresses visual and sound delivery.
+- **Sound notifications** — request and done sounds travel with the typed presentation request to one selected presenter.
 - **Per-agent sounds** — agent-specific sound overrides.
 - **Validation** — invalid or missing sound files fall back to defaults and emit diagnostics.
-- **Terminal toast backends** — terminal toasts use supported terminal notification protocols, including tmux passthrough where available.
+- **Terminal toast backends** — the foreground thin client uses supported terminal notification protocols, including tmux passthrough where available.
+- **System notifications** — GardnMenu presents native macOS notifications through a registered Local API stream. A foreground thin client is the fallback when no native presenter is eligible.
 - **Custom sound files** — request/done sounds can use MP3 files resolved relative to the config file.
 - **Sound disable switch** — `GARDN_DISABLE_SOUND` disables playback.
 
