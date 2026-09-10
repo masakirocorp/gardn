@@ -1641,6 +1641,7 @@ fn notification_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLi
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConnectionField {
     Name,
+    Color,
     Target,
     Directory,
 }
@@ -1670,16 +1671,17 @@ impl ConnectionRowId {
         match self {
             Self::Field(ConnectionField::Target) => 0,
             Self::Field(ConnectionField::Name) => 1,
-            Self::Field(ConnectionField::Directory) => 2,
-            Self::Action(ConnectionAction::Save) => 3,
-            Self::Action(ConnectionAction::Discard) => 4,
-            Self::Action(ConnectionAction::Delete) => 5,
-            Self::Action(ConnectionAction::Test) => 6,
-            Self::Action(ConnectionAction::Toggle) => 7,
-            Self::Action(ConnectionAction::LaunchWorkspace) => 8,
-            Self::Action(ConnectionAction::EditDetails) => 9,
-            Self::Action(ConnectionAction::ForgetConnection) => 10,
-            Self::Action(ConnectionAction::ForgetTermination { offset }) => 11 + offset,
+            Self::Field(ConnectionField::Color) => 2,
+            Self::Field(ConnectionField::Directory) => 3,
+            Self::Action(ConnectionAction::Save) => 4,
+            Self::Action(ConnectionAction::Discard) => 5,
+            Self::Action(ConnectionAction::Delete) => 6,
+            Self::Action(ConnectionAction::Test) => 7,
+            Self::Action(ConnectionAction::Toggle) => 8,
+            Self::Action(ConnectionAction::LaunchWorkspace) => 9,
+            Self::Action(ConnectionAction::EditDetails) => 10,
+            Self::Action(ConnectionAction::ForgetConnection) => 11,
+            Self::Action(ConnectionAction::ForgetTermination { offset }) => 12 + offset,
         }
     }
 
@@ -1687,17 +1689,18 @@ impl ConnectionRowId {
         Some(match index {
             0 => Self::Field(ConnectionField::Target),
             1 => Self::Field(ConnectionField::Name),
-            2 => Self::Field(ConnectionField::Directory),
-            3 => Self::Action(ConnectionAction::Save),
-            4 => Self::Action(ConnectionAction::Discard),
-            5 => Self::Action(ConnectionAction::Delete),
-            6 => Self::Action(ConnectionAction::Test),
-            7 => Self::Action(ConnectionAction::Toggle),
-            8 => Self::Action(ConnectionAction::LaunchWorkspace),
-            9 => Self::Action(ConnectionAction::EditDetails),
-            10 => Self::Action(ConnectionAction::ForgetConnection),
-            offset if offset >= 11 => Self::Action(ConnectionAction::ForgetTermination {
-                offset: offset - 11,
+            2 => Self::Field(ConnectionField::Color),
+            3 => Self::Field(ConnectionField::Directory),
+            4 => Self::Action(ConnectionAction::Save),
+            5 => Self::Action(ConnectionAction::Discard),
+            6 => Self::Action(ConnectionAction::Delete),
+            7 => Self::Action(ConnectionAction::Test),
+            8 => Self::Action(ConnectionAction::Toggle),
+            9 => Self::Action(ConnectionAction::LaunchWorkspace),
+            10 => Self::Action(ConnectionAction::EditDetails),
+            11 => Self::Action(ConnectionAction::ForgetConnection),
+            offset if offset >= 12 => Self::Action(ConnectionAction::ForgetTermination {
+                offset: offset - 12,
             }),
             _ => return None,
         })
@@ -1794,6 +1797,11 @@ fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Ve
     let editing = editor.is_editing();
     let target = editor.draft.target.clone();
     let name = editor.draft.name.clone();
+    let color = editor
+        .draft
+        .accent
+        .map(TerminalAccent::display_name)
+        .unwrap_or("None");
     let directory = editor.draft.directory.clone();
     let mut rows = vec![
         SettingsListRow::Caption(
@@ -1812,6 +1820,13 @@ fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Ve
             index: ConnectionRowId::Field(ConnectionField::Name).selection_index(),
             title: "Name (Optional)".into(),
             value: name.into(),
+        },
+        SettingsListRow::Value {
+            index: ConnectionRowId::Field(ConnectionField::Color).selection_index(),
+            title: "Color".into(),
+            description: "Badge color for this connection".into(),
+            value: format!("‹ {color} ›").into(),
+            editable: false,
         },
         SettingsListRow::Spacer,
         SettingsListRow::Caption(
@@ -2518,7 +2533,7 @@ mod tests {
     #[test]
     fn connection_retirement_preview_discloses_scope_before_confirmation() {
         let mut editor = crate::app::state::ConnectionEditorState::detail_profile(
-            "robotbox", "Robotbox", "robotbox", "",
+            "robotbox", "Robotbox", "robotbox", "", None,
         );
         editor.connection_retirement = Some(crate::app::state::ConnectionRetirementState::Review(
             crate::app::state::ConnectionRetirementPreview {

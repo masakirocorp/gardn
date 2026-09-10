@@ -621,14 +621,26 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
     let text_style = Style::default().fg(app.palette.text);
     let dim_style = Style::default().fg(app.palette.overlay0);
     let visible = app.group_menu.visible();
+    let labels = app.group_menu_labels();
+    let offset = crate::app::connection_scope::menu_scroll_offset(
+        app.group_menu.selected,
+        labels.len(),
+        inner.height as usize,
+    );
 
-    for (idx, item) in app.group_menu_labels().iter().enumerate() {
+    for (row_idx, (idx, item)) in labels
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(inner.height as usize)
+        .enumerate()
+    {
         let selected = visible == Some(idx);
         if idx == 1 {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row_idx,
                 group_menu_all_line(app, selected, inner.width),
                 selected,
                 selected_style,
@@ -640,7 +652,7 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row_idx,
                 group_menu_group_line(app, group_idx, selected, inner.width),
                 selected,
                 selected_style,
@@ -648,12 +660,12 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
             );
         } else if app.group_menu_action_for_row(idx).is_none() {
             if item == "---" {
-                render_menu_separator(frame, inner, idx, dim_style);
+                render_menu_separator(frame, inner, row_idx, dim_style);
             } else {
                 render_menu_row(
                     frame,
                     inner,
-                    idx,
+                    row_idx,
                     Line::from(format!(" {item}")),
                     false,
                     selected_style,
@@ -666,7 +678,7 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row_idx,
                 Line::from(vec![
                     Span::styled(name.to_string(), line_style),
                     Span::styled(count.to_string(), count_style),
@@ -679,7 +691,7 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row_idx,
                 Line::from(item.clone()),
                 selected,
                 selected_style,
@@ -703,17 +715,29 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
     let text_style = Style::default().fg(app.palette.text);
     let dim_style = Style::default().fg(app.palette.overlay0);
     let visible = app.agent_menu.visible();
+    let labels = app.agent_menu_labels();
+    let offset = crate::app::connection_scope::menu_scroll_offset(
+        app.agent_menu.selected,
+        labels.len(),
+        inner.height as usize,
+    );
 
-    for (idx, item) in app.agent_menu_labels().iter().enumerate() {
+    for (row_idx, (idx, item)) in labels
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(inner.height as usize)
+        .enumerate()
+    {
         let selected = visible == Some(idx);
         if app.agent_menu_action_for_row(idx).is_none() {
             if item == "---" {
-                render_menu_separator(frame, inner, idx, dim_style);
+                render_menu_separator(frame, inner, row_idx, dim_style);
             } else {
                 render_menu_row(
                     frame,
                     inner,
-                    idx,
+                    row_idx,
                     Line::from(format!(" {item}")),
                     false,
                     selected_style,
@@ -726,7 +750,7 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row_idx,
                 Line::from(vec![
                     Span::styled(name.to_string(), line_style),
                     Span::styled(count.to_string(), count_style),
@@ -739,7 +763,7 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row_idx,
                 Line::from(item.clone()),
                 selected,
                 selected_style,
@@ -1119,6 +1143,7 @@ fn render_client_list_menu(
     frame: &mut Frame,
     rect: Rect,
     labels: &[String],
+    selection_anchor: usize,
     visible: Option<usize>,
 ) {
     let Some(inner) = render_panel_shell(frame, rect, app.palette.accent, app.palette.panel_bg)
@@ -1131,14 +1156,25 @@ fn render_client_list_menu(
         .add_modifier(Modifier::BOLD);
     let text = Style::default().fg(app.palette.text);
     let dim = Style::default().fg(app.palette.overlay0);
-    for (idx, label) in labels.iter().enumerate() {
+    let offset = crate::app::connection_scope::menu_scroll_offset(
+        selection_anchor,
+        labels.len(),
+        inner.height as usize,
+    );
+    for (row_idx, (idx, label)) in labels
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(inner.height as usize)
+        .enumerate()
+    {
         if label == "---" {
-            render_menu_separator(frame, inner, idx, dim);
+            render_menu_separator(frame, inner, row_idx, dim);
         } else {
             render_menu_row(
                 frame,
                 inner,
-                idx,
+                row_idx,
                 Line::from(format!(" {label}")),
                 visible == Some(idx),
                 selected,
@@ -1218,9 +1254,20 @@ pub(super) fn render_group_menu_for_view(
     let text_style = Style::default().fg(app.palette.text);
     let dim_style = Style::default().fg(app.palette.overlay0);
     let visible = view.group_menu.visible();
-    for (idx, label) in labels.iter().enumerate() {
+    let offset = crate::app::connection_scope::menu_scroll_offset(
+        view.group_menu.selected,
+        labels.len(),
+        inner.height as usize,
+    );
+    for (row_idx, (idx, label)) in labels
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(inner.height as usize)
+        .enumerate()
+    {
         if label == "---" {
-            render_menu_separator(frame, inner, idx, dim_style);
+            render_menu_separator(frame, inner, row_idx, dim_style);
             continue;
         }
         let selected = visible == Some(idx) && app.group_menu_action_for_row(idx).is_some();
@@ -1239,7 +1286,7 @@ pub(super) fn render_group_menu_for_view(
         render_menu_row(
             frame,
             inner,
-            idx,
+            row_idx,
             line,
             selected,
             selected_style,
@@ -1253,12 +1300,13 @@ pub(super) fn render_agent_menu_for_view(
     view: &ClientViewState,
     frame: &mut Frame,
 ) {
-    let labels = crate::app::client_agent_menu_labels(view);
+    let labels = crate::app::client_agent_menu_labels(app, view);
     render_client_list_menu(
         app,
         frame,
         crate::app::client_agent_menu_rect(app, view),
         &labels,
+        view.agent_menu.selected,
         view.agent_menu
             .visible()
             .filter(|idx| app.agent_menu_action_for_row(*idx).is_some()),
@@ -1453,16 +1501,16 @@ mod tests {
         assert!(text.contains("Group"));
         assert!(!text.contains("follow"));
 
-        let (agent_filter_x, agent_filter_y) =
-            first_cell_with_text(buffer, 80, 20, "Filter").expect("agent filter row");
+        let (connections_x, connections_y) =
+            first_cell_with_text(buffer, 80, 20, "Connections").expect("connections heading");
         assert_eq!(
-            buffer[(agent_filter_x, agent_filter_y)].style().fg,
+            buffer[(connections_x, connections_y)].style().fg,
             Some(app.palette.overlay0)
         );
         assert_ne!(
-            buffer[(agent_filter_x, agent_filter_y)].style().bg,
+            buffer[(connections_x, connections_y)].style().bg,
             Some(app.palette.accent),
-            "agent filter row should not use selected background"
+            "connections heading should not use selected background"
         );
 
         for label in ["All", "Space", "Group"] {
@@ -1492,12 +1540,13 @@ mod tests {
             .unwrap();
 
         let group_buffer = terminal.backend().buffer();
-        let (group_filter_x, group_filter_y) =
-            first_cell_with_text(group_buffer, 80, 20, "Filter").expect("group filter row");
+        let (group_connections_x, group_connections_y) =
+            first_cell_with_text(group_buffer, 80, 20, "Connections")
+                .expect("group connections heading");
         assert_eq!(
-            buffer[(agent_filter_x, agent_filter_y)].style(),
-            group_buffer[(group_filter_x, group_filter_y)].style(),
-            "agent filter row should match spaces filter row muted styling"
+            buffer[(connections_x, connections_y)].style(),
+            group_buffer[(group_connections_x, group_connections_y)].style(),
+            "connection headings should use the same muted styling"
         );
     }
 

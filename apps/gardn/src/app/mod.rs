@@ -13,6 +13,7 @@ mod api;
 mod api_helpers;
 pub(crate) mod command_palette;
 mod config_io;
+pub(crate) mod connection_scope;
 mod creation;
 mod github;
 pub(crate) mod host_label;
@@ -106,9 +107,19 @@ pub(crate) fn client_group_menu_labels(state: &AppState, view: &ClientViewState)
     } else {
         "✓"
     };
+    let connection_visible =
+        |idx| connection_scope::workspace_matches(state, idx, &view.connection_scope);
     let mut labels = vec![
-        "Filter".to_string(),
-        format!("{all_marker} All {}", state.workspaces.len()),
+        "Spaces".to_string(),
+        format!(
+            "{all_marker} All {}",
+            state
+                .workspaces
+                .iter()
+                .enumerate()
+                .filter(|(idx, _)| connection_visible(*idx))
+                .count()
+        ),
     ];
     labels.extend(state.groups.iter().enumerate().map(|(idx, group)| {
         let marker = if view.group_filter_enabled && idx == view.active_group {
@@ -119,10 +130,26 @@ pub(crate) fn client_group_menu_labels(state: &AppState, view: &ClientViewState)
         let count = state
             .workspaces
             .iter()
-            .filter(|workspace| workspace.group_id == group.id)
+            .enumerate()
+            .filter(|(ws_idx, workspace)| {
+                workspace.group_id == group.id && connection_visible(*ws_idx)
+            })
             .count();
         format!("{marker} {} {} {count}", group.icon, group.name)
     }));
+    labels.extend(["---".to_string(), "Connections".to_string()]);
+    labels.extend(
+        connection_scope::choices(state)
+            .into_iter()
+            .map(|(scope, label)| {
+                let marker = if scope == view.connection_scope {
+                    "✓"
+                } else {
+                    " "
+                };
+                format!("{marker} {label}")
+            }),
+    );
     labels.extend([
         "---".to_string(),
         "New".to_string(),
@@ -164,40 +191,41 @@ pub(crate) fn client_group_menu_rect(state: &AppState, view: &ClientViewState) -
     )
 }
 
-pub(crate) fn client_agent_menu_labels(view: &ClientViewState) -> Vec<String> {
-    let all_marker = if matches!(
-        view.agent_panel_scope,
-        state::AgentPanelScope::AllWorkspaces
-    ) {
-        "✓"
-    } else {
-        " "
+pub(crate) fn client_agent_menu_labels(state: &AppState, view: &ClientViewState) -> Vec<String> {
+    let marker = |scope| {
+        if view.agent_panel_scope == scope {
+            "✓"
+        } else {
+            " "
+        }
     };
-    let space_marker = if matches!(
-        view.agent_panel_scope,
-        state::AgentPanelScope::CurrentWorkspace
-    ) {
-        "✓"
-    } else {
-        " "
-    };
-    let group_marker = if matches!(view.agent_panel_scope, state::AgentPanelScope::CurrentGroup) {
-        "✓"
-    } else {
-        " "
-    };
-    vec![
-        "Filter".to_string(),
-        format!("{all_marker} All"),
-        format!("{space_marker} Space"),
-        format!("{group_marker} Group"),
-    ]
+    let mut labels = vec![
+        "Agents".to_string(),
+        format!("{} All", marker(state::AgentPanelScope::AllWorkspaces)),
+        format!("{} Space", marker(state::AgentPanelScope::CurrentWorkspace)),
+        format!("{} Group", marker(state::AgentPanelScope::CurrentGroup)),
+        "---".to_string(),
+        "Connections".to_string(),
+    ];
+    labels.extend(
+        connection_scope::choices(state)
+            .into_iter()
+            .map(|(scope, label)| {
+                let marker = if scope == view.connection_scope {
+                    "✓"
+                } else {
+                    " "
+                };
+                format!("{marker} {label}")
+            }),
+    );
+    labels
 }
 
 pub(crate) fn client_agent_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
     let screen = view.screen_rect();
     let anchor = client_agent_menu_anchor_rect(state, view);
-    let labels = client_agent_menu_labels(view);
+    let labels = client_agent_menu_labels(state, view);
     let content_width = labels
         .iter()
         .enumerate()
@@ -1037,6 +1065,7 @@ impl App {
             collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope,
+            connection_scope: connection_scope::ConnectionScope::All,
             triage_hold: None,
             mouse_capture: config.ui.mouse_capture,
             pending_pane_mouse_motion: None,
@@ -5667,6 +5696,13 @@ impl App {
                 self.switch_client_view_group(client_view, idx);
                 Self::leave_client_view_command_mode(client_view);
             }
+            input::GroupMenuAction::Connection(scope) => {
+                client_view.connection_scope = scope;
+                connection_scope::reanchor_view_selection(&self.state, client_view);
+                client_view.workspace_scroll = 0;
+                client_view.agent_panel_scroll = 0;
+                Self::leave_client_view_command_mode(client_view);
+            }
             input::GroupMenuAction::NewWorkspace => {
                 self.create_workspace_for_client_view(client_view);
             }
@@ -5767,11 +5803,22 @@ impl App {
             return;
         };
 
-        client_view.agent_panel_scope = match action {
-            input::AgentMenuAction::ThisSpace => state::AgentPanelScope::CurrentWorkspace,
-            input::AgentMenuAction::ThisGroup => state::AgentPanelScope::CurrentGroup,
-            input::AgentMenuAction::AllAgents => state::AgentPanelScope::AllWorkspaces,
-        };
+        match action {
+            input::AgentMenuAction::ThisSpace => {
+                client_view.agent_panel_scope = state::AgentPanelScope::CurrentWorkspace;
+            }
+            input::AgentMenuAction::ThisGroup => {
+                client_view.agent_panel_scope = state::AgentPanelScope::CurrentGroup;
+            }
+            input::AgentMenuAction::AllAgents => {
+                client_view.agent_panel_scope = state::AgentPanelScope::AllWorkspaces;
+            }
+            input::AgentMenuAction::Connection(scope) => {
+                client_view.connection_scope = scope;
+                connection_scope::reanchor_view_selection(&self.state, client_view);
+                client_view.workspace_scroll = 0;
+            }
+        }
         client_view.agent_panel_scroll = 0;
         Self::leave_client_view_agent_menu(client_view);
     }
@@ -5904,10 +5951,19 @@ impl App {
                 client_view.mode = Mode::Resize;
             }
             crate::app::command_palette::CommandPaletteAction::OpenGroupMenu => {
-                let highlighted = if client_view.group_filter_enabled {
-                    client_view.active_group + 2
-                } else {
-                    1
+                let highlighted = match &client_view.connection_scope {
+                    connection_scope::ConnectionScope::All => {
+                        if client_view.group_filter_enabled {
+                            client_view.active_group + 2
+                        } else {
+                            1
+                        }
+                    }
+                    scope => connection_scope::choices(&self.state)
+                        .iter()
+                        .position(|(candidate, _)| candidate == scope)
+                        .map(|index| self.state.groups.len() + 4 + index)
+                        .unwrap_or(1),
                 };
                 client_view.group_menu = state::ModalListState::hidden(highlighted);
                 client_view.mode = Mode::GroupMenu;
@@ -5960,10 +6016,17 @@ impl App {
                 );
             }
             crate::app::command_palette::CommandPaletteAction::OpenAgentMenu => {
-                let highlighted = match client_view.agent_panel_scope {
-                    state::AgentPanelScope::AllWorkspaces => 1,
-                    state::AgentPanelScope::CurrentWorkspace => 2,
-                    state::AgentPanelScope::CurrentGroup => 3,
+                let highlighted = match &client_view.connection_scope {
+                    connection_scope::ConnectionScope::All => match client_view.agent_panel_scope {
+                        state::AgentPanelScope::AllWorkspaces => 1,
+                        state::AgentPanelScope::CurrentWorkspace => 2,
+                        state::AgentPanelScope::CurrentGroup => 3,
+                    },
+                    scope => connection_scope::choices(&self.state)
+                        .iter()
+                        .position(|(candidate, _)| candidate == scope)
+                        .map(|index| 6 + index)
+                        .unwrap_or(1),
                 };
                 client_view.agent_menu = state::ModalListState::hidden(highlighted);
                 client_view.mode = Mode::AgentMenu;
@@ -6205,30 +6268,24 @@ impl App {
         client_view: &ClientViewState,
         ws_idx: usize,
     ) -> bool {
-        if !client_view.group_filter_enabled {
-            return self.state.workspaces.get(ws_idx).is_some();
-        }
-        let active_group_id = self
-            .state
-            .groups
-            .get(client_view.active_group)
-            .map(|group| group.id.as_str())
-            .unwrap_or(crate::workspace::DEFAULT_GROUP_ID);
-        self.state
-            .workspaces
-            .get(ws_idx)
-            .is_some_and(|workspace| workspace.group_id == active_group_id)
+        connection_scope::visible_workspace_indices(
+            &self.state,
+            client_view.active_group,
+            client_view.group_filter_enabled,
+            &client_view.connection_scope,
+        )
+        .contains(&ws_idx)
     }
 
     fn first_client_view_visible_workspace(&self, client_view: &ClientViewState) -> Option<usize> {
-        self.state
-            .workspaces
-            .iter()
-            .enumerate()
-            .find_map(|(idx, _)| {
-                self.client_view_workspace_in_active_group(client_view, idx)
-                    .then_some(idx)
-            })
+        connection_scope::visible_workspace_indices(
+            &self.state,
+            client_view.active_group,
+            client_view.group_filter_enabled,
+            &client_view.connection_scope,
+        )
+        .into_iter()
+        .next()
     }
 
     fn switch_client_view_workspace(&self, client_view: &mut ClientViewState, ws_idx: usize) {
@@ -7593,13 +7650,7 @@ impl App {
             }
             input::NavigateAction::Help => Self::open_client_view_keybind_help(client_view),
             input::NavigateAction::OpenGroupMenu => {
-                let highlighted = if client_view.group_filter_enabled {
-                    client_view.active_group + 2
-                } else {
-                    1
-                };
-                client_view.group_menu = state::ModalListState::hidden(highlighted);
-                client_view.mode = Mode::GroupMenu;
+                self.open_client_view_group_menu(client_view);
             }
             input::NavigateAction::OpenContextMenu => {
                 let ws_idx = client_view
@@ -7653,13 +7704,7 @@ impl App {
                 Self::leave_client_view_command_mode(client_view);
             }
             input::NavigateAction::OpenAgentMenu => {
-                let highlighted = match client_view.agent_panel_scope {
-                    state::AgentPanelScope::AllWorkspaces => 1,
-                    state::AgentPanelScope::CurrentWorkspace => 2,
-                    state::AgentPanelScope::CurrentGroup => 3,
-                };
-                client_view.agent_menu = state::ModalListState::hidden(highlighted);
-                client_view.mode = Mode::AgentMenu;
+                self.open_client_view_agent_menu(client_view);
             }
             input::NavigateAction::EditScrollback => {
                 let previous_mode = client_view.mode;
@@ -8716,7 +8761,7 @@ impl App {
 
         let areas = crate::ui::mobile_switcher_areas_for_view(&self.state, client_view);
         if Self::rect_contains(areas.agent_scope, mouse.column, mouse.row) {
-            Self::open_client_view_agent_menu(client_view);
+            self.open_client_view_agent_menu(client_view);
             return true;
         }
         if Self::rect_contains(areas.agent_toggle, mouse.column, mouse.row) {
@@ -10927,11 +10972,11 @@ impl App {
                     return true;
                 }
                 if self.client_view_on_group_selector(client_view, mouse) {
-                    Self::open_client_view_group_menu(client_view);
+                    self.open_client_view_group_menu(client_view);
                     return true;
                 }
                 if self.client_view_on_agent_panel_scope_toggle(client_view, mouse) {
-                    Self::open_client_view_agent_menu(client_view);
+                    self.open_client_view_agent_menu(client_view);
                     return true;
                 }
                 if Self::client_view_on_right_sidebar_toggle(client_view, mouse) {
@@ -11228,14 +11273,18 @@ impl App {
         {
             return None;
         }
-        let idx = (row - rect.y - 1) as usize;
-        (idx < self.client_view_group_menu_labels(client_view).len()
-            && self.state.group_menu_action_for_row(idx).is_some())
-        .then_some(idx)
+        let labels = self.client_view_group_menu_labels(client_view);
+        let offset = connection_scope::menu_scroll_offset(
+            client_view.group_menu.selected,
+            labels.len(),
+            rect.height.saturating_sub(2) as usize,
+        );
+        let idx = offset + (row - rect.y - 1) as usize;
+        (idx < labels.len() && self.state.group_menu_action_for_row(idx).is_some()).then_some(idx)
     }
 
-    fn client_view_agent_menu_labels(client_view: &ClientViewState) -> Vec<String> {
-        client_agent_menu_labels(client_view)
+    fn client_view_agent_menu_labels(&self, client_view: &ClientViewState) -> Vec<String> {
+        client_agent_menu_labels(&self.state, client_view)
     }
 
     fn client_view_agent_menu_rect(&self, client_view: &ClientViewState) -> Rect {
@@ -11256,10 +11305,14 @@ impl App {
         {
             return None;
         }
-        let idx = (row - rect.y - 1) as usize;
-        (idx < Self::client_view_agent_menu_labels(client_view).len()
-            && self.state.agent_menu_action_for_row(idx).is_some())
-        .then_some(idx)
+        let labels = self.client_view_agent_menu_labels(client_view);
+        let offset = connection_scope::menu_scroll_offset(
+            client_view.agent_menu.selected,
+            labels.len(),
+            rect.height.saturating_sub(2) as usize,
+        );
+        let idx = offset + (row - rect.y - 1) as usize;
+        (idx < labels.len() && self.state.agent_menu_action_for_row(idx).is_some()).then_some(idx)
     }
 
     fn client_view_agent_panel_rect(&self, client_view: &ClientViewState) -> Rect {
@@ -11653,21 +11706,37 @@ impl App {
         true
     }
 
-    fn open_client_view_group_menu(client_view: &mut ClientViewState) {
-        let highlighted = if client_view.group_filter_enabled {
-            client_view.active_group + 2
-        } else {
-            1
+    fn open_client_view_group_menu(&self, client_view: &mut ClientViewState) {
+        let highlighted = match &client_view.connection_scope {
+            connection_scope::ConnectionScope::All => {
+                if client_view.group_filter_enabled {
+                    client_view.active_group + 2
+                } else {
+                    1
+                }
+            }
+            scope => connection_scope::choices(&self.state)
+                .iter()
+                .position(|(candidate, _)| candidate == scope)
+                .map(|index| self.state.groups.len() + 4 + index)
+                .unwrap_or(1),
         };
         client_view.group_menu = state::ModalListState::hidden(highlighted);
         client_view.mode = Mode::GroupMenu;
     }
 
-    fn open_client_view_agent_menu(client_view: &mut ClientViewState) {
-        let highlighted = match client_view.agent_panel_scope {
-            state::AgentPanelScope::AllWorkspaces => 1,
-            state::AgentPanelScope::CurrentWorkspace => 2,
-            state::AgentPanelScope::CurrentGroup => 3,
+    fn open_client_view_agent_menu(&self, client_view: &mut ClientViewState) {
+        let highlighted = match &client_view.connection_scope {
+            connection_scope::ConnectionScope::All => match client_view.agent_panel_scope {
+                state::AgentPanelScope::AllWorkspaces => 1,
+                state::AgentPanelScope::CurrentWorkspace => 2,
+                state::AgentPanelScope::CurrentGroup => 3,
+            },
+            scope => connection_scope::choices(&self.state)
+                .iter()
+                .position(|(candidate, _)| candidate == scope)
+                .map(|index| 6 + index)
+                .unwrap_or(1),
         };
         client_view.agent_menu = state::ModalListState::hidden(highlighted);
         client_view.mode = Mode::AgentMenu;
@@ -21629,6 +21698,7 @@ command = "printf literal > '{}'"
             "build box",
             "builder@example.com",
             "~/src",
+            None,
         ));
         compute_client_view(&app, &mut client, ratatui::layout::Rect::new(0, 0, 120, 80));
 
@@ -21677,6 +21747,7 @@ command = "printf literal > '{}'"
             "build box",
             "builder@example.com",
             "~/src",
+            None,
         ));
         client.settings.scroll = 0;
         let owner = crate::execution_host::auth::AuthenticationOwner::new(client.id());

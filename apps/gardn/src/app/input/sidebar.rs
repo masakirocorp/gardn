@@ -17,19 +17,21 @@ pub(crate) struct GroupDropTarget {
     pub indicator_row: Option<u16>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum GroupMenuAction {
     AllSpaces,
     Group(usize),
+    Connection(crate::app::connection_scope::ConnectionScope),
     NewWorkspace,
     NewGroup,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AgentMenuAction {
     ThisSpace,
     ThisGroup,
     AllAgents,
+    Connection(crate::app::connection_scope::ConnectionScope),
 }
 
 impl AppState {
@@ -342,8 +344,16 @@ impl AppState {
             return crate::ui::collapsed_group_header_rect(self.view.sidebar_rect);
         }
 
-        let ws_area =
-            crate::ui::workspace_list_rect(self.view.sidebar_rect, self.sidebar_section_split);
+        let ws_area = if self.view.right_sidebar_rect == Rect::default()
+            && self.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight
+        {
+            crate::ui::right_aligned_workspace_list_rect(
+                self.view.sidebar_rect,
+                self.sidebar_section_split,
+            )
+        } else {
+            crate::ui::workspace_list_rect(self.view.sidebar_rect, self.sidebar_section_split)
+        };
         if ws_area == Rect::default() {
             return Rect::default();
         }
@@ -357,11 +367,15 @@ impl AppState {
     }
 
     pub(crate) fn group_selector_label(&self) -> String {
-        if self.group_filter_enabled {
+        let spaces = if self.group_filter_enabled {
             format!("{} {}", self.active_group_icon(), self.active_group_name())
         } else {
             "All".to_string()
-        }
+        };
+        format!(
+            "{spaces} · {}",
+            crate::app::connection_scope::scope_label(self, &self.connection_scope)
+        )
     }
 
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
@@ -370,9 +384,19 @@ impl AppState {
         } else {
             "✓"
         };
+        let connection_visible = |idx| {
+            crate::app::connection_scope::workspace_matches(self, idx, &self.connection_scope)
+        };
         let mut labels = vec![
-            "Filter".to_string(),
-            format!("{all_marker} All {}", self.workspaces.len()),
+            "Spaces".to_string(),
+            format!(
+                "{all_marker} All {}",
+                self.workspaces
+                    .iter()
+                    .enumerate()
+                    .filter(|(idx, _)| connection_visible(*idx))
+                    .count()
+            ),
         ];
         labels.extend(self.groups.iter().enumerate().map(|(idx, group)| {
             let marker = if self.group_filter_enabled && idx == self.active_group {
@@ -383,14 +407,30 @@ impl AppState {
             let count = self
                 .workspaces
                 .iter()
-                .filter(|ws| ws.group_id == group.id)
+                .enumerate()
+                .filter(|(ws_idx, workspace)| {
+                    workspace.group_id == group.id && connection_visible(*ws_idx)
+                })
                 .count();
             format!("{marker} {} {} {count}", group.icon, group.name)
         }));
-        labels.push("---".to_string());
-        labels.push("New".to_string());
-        labels.push("  Space".to_string());
-        labels.push("  Group".to_string());
+        labels.extend(["---".to_string(), "Connections".to_string()]);
+        labels.extend(crate::app::connection_scope::choices(self).into_iter().map(
+            |(scope, label)| {
+                let marker = if scope == self.connection_scope {
+                    "✓"
+                } else {
+                    " "
+                };
+                format!("{marker} {label}")
+            },
+        ));
+        labels.extend([
+            "---".to_string(),
+            "New".to_string(),
+            "  Space".to_string(),
+            "  Group".to_string(),
+        ]);
         labels
     }
 
@@ -398,34 +438,22 @@ impl AppState {
         if row_idx == 1 {
             return Some(GroupMenuAction::AllSpaces);
         }
-
         let group_start = 2;
         let group_end = group_start + self.groups.len();
         if (group_start..group_end).contains(&row_idx) {
             return Some(GroupMenuAction::Group(row_idx - group_start));
         }
-
-        let separator_idx = group_end;
-        if row_idx == separator_idx {
-            return None;
+        let connection_start = group_end + 2;
+        let connection_choices = crate::app::connection_scope::choices(self);
+        if let Some((scope, _)) = connection_choices.get(row_idx.checked_sub(connection_start)?) {
+            return Some(GroupMenuAction::Connection(scope.clone()));
         }
-
-        let create_idx = separator_idx + 1;
-        if row_idx == create_idx {
-            return None;
+        let new_workspace_idx = connection_start + connection_choices.len() + 2;
+        match row_idx {
+            idx if idx == new_workspace_idx => Some(GroupMenuAction::NewWorkspace),
+            idx if idx == new_workspace_idx + 1 => Some(GroupMenuAction::NewGroup),
+            _ => None,
         }
-
-        let new_workspace_idx = create_idx + 1;
-        if row_idx == new_workspace_idx {
-            return Some(GroupMenuAction::NewWorkspace);
-        }
-
-        let new_group_idx = new_workspace_idx + 1;
-        if row_idx == new_group_idx {
-            return Some(GroupMenuAction::NewGroup);
-        }
-
-        None
     }
 
     pub(crate) fn group_menu_rect(&self) -> Rect {
@@ -456,36 +484,44 @@ impl AppState {
     }
 
     pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
-        let all_marker = if matches!(self.agent_panel_scope, AgentPanelScope::AllWorkspaces) {
-            "✓"
-        } else {
-            " "
+        let marker = |scope| {
+            if self.agent_panel_scope == scope {
+                "✓"
+            } else {
+                " "
+            }
         };
-        let space_marker = if matches!(self.agent_panel_scope, AgentPanelScope::CurrentWorkspace) {
-            "✓"
-        } else {
-            " "
-        };
-        let group_marker = if matches!(self.agent_panel_scope, AgentPanelScope::CurrentGroup) {
-            "✓"
-        } else {
-            " "
-        };
-        vec![
-            "Filter".to_string(),
-            format!("{all_marker} All"),
-            format!("{space_marker} Space"),
-            format!("{group_marker} Group"),
-        ]
+        let mut labels = vec![
+            "Agents".to_string(),
+            format!("{} All", marker(AgentPanelScope::AllWorkspaces)),
+            format!("{} Space", marker(AgentPanelScope::CurrentWorkspace)),
+            format!("{} Group", marker(AgentPanelScope::CurrentGroup)),
+            "---".to_string(),
+            "Connections".to_string(),
+        ];
+        labels.extend(crate::app::connection_scope::choices(self).into_iter().map(
+            |(scope, label)| {
+                let marker = if scope == self.connection_scope {
+                    "✓"
+                } else {
+                    " "
+                };
+                format!("{marker} {label}")
+            },
+        ));
+        labels
     }
 
     pub(crate) fn agent_menu_action_for_row(&self, row_idx: usize) -> Option<AgentMenuAction> {
         match row_idx {
-            1 => Some(AgentMenuAction::AllAgents),
-            2 => Some(AgentMenuAction::ThisSpace),
-            3 => Some(AgentMenuAction::ThisGroup),
-            _ => None,
+            1 => return Some(AgentMenuAction::AllAgents),
+            2 => return Some(AgentMenuAction::ThisSpace),
+            3 => return Some(AgentMenuAction::ThisGroup),
+            _ => {}
         }
+        crate::app::connection_scope::choices(self)
+            .get(row_idx.checked_sub(6)?)
+            .map(|(scope, _)| AgentMenuAction::Connection(scope.clone()))
     }
 
     pub(crate) fn agent_menu_rect(&self) -> Rect {
@@ -1569,14 +1605,18 @@ mod tests {
 
         let labels = app.state.group_menu_labels();
 
-        assert_eq!(labels[0], "Filter");
+        assert_eq!(labels[0], "Spaces");
         assert!(labels[1].contains("All 2"));
         assert!(labels[2].contains("Group 1 1"));
         assert!(labels[3].contains("Work 1"));
         assert_eq!(labels[4], "---");
-        assert_eq!(labels[5], "New");
-        assert_eq!(labels[6], "  Space");
-        assert_eq!(labels[7], "  Group");
+        assert_eq!(labels[5], "Connections");
+        assert_eq!(labels[6], "✓ All connections");
+        assert_eq!(labels[7], "  eva-00");
+        assert_eq!(labels[8], "---");
+        assert_eq!(labels[9], "New");
+        assert_eq!(labels[10], "  Space");
+        assert_eq!(labels[11], "  Group");
     }
 
     #[test]
@@ -2731,7 +2771,16 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["Filter", "✓ All", "  Space", "  Group"]
+            vec![
+                "Agents",
+                "✓ All",
+                "  Space",
+                "  Group",
+                "---",
+                "Connections",
+                "✓ All connections",
+                "  eva-00",
+            ]
         );
     }
 
@@ -2741,11 +2790,20 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["Filter", "✓ All", "  Space", "  Group"]
+            vec![
+                "Agents",
+                "✓ All",
+                "  Space",
+                "  Group",
+                "---",
+                "Connections",
+                "✓ All connections",
+                "  eva-00",
+            ]
         );
         assert_eq!(
             app.state.agent_menu_rect().width,
-            "  Space".len() as u16 + 4
+            "✓ All connections".chars().count() as u16 + 4
         );
     }
 

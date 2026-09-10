@@ -112,20 +112,36 @@ pub(super) fn open_global_menu(state: &mut AppState) {
 }
 
 pub(super) fn open_group_menu(state: &mut AppState) {
-    let highlighted = if state.group_filter_enabled {
-        state.active_group + 2
-    } else {
-        1
+    let highlighted = match &state.connection_scope {
+        crate::app::connection_scope::ConnectionScope::All => {
+            if state.group_filter_enabled {
+                state.active_group + 2
+            } else {
+                1
+            }
+        }
+        scope => crate::app::connection_scope::choices(state)
+            .iter()
+            .position(|(candidate, _)| candidate == scope)
+            .map(|index| state.groups.len() + 4 + index)
+            .unwrap_or(1),
     };
     state.group_menu = ModalListState::hidden(highlighted);
     state.mode = Mode::GroupMenu;
 }
 
 pub(super) fn open_agent_menu(state: &mut AppState) {
-    let highlighted = match state.agent_panel_scope {
-        crate::app::state::AgentPanelScope::AllWorkspaces => 1,
-        crate::app::state::AgentPanelScope::CurrentWorkspace => 2,
-        crate::app::state::AgentPanelScope::CurrentGroup => 3,
+    let highlighted = match &state.connection_scope {
+        crate::app::connection_scope::ConnectionScope::All => match state.agent_panel_scope {
+            crate::app::state::AgentPanelScope::AllWorkspaces => 1,
+            crate::app::state::AgentPanelScope::CurrentWorkspace => 2,
+            crate::app::state::AgentPanelScope::CurrentGroup => 3,
+        },
+        scope => crate::app::connection_scope::choices(state)
+            .iter()
+            .position(|(candidate, _)| candidate == scope)
+            .map(|index| 6 + index)
+            .unwrap_or(1),
     };
     state.agent_menu = ModalListState::hidden(highlighted);
     state.mode = Mode::AgentMenu;
@@ -487,6 +503,14 @@ pub(crate) fn handle_group_menu_key(state: &mut AppState, key: KeyEvent) {
                     state.switch_group(idx);
                     leave_modal(state);
                 }
+                super::sidebar::GroupMenuAction::Connection(scope) => {
+                    state.connection_scope = scope;
+                    crate::app::connection_scope::reanchor_state_selection(state);
+                    state.workspace_scroll = 0;
+                    state.agent_panel_scroll = 0;
+                    state.mark_session_dirty();
+                    leave_modal(state);
+                }
                 super::sidebar::GroupMenuAction::NewWorkspace => {
                     if state.prompt_new_workspace_name {
                         open_new_workspace_dialog_from_state(state);
@@ -553,17 +577,22 @@ pub(super) fn apply_agent_menu_action(
     state: &mut AppState,
     action: super::sidebar::AgentMenuAction,
 ) {
-    state.agent_panel_scope = match action {
+    match action {
         super::sidebar::AgentMenuAction::ThisSpace => {
-            crate::app::state::AgentPanelScope::CurrentWorkspace
+            state.agent_panel_scope = crate::app::state::AgentPanelScope::CurrentWorkspace;
         }
         super::sidebar::AgentMenuAction::ThisGroup => {
-            crate::app::state::AgentPanelScope::CurrentGroup
+            state.agent_panel_scope = crate::app::state::AgentPanelScope::CurrentGroup;
         }
         super::sidebar::AgentMenuAction::AllAgents => {
-            crate::app::state::AgentPanelScope::AllWorkspaces
+            state.agent_panel_scope = crate::app::state::AgentPanelScope::AllWorkspaces;
         }
-    };
+        super::sidebar::AgentMenuAction::Connection(scope) => {
+            state.connection_scope = scope;
+            crate::app::connection_scope::reanchor_state_selection(state);
+            state.workspace_scroll = 0;
+        }
+    }
     state.agent_panel_scroll = 0;
     state.mark_session_dirty();
 }
@@ -1756,8 +1785,14 @@ impl AppState {
         {
             return None;
         }
-        let idx = (row - rect.y - 1) as usize;
-        (idx < self.group_menu_labels().len()).then_some(idx)
+        let labels = self.group_menu_labels();
+        let offset = crate::app::connection_scope::menu_scroll_offset(
+            self.group_menu.selected,
+            labels.len(),
+            rect.height.saturating_sub(2) as usize,
+        );
+        let idx = offset + (row - rect.y - 1) as usize;
+        (idx < labels.len()).then_some(idx)
     }
 
     pub(crate) fn agent_menu_item_at(
@@ -1778,9 +1813,14 @@ impl AppState {
         {
             return None;
         }
-        let idx = (row - rect.y - 1) as usize;
-        (idx < self.agent_menu_labels().len() && self.agent_menu_action_for_row(idx).is_some())
-            .then_some(idx)
+        let labels = self.agent_menu_labels();
+        let offset = crate::app::connection_scope::menu_scroll_offset(
+            self.agent_menu.selected,
+            labels.len(),
+            rect.height.saturating_sub(2) as usize,
+        );
+        let idx = offset + (row - rect.y - 1) as usize;
+        (idx < labels.len() && self.agent_menu_action_for_row(idx).is_some()).then_some(idx)
     }
 }
 

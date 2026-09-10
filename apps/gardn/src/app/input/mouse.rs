@@ -213,6 +213,14 @@ impl AppState {
                             self.switch_group(idx);
                             leave_modal(self);
                         }
+                        super::sidebar::GroupMenuAction::Connection(scope) => {
+                            self.connection_scope = scope;
+                            crate::app::connection_scope::reanchor_state_selection(self);
+                            self.workspace_scroll = 0;
+                            self.agent_panel_scroll = 0;
+                            self.mark_session_dirty();
+                            leave_modal(self);
+                        }
                         super::sidebar::GroupMenuAction::NewWorkspace => {
                             if self.prompt_new_workspace_name {
                                 super::modal::open_new_workspace_dialog_from_state(self);

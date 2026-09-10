@@ -317,6 +317,7 @@ pub(crate) struct ClientViewState {
     pub(crate) active_group: usize,
     pub(crate) group_filter_enabled: bool,
     pub(crate) agent_panel_scope: crate::app::state::AgentPanelScope,
+    pub(crate) connection_scope: crate::app::connection_scope::ConnectionScope,
     pub(crate) agent_view_override: Option<crate::api::schema::AgentViewSetParams>,
     pub(crate) workspace_scroll: usize,
     pub(crate) agent_panel_scroll: usize,
@@ -436,6 +437,7 @@ impl ClientViewState {
             active_group: state.active_group,
             group_filter_enabled: state.group_filter_enabled,
             agent_panel_scope: state.agent_panel_scope,
+            connection_scope: state.connection_scope.clone(),
             agent_view_override: None,
             workspace_scroll: state.workspace_scroll,
             agent_panel_scroll: state.agent_panel_scroll,
@@ -582,6 +584,7 @@ impl ClientViewState {
         view.group_filter_enabled = false;
         view.agent_panel_scope =
             super::agent_panel_scope_from_config(state.sidebar_config.initial_agent_scope);
+        view.connection_scope = crate::app::connection_scope::ConnectionScope::All;
         view.sidebar_collapsed = sidebar_collapsed;
         view.right_sidebar_collapsed = sidebar_collapsed;
         view.agent_panel_scroll = 0;
@@ -618,6 +621,18 @@ impl ClientViewState {
         // Connection editor drafts (including install/forget substate) remain owned by
         // this client view. Shared host status is reconciled separately.
 
+        if let crate::app::connection_scope::ConnectionScope::Only(
+            crate::app::connection_scope::ConnectionIdentity::Profile(profile_id),
+        ) = &self.connection_scope
+        {
+            if !state
+                .ssh_connection_profiles
+                .iter()
+                .any(|profile| profile.id() == profile_id)
+            {
+                self.connection_scope = crate::app::connection_scope::ConnectionScope::All;
+            }
+        }
         if state.groups.is_empty() {
             self.active_group = 0;
             self.group_filter_enabled = false;

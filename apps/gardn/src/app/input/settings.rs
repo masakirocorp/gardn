@@ -1593,6 +1593,40 @@ fn pending_connection_directory(state: &AppState) -> String {
         .map(|editor| editor.draft.directory.clone())
         .unwrap_or_default()
 }
+fn pending_connection_accent(state: &AppState) -> Option<TerminalAccent> {
+    connection_editor(state).and_then(|editor| editor.draft.accent)
+}
+
+fn next_unused_connection_accent(state: &AppState) -> TerminalAccent {
+    TerminalAccent::ALL
+        .iter()
+        .copied()
+        .find(|accent| {
+            !state
+                .ssh_connection_profiles
+                .iter()
+                .any(|profile| profile.accent() == Some(*accent))
+        })
+        .unwrap_or_else(|| {
+            TerminalAccent::ALL[state.ssh_connection_profiles.len() % TerminalAccent::ALL.len()]
+        })
+}
+
+fn cycle_pending_connection_accent(state: &mut AppState) {
+    let next = match pending_connection_accent(state) {
+        None => Some(next_unused_connection_accent(state)),
+        Some(current) => {
+            let index = TerminalAccent::ALL
+                .iter()
+                .position(|accent| *accent == current)
+                .unwrap_or(0);
+            TerminalAccent::ALL.get(index + 1).copied()
+        }
+    };
+    if let Some(editor) = connection_editor_mut(state) {
+        editor.draft.accent = next;
+    }
+}
 
 fn set_pending_connection_field(state: &mut AppState, selected: usize, value: String) {
     let Some(editor) = connection_editor_mut(state) else {
@@ -1640,7 +1674,11 @@ fn edit_pending_connection_text(state: &mut AppState, key: KeyEvent) -> bool {
     };
     if !matches!(
         crate::settings_rows::ConnectionRowId::from_selection_index(selected),
-        Some(crate::settings_rows::ConnectionRowId::Field(_))
+        Some(crate::settings_rows::ConnectionRowId::Field(
+            crate::settings_rows::ConnectionField::Name
+                | crate::settings_rows::ConnectionField::Target
+                | crate::settings_rows::ConnectionField::Directory
+        ))
     ) {
         return false;
     }
@@ -1710,7 +1748,9 @@ fn browse_connection_profile_id_for_index(state: &AppState, selected: usize) -> 
 }
 
 fn open_blank_connection_editor(state: &mut AppState) {
-    state.settings.connection_editor = Some(crate::app::state::ConnectionEditorState::new_draft());
+    let mut editor = crate::app::state::ConnectionEditorState::new_draft();
+    editor.draft.accent = Some(next_unused_connection_accent(state));
+    state.settings.connection_editor = Some(editor);
     let target_index = ConnectionRowId::Field(ConnectionField::Target).selection_index();
     state.settings.list.select(target_index);
     state.settings.focused_input = Some(target_index);
@@ -1744,6 +1784,7 @@ fn back_from_connection_screen(state: &mut AppState) {
                 .suggested_directory()
                 .map(ToString::to_string)
                 .unwrap_or_default(),
+            accent: profile.accent(),
         });
     if let (Some(editor), Some(draft)) =
         (state.settings.connection_editor.as_mut(), persisted_draft)
@@ -1779,6 +1820,7 @@ fn load_connection_profile_detail(state: &mut AppState, profile_id: &str) -> boo
                 .suggested_directory()
                 .map(|directory| directory.to_string())
                 .unwrap_or_default(),
+            profile.accent(),
         ));
     let toggle_index =
         ConnectionRowId::Action(crate::settings_rows::ConnectionAction::Toggle).selection_index();
@@ -1843,6 +1885,7 @@ fn save_pending_connection_profile(state: &mut AppState) -> Option<SettingsActio
     } else {
         crate::execution_host::HostPath::new(directory_input).ok()
     };
+    let accent = pending_connection_accent(state);
     let profile_id =
         connection_editor(state).and_then(|editor| editor.profile_id().map(str::to_string));
     let profile = if let Some(id) = profile_id {
@@ -1854,25 +1897,28 @@ fn save_pending_connection_profile(state: &mut AppState) -> Option<SettingsActio
             .cloned()
         {
             Some(profile) => profile,
-            None => crate::persist::ssh_profiles::SshConnectionProfile::new(
+            None => crate::persist::ssh_profiles::SshConnectionProfile::new_with_accent(
                 id,
                 name.clone(),
                 target.clone(),
                 suggested_directory.clone(),
+                accent,
             )
             .ok()?,
         };
         profile.rename(name).ok()?;
         profile.set_suggested_directory(suggested_directory);
+        profile.set_accent(accent);
         profile.set_target(target).ok()?;
         profile
     } else {
         let id = next_connection_profile_id(state, &name);
-        crate::persist::ssh_profiles::SshConnectionProfile::new(
+        crate::persist::ssh_profiles::SshConnectionProfile::new_with_accent(
             id,
             name,
             target,
             suggested_directory,
+            accent,
         )
         .ok()?
     };
@@ -2012,6 +2058,10 @@ fn selected_connection_profile_action(state: &mut AppState) -> Option<SettingsAc
                         terminal_id: tombstone.terminal_id,
                     })
                 }
+            }
+            crate::settings_rows::ConnectionRowId::Field(ConnectionField::Color) => {
+                cycle_pending_connection_accent(state);
+                None
             }
             crate::settings_rows::ConnectionRowId::Field(_) => None,
         };
@@ -8853,6 +8903,7 @@ mod tests {
         connection_key(&mut app.state, KeyCode::Down);
         connection_type(&mut app.state, "build box");
         connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
         connection_type(&mut app.state, "~/src");
         connection_key(&mut app.state, KeyCode::Down);
         assert_eq!(app.state.settings.list.selected, CONNECTION_SAVE_INDEX);
@@ -8937,6 +8988,7 @@ mod tests {
         connection_type(&mut app.state, "build farm");
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
+        connection_key(&mut app.state, KeyCode::Down);
         let action = connection_key(&mut app.state, KeyCode::Enter);
         match &action {
             Some(SettingsAction::SaveSshConnectionProfile(profile)) => {
@@ -8967,6 +9019,7 @@ mod tests {
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL),
         );
         connection_type(&mut app.state, "deploy@example.com");
+        connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
@@ -9074,6 +9127,7 @@ mod tests {
         connection_type(&mut app.state, "ops@example.com");
         connection_key(&mut app.state, KeyCode::Down);
         connection_type(&mut app.state, "build box");
+        connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         connection_key(&mut app.state, KeyCode::Down);
         let action = connection_key(&mut app.state, KeyCode::Enter);
@@ -9939,5 +9993,24 @@ mod tests {
             state.settings.pending_agent_profile_id.as_deref(),
             Some("user:quiet")
         );
+    }
+
+    #[test]
+    fn connection_color_cycle_can_return_to_neutral() {
+        let mut state = AppState::test_new();
+        open_blank_connection_editor(&mut state);
+        state
+            .settings
+            .connection_editor
+            .as_mut()
+            .unwrap()
+            .draft
+            .accent = TerminalAccent::ALL.last().copied();
+
+        cycle_pending_connection_accent(&mut state);
+
+        assert_eq!(pending_connection_accent(&state), None);
+        cycle_pending_connection_accent(&mut state);
+        assert!(pending_connection_accent(&state).is_some());
     }
 }

@@ -134,6 +134,23 @@ impl App {
         let (removed, catalog) = crate::persist::ssh_profiles::remove(profile_id)
             .map_err(ConnectionProfileMutationError::Persistence)?;
         self.state.ssh_connection_profiles = catalog;
+        if removed {
+            let selected_profile = |scope: &crate::app::connection_scope::ConnectionScope| {
+                matches!(
+                    scope,
+                    crate::app::connection_scope::ConnectionScope::Only(
+                        crate::app::connection_scope::ConnectionIdentity::Profile(selected)
+                    ) if selected == profile_id
+                )
+            };
+            if selected_profile(&self.state.connection_scope) {
+                self.state.connection_scope = crate::app::connection_scope::ConnectionScope::All;
+            }
+            if selected_profile(&self.default_client_view.connection_scope) {
+                self.default_client_view.connection_scope =
+                    crate::app::connection_scope::ConnectionScope::All;
+            }
+        }
         if let Some(hosts) = &mut self.execution_hosts {
             hosts.sync_profiles(&self.state.ssh_connection_profiles);
         }

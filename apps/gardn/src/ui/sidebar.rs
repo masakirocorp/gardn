@@ -186,22 +186,13 @@ fn agent_panel_has_multiple_groups(app: &AppState) -> bool {
 
 pub(crate) fn agent_panel_toggle_rect(
     area: Rect,
-    scope: AgentPanelScope,
+    _scope: AgentPanelScope,
     _leading_separator: bool,
 ) -> Rect {
-    if area.width == 0 || area.height < 2 {
+    if area.width <= 7 || area.height < 2 {
         return Rect::default();
     }
-
-    let label = agent_panel_toggle_label(scope);
-    let width = (label.chars().count() as u16 + 2).min(area.width);
-    let y_offset = 0;
-    Rect::new(
-        area.x + area.width.saturating_sub(width),
-        area.y + y_offset,
-        width,
-        1,
-    )
+    Rect::new(area.x + 7, area.y, area.width - 7, 1)
 }
 
 pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
@@ -225,6 +216,7 @@ pub(crate) fn agent_panel_entries_for_view(
         view.agent_panel_scope,
         view.active_workspace,
         view.active_group,
+        &view.connection_scope,
     );
     crate::app::agent_view::apply_agent_view(app, view, &mut entries);
     entries
@@ -254,6 +246,7 @@ pub(crate) fn agent_panel_sections_all_workspaces(
             AgentPanelScope::AllWorkspaces,
             app.active,
             app.active_group,
+            &app.connection_scope,
         ),
         true,
     )
@@ -272,6 +265,7 @@ pub(crate) fn agent_panel_sections_all_workspaces_for_view(
             AgentPanelScope::AllWorkspaces,
             view.active_workspace,
             view.active_group,
+            &view.connection_scope,
         ),
         true,
     )
@@ -282,7 +276,14 @@ fn agent_panel_entries_with_runtimes(
     terminal_runtimes: Option<&TerminalRuntimeRegistry>,
     scope: AgentPanelScope,
 ) -> Vec<AgentPanelEntry> {
-    agent_panel_entries_with_context(app, terminal_runtimes, scope, app.active, app.active_group)
+    agent_panel_entries_with_context(
+        app,
+        terminal_runtimes,
+        scope,
+        app.active,
+        app.active_group,
+        &app.connection_scope,
+    )
 }
 
 fn make_agent_panel_entry(
@@ -362,6 +363,7 @@ fn agent_panel_entries_with_context(
     scope: AgentPanelScope,
     active_workspace: Option<usize>,
     active_group: usize,
+    connection_scope: &crate::app::connection_scope::ConnectionScope,
 ) -> Vec<AgentPanelEntry> {
     let empty_runtimes;
     let terminal_runtimes = match terminal_runtimes {
@@ -417,6 +419,14 @@ fn agent_panel_entries_with_context(
             .collect(),
     };
     append_follow_up_fallback_entries(app, scope, active_workspace, active_group, &mut entries);
+    entries.retain(|entry| {
+        crate::app::connection_scope::pane_matches(
+            app,
+            entry.ws_idx,
+            entry.pane_id,
+            connection_scope,
+        )
+    });
     disambiguate_agent_panel_labels(app, &mut entries);
     entries
 }
@@ -995,51 +1005,66 @@ fn resolved_space_rows(
         },
     )
 }
+
 fn workspace_host_badge(
     app: &AppState,
     ws: &crate::workspace::Workspace,
-) -> Option<(String, ratatui::style::Color)> {
-    let hosts = ws
-        .terminal_tabs()
-        .flat_map(|(_, tab)| tab.panes.values())
-        .filter_map(|pane| app.terminals.get(&pane.attached_terminal_id))
-        .map(|terminal| terminal.location.execution_host_id.clone())
-        .collect::<std::collections::HashSet<_>>();
-    let host_ids = if hosts.is_empty() {
-        vec![ws.default_location.execution_host_id.clone()]
-    } else {
-        hosts.into_iter().collect::<Vec<_>>()
-    };
-    let mut display_names = std::collections::BTreeSet::new();
-    for host_id in &host_ids {
-        display_names.insert(
-            app.host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+) -> Option<(Vec<Span<'static>>, usize)> {
+    let mut host_ids = crate::app::connection_scope::workspace_host_ids(app, ws);
+    host_ids.sort_by_key(|host_id| {
+        app.host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+            host_id,
+        ))
+        .to_string()
+    });
+    if host_ids.is_empty() {
+        return None;
+    }
+
+    let mut spans = Vec::new();
+    let mut width = 0;
+    for (index, host_id) in host_ids.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::raw(" "));
+            width += 1;
+        }
+        let label = app
+            .host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
                 host_id,
             ))
-            .to_string(),
-        );
+            .to_string();
+        let background = crate::app::connection_scope::profile_for_host(app, host_id)
+            .and_then(|profile| profile.accent())
+            .map(|accent| app.global_palette.theme_accent_color(accent))
+            .unwrap_or(app.palette.surface1);
+        let badge = format!(" {label} ");
+        width += badge.chars().count();
+        spans.push(Span::styled(
+            badge,
+            Style::default().fg(app.palette.panel_bg).bg(background),
+        ));
+
+        let status = (!host_id.is_local())
+            .then(|| app.host_connection_states.get(host_id))
+            .flatten()
+            .and_then(|status| match status {
+                crate::execution_host::ConnectionStatus::Disconnected => Some("Offline"),
+                crate::execution_host::ConnectionStatus::Reconnecting { .. } => Some("Lost"),
+                crate::execution_host::ConnectionStatus::AuthenticationRequired => {
+                    Some("Unavailable")
+                }
+                _ => None,
+            });
+        if let Some(status) = status {
+            let health = format!(" {status}");
+            width += health.chars().count();
+            spans.push(Span::styled(
+                health,
+                Style::default().fg(app.palette.yellow),
+            ));
+        }
     }
-    let name = display_names.into_iter().collect::<Vec<_>>().join(" · ");
-    let remote = (host_ids.len() == 1)
-        .then(|| &host_ids[0])
-        .filter(|host| !host.is_local());
-    let health = remote.and_then(|host| app.host_connection_states.get(host));
-    let status = health.and_then(|status| match status {
-        crate::execution_host::ConnectionStatus::Disconnected => Some("Offline"),
-        crate::execution_host::ConnectionStatus::Reconnecting { .. } => Some("Lost"),
-        crate::execution_host::ConnectionStatus::AuthenticationRequired => Some("Unavailable"),
-        _ => None,
-    });
-    let label = match status {
-        Some(status) => format!("{name} · {status}"),
-        None => name,
-    };
-    let color = if status.is_some() {
-        app.palette.yellow
-    } else {
-        app.palette.overlay0
-    };
-    Some((label, color))
+    Some((spans, width))
 }
 
 fn workspace_has_metadata(ws: &crate::workspace::Workspace) -> bool {
@@ -1146,10 +1171,10 @@ fn render_workspace_token_rows(
             Style::default(),
         )];
         let host_badge = workspace_host_badge(app, ws);
-        if let Some((label, color)) = host_badge.as_ref() {
-            spans.push(summary_span(label, *color, max_summary_len));
+        if let Some((badge_spans, _)) = host_badge.as_ref() {
+            spans.extend(badge_spans.iter().cloned());
         }
-        let used = host_badge.as_ref().map_or(0, |(label, _)| label.len());
+        let used = host_badge.as_ref().map_or(0, |(_, width)| *width);
         let summary_width = max_summary_len.saturating_sub(used);
         let summary = workspace_summary_spans(ws, &app.palette, summary_width);
         if !summary.is_empty() && host_badge.is_some() {
@@ -1832,7 +1857,13 @@ pub(crate) fn collapsed_workspace_row_entries(app: &AppState) -> Vec<CollapsedWo
 
         let mut ordinal = 1;
         for (ws_idx, ws) in app.workspaces.iter().enumerate() {
-            if ws.group_id == group.id {
+            if ws.group_id == group.id
+                && crate::app::connection_scope::workspace_matches(
+                    app,
+                    ws_idx,
+                    &app.connection_scope,
+                )
+            {
                 entries.push(CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal });
                 ordinal += 1;
             }
@@ -1864,7 +1895,13 @@ fn collapsed_workspace_row_entries_for_view(
 
         let mut ordinal = 1;
         for (ws_idx, ws) in app.workspaces.iter().enumerate() {
-            if ws.group_id == group.id {
+            if ws.group_id == group.id
+                && crate::app::connection_scope::workspace_matches(
+                    app,
+                    ws_idx,
+                    &view.connection_scope,
+                )
+            {
                 entries.push(CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal });
                 ordinal += 1;
             }
@@ -1959,7 +1996,15 @@ fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
             .workspaces
             .iter()
             .enumerate()
-            .filter_map(|(ws_idx, ws)| (ws.group_id == group.id).then_some(ws_idx))
+            .filter_map(|(ws_idx, ws)| {
+                (ws.group_id == group.id
+                    && crate::app::connection_scope::workspace_matches(
+                        app,
+                        ws_idx,
+                        &app.connection_scope,
+                    ))
+                .then_some(ws_idx)
+            })
             .collect::<Vec<_>>();
         if !app.workspace_group_collapsed(&group.id) {
             if group_workspaces.is_empty() {
@@ -1978,19 +2023,12 @@ fn workspace_list_entries(app: &AppState) -> Vec<WorkspaceListEntry> {
 }
 
 fn visible_workspace_indices_for_view(app: &AppState, view: &ClientViewState) -> Vec<usize> {
-    if !view.group_filter_enabled {
-        return (0..app.workspaces.len()).collect();
-    }
-
-    let Some(group) = app.groups.get(view.active_group) else {
-        return Vec::new();
-    };
-
-    app.workspaces
-        .iter()
-        .enumerate()
-        .filter_map(|(idx, workspace)| (workspace.group_id == group.id).then_some(idx))
-        .collect()
+    crate::app::connection_scope::visible_workspace_indices(
+        app,
+        view.active_group,
+        view.group_filter_enabled,
+        &view.connection_scope,
+    )
 }
 
 fn workspace_group_collapsed_for_view(view: &ClientViewState, group_id: &str) -> bool {
@@ -2023,7 +2061,15 @@ fn workspace_list_entries_for_view(
             .workspaces
             .iter()
             .enumerate()
-            .filter_map(|(ws_idx, ws)| (ws.group_id == group.id).then_some(ws_idx))
+            .filter_map(|(ws_idx, ws)| {
+                (ws.group_id == group.id
+                    && crate::app::connection_scope::workspace_matches(
+                        app,
+                        ws_idx,
+                        &view.connection_scope,
+                    ))
+                .then_some(ws_idx)
+            })
             .collect::<Vec<_>>();
         if !workspace_group_collapsed_for_view(view, &group.id) {
             if group_workspaces.is_empty() {
@@ -2135,19 +2181,27 @@ fn collapsed_workspace_rows_rect_for_split(
 }
 
 fn collapsed_group_label(app: &AppState) -> String {
-    if app.group_filter_enabled {
+    let spaces = if app.group_filter_enabled {
         app.active_group_icon().to_string()
     } else {
         "All".to_string()
-    }
+    };
+    format!(
+        "{spaces} · {}",
+        crate::app::connection_scope::scope_label(app, &app.connection_scope)
+    )
 }
 
 fn collapsed_agent_scope_label(app: &AppState) -> String {
-    match app.agent_panel_scope {
-        AgentPanelScope::AllWorkspaces => "All".to_string(),
-        AgentPanelScope::CurrentGroup => "f:g".to_string(),
-        AgentPanelScope::CurrentWorkspace => "f:s".to_string(),
-    }
+    let agents = match app.agent_panel_scope {
+        AgentPanelScope::AllWorkspaces => "All",
+        AgentPanelScope::CurrentGroup => "f:g",
+        AgentPanelScope::CurrentWorkspace => "f:s",
+    };
+    format!(
+        "{agents} · {}",
+        crate::app::connection_scope::scope_label(app, &app.connection_scope)
+    )
 }
 
 pub(crate) fn collapsed_agent_panel_toggle_rect(area: Rect) -> Rect {
@@ -2323,11 +2377,15 @@ fn render_collapsed_agent_panel_for_view(
 
     let toggle_rect = collapsed_agent_panel_toggle_rect(area);
     if toggle_rect != Rect::default() {
-        let label = match view.agent_panel_scope {
+        let agents = match view.agent_panel_scope {
             AgentPanelScope::AllWorkspaces => "All",
             AgentPanelScope::CurrentGroup => "f:g",
             AgentPanelScope::CurrentWorkspace => "f:s",
         };
+        let label = format!(
+            "{agents} · {}",
+            crate::app::connection_scope::scope_label(app, &view.connection_scope)
+        );
         frame.render_widget(
             Paragraph::new(Span::styled(
                 label,
@@ -2910,14 +2968,7 @@ pub(super) fn render_sidebar_collapsed_for_view(
         collapsed_group_header_rect(area)
     };
     if group_header != Rect::default() {
-        let label = if view.group_filter_enabled {
-            app.groups
-                .get(view.active_group)
-                .map(|group| group.icon.clone())
-                .unwrap_or_else(|| "·".to_string())
-        } else {
-            "All".to_string()
-        };
+        let label = group_selector_label_for_view(app, view);
         let color = if view.group_filter_enabled {
             app.group_accent_color(view.active_group)
         } else {
@@ -4285,15 +4336,11 @@ pub(crate) fn group_selector_rect_for_view(app: &AppState, client_view: &ClientV
     if workspace_area == Rect::default() {
         return Rect::default();
     }
-    let label_width = if client_view.group_filter_enabled {
-        app.groups
-            .get(client_view.active_group)
-            .map(|group| format!("{} {}", group.icon, group.name).chars().count() as u16)
-            .unwrap_or(3)
-    } else {
-        3
-    };
-    let width = label_width.saturating_add(2).min(workspace_area.width);
+    let width = (group_selector_label_for_view(app, client_view)
+        .chars()
+        .count() as u16)
+        .saturating_add(2)
+        .min(workspace_area.width);
     Rect::new(
         workspace_area.x + workspace_area.width.saturating_sub(width),
         workspace_area.y,
@@ -4303,14 +4350,18 @@ pub(crate) fn group_selector_rect_for_view(app: &AppState, client_view: &ClientV
 }
 
 fn group_selector_label_for_view(app: &AppState, client_view: &ClientViewState) -> String {
-    if client_view.group_filter_enabled {
-        let Some(group) = app.groups.get(client_view.active_group) else {
-            return "All".to_string();
-        };
-        return format!("{} {}", group.icon, group.name);
-    }
-
-    "All".to_string()
+    let spaces = if client_view.group_filter_enabled {
+        app.groups
+            .get(client_view.active_group)
+            .map(|group| format!("{} {}", group.icon, group.name))
+            .unwrap_or_else(|| "All".to_string())
+    } else {
+        "All".to_string()
+    };
+    format!(
+        "{spaces} · {}",
+        crate::app::connection_scope::scope_label(app, &client_view.connection_scope)
+    )
 }
 
 fn workspace_summary_spans(
@@ -4891,7 +4942,11 @@ fn render_agent_detail_from(
         let style = Style::default().fg(p.overlay1).bg(p.surface0);
         frame.render_widget(
             Paragraph::new(centered_count_line(
-                agent_panel_toggle_label(app.agent_panel_scope),
+                &format!(
+                    "{} · {}",
+                    agent_panel_toggle_label(app.agent_panel_scope),
+                    crate::app::connection_scope::scope_label(app, &app.connection_scope)
+                ),
                 toggle_rect.width,
                 style,
                 style,
@@ -5028,7 +5083,11 @@ fn render_agent_detail_from_for_view(
         let style = Style::default().fg(p.overlay1).bg(p.surface0);
         frame.render_widget(
             Paragraph::new(centered_count_line(
-                agent_panel_toggle_label(client_view.agent_panel_scope),
+                &format!(
+                    "{} · {}",
+                    agent_panel_toggle_label(client_view.agent_panel_scope),
+                    crate::app::connection_scope::scope_label(app, &client_view.connection_scope)
+                ),
                 toggle_rect.width,
                 style,
                 style,
@@ -5253,6 +5312,14 @@ mod tests {
     use super::*;
     use crate::{app::state::Group, detect::Agent, workspace::Workspace};
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
+    fn badge_text(app: &AppState, workspace: &Workspace) -> Option<String> {
+        workspace_host_badge(app, workspace).map(|(spans, _)| {
+            spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+    }
 
     #[test]
     fn workspace_badge_reports_mixed_local_and_remote_hosts() {
@@ -5270,12 +5337,9 @@ mod tests {
                 crate::execution_host::HostPath::new("/srv/work").unwrap(),
             );
 
-        assert_eq!(
-            workspace_host_badge(&app, &app.workspaces[0])
-                .map(|(label, _)| label)
-                .as_deref(),
-            Some("ssh:workbox:1 · test-host")
-        );
+        let text = badge_text(&app, &app.workspaces[0]).unwrap();
+        assert!(text.contains("ssh:workbox:1"), "{text}");
+        assert!(text.contains("test-host"), "{text}");
     }
 
     #[test]
@@ -5300,18 +5364,17 @@ mod tests {
             crate::execution_host::ConnectionStatus::Disconnected,
         );
 
-        assert_eq!(
-            workspace_host_badge(&app, &app.workspaces[0])
-                .map(|(label, _)| label)
-                .as_deref(),
-            Some("test-host")
-        );
-        assert_eq!(
-            workspace_host_badge(&app, &app.workspaces[1])
-                .map(|(label, _)| label)
-                .as_deref(),
-            Some("ssh:workbox:1 · Offline")
-        );
+        assert!(badge_text(&app, &app.workspaces[0]).is_some_and(|text| text.contains("test-host")));
+        let (spans, _) = workspace_host_badge(&app, &app.workspaces[1]).unwrap();
+        assert!(spans
+            .iter()
+            .any(|span| span.content.contains("ssh:workbox:1")));
+        let health = spans
+            .iter()
+            .find(|span| span.content.contains("Offline"))
+            .expect("separate health label");
+        assert_eq!(health.style.fg, Some(app.palette.yellow));
+        assert_eq!(health.style.bg, None);
     }
 
     #[test]
@@ -5319,12 +5382,7 @@ mod tests {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("empty");
         app.workspaces = vec![workspace];
-        assert_eq!(
-            workspace_host_badge(&app, &app.workspaces[0])
-                .map(|(label, _)| label)
-                .as_deref(),
-            Some("test-host")
-        );
+        assert!(badge_text(&app, &app.workspaces[0]).is_some_and(|text| text.contains("test-host")));
     }
 
     #[test]
@@ -5485,7 +5543,11 @@ mod tests {
             " "
         );
         assert_eq!(
-            buffer[(home_card.x + SIDEBAR_WORKSPACE_NAME_COL, home_card.y + 1)].symbol(),
+            buffer[(
+                home_card.x + SIDEBAR_WORKSPACE_NAME_COL + 1,
+                home_card.y + 1
+            )]
+                .symbol(),
             "t"
         );
 
