@@ -37,7 +37,7 @@ pub(crate) use self::terminal::TerminalReadSnapshot;
 pub(crate) use self::terminal::TerminalViewport;
 use self::terminal::{GhosttyPaneTerminal, PaneTerminal};
 pub use self::{
-    state::PaneState,
+    state::{BlockedReviewState, PaneState},
     terminal::{
         InputState, ScrollMetrics, TerminalCursorState, TerminalTextMatch, TerminalTextPoint,
         TerminalWordMotion,

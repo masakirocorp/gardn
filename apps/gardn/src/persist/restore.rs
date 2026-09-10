@@ -591,6 +591,9 @@ fn restore_tab(
         let saved_terminal_theme_binding = saved_pane.and_then(|pane| pane.terminal_theme_binding);
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
         let saved_seen = saved_pane.is_none_or(|p| p.seen);
+        let saved_blocked_review = saved_pane
+            .map(|pane| pane.blocked_review)
+            .unwrap_or_default();
         let saved_right_click_passthrough = saved_pane.is_some_and(|p| p.right_click_passthrough);
         let saved_env_pane_id = saved_pane.and_then(|p| p.env_pane_id).or(old_id.copied());
         let saved_terminal_semantics = saved_pane.and_then(|p| p.terminal_semantics.clone());
@@ -657,6 +660,7 @@ fn restore_tab(
             let mut pane = PaneState::new_with_env_pane_id(terminal_id, *id);
             pane.env_pane_id_raw = saved_env_pane_id;
             pane.seen = saved_seen;
+            pane.blocked_review = saved_blocked_review;
             pane.right_click_passthrough = saved_right_click_passthrough;
             panes.insert(*id, pane);
             terminals.push(terminal);
@@ -713,6 +717,7 @@ fn restore_tab(
             let mut pane = PaneState::new_with_env_pane_id(terminal_id.clone(), *id);
             pane.env_pane_id_raw = saved_env_pane_id;
             pane.seen = saved_seen;
+            pane.blocked_review = saved_blocked_review;
             pane.right_click_passthrough = saved_right_click_passthrough;
             panes.insert(*id, pane);
             terminals.push(terminal);
@@ -826,6 +831,7 @@ fn restore_tab(
                 let mut pane = PaneState::new_with_env_pane_id(terminal_id.clone(), *id);
                 pane.env_pane_id_raw = saved_env_pane_id;
                 pane.seen = saved_seen;
+                pane.blocked_review = saved_blocked_review;
                 panes.insert(*id, pane);
                 terminal_runtimes.insert(terminal_id, runtime);
                 terminals.push(terminal);
@@ -1208,6 +1214,7 @@ mod tests {
                             launch_env: Vec::new(),
                             terminal_theme_binding: None,
                             seen: true,
+                            blocked_review: Default::default(),
                             right_click_passthrough: false,
                             terminal_semantics: None,
                         },
@@ -1333,6 +1340,7 @@ mod tests {
                             launch_env: Vec::new(),
                             terminal_theme_binding: None,
                             seen: true,
+                            blocked_review: Default::default(),
                             right_click_passthrough: false,
                             terminal_semantics: None,
                         },
@@ -1774,6 +1782,7 @@ mod tests {
                             launch_env: vec![("CODEX_HOME".into(), "/profiles/codex".into())],
                             terminal_theme_binding: None,
                             seen: true,
+                            blocked_review: Default::default(),
                             right_click_passthrough: false,
                             terminal_semantics: None,
                         },
@@ -2163,6 +2172,7 @@ mod tests {
                             launch_env: Vec::new(),
                             terminal_theme_binding: None,
                             seen: true,
+                            blocked_review: Default::default(),
                             right_click_passthrough: false,
                             terminal_semantics: None,
                         },
@@ -2276,6 +2286,7 @@ mod tests {
                             launch_env: Vec::new(),
                             terminal_theme_binding: None,
                             seen: true,
+                            blocked_review: Default::default(),
                             right_click_passthrough: false,
                             terminal_semantics: None,
                         },
@@ -2565,6 +2576,7 @@ mod tests {
                 launch_env: Vec::new(),
                 terminal_theme_binding: None,
                 seen: true,
+                blocked_review: Default::default(),
                 right_click_passthrough: false,
                 terminal_semantics: None,
             },
@@ -2641,7 +2653,8 @@ mod tests {
                             "location": {
                                 "execution_host_id": "ssh:missing-profile",
                                 "path": "/srv/missing"
-                            }
+                            },
+                            "blocked_review": "reviewed"
                         }
                     },
                     "zoomed": false,
@@ -2671,6 +2684,17 @@ mod tests {
             Arc::new(crate::render_signal::RenderSignal::new()),
         );
         assert_eq!(workspaces[0].terminal_tab(0).unwrap().panes.len(), 1);
+        assert_eq!(
+            workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .panes
+                .values()
+                .next()
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Reviewed
+        );
         assert_eq!(workspaces.len(), 1);
         assert_eq!(workspaces[0].default_location, expected);
         assert_eq!(terminals.len(), 1);

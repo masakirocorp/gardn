@@ -7,7 +7,7 @@ use ratatui::{
 };
 
 use crate::{
-    app::state::{CopyFeedback, Palette, ToastKind, ToastNotification},
+    app::state::{AgentStatusGroup, CopyFeedback, Palette, ToastKind, ToastNotification},
     config::{StatusIndicatorStyle, ToastClipboardPosition, ToastGardnPosition},
     detect::AgentState,
 };
@@ -171,25 +171,6 @@ pub(super) fn state_dot(state: AgentState, seen: bool, p: &Palette) -> (&'static
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AgentStatusGroup {
-    Triage,
-    FollowUp,
-    Working,
-    Idle,
-}
-
-impl AgentStatusGroup {
-    pub(crate) const fn label(self) -> &'static str {
-        match self {
-            Self::Triage => "Triage",
-            Self::FollowUp => "Follow Up",
-            Self::Working => "Working",
-            Self::Idle => "Idle",
-        }
-    }
-}
-
 fn state_symbol(state: AgentState, seen: bool, tick: u32, p: &Palette) -> (&'static str, Style) {
     match (state, seen) {
         (AgentState::Blocked, _) => ("◉", Style::default().fg(p.red)),
@@ -217,6 +198,7 @@ pub(super) fn agent_section_style(group: AgentStatusGroup, p: &Palette) -> Style
     let color = match group {
         AgentStatusGroup::Triage => p.peach,
         AgentStatusGroup::FollowUp => p.mauve,
+        AgentStatusGroup::Blocked => p.red,
         AgentStatusGroup::Working => p.yellow,
         AgentStatusGroup::Idle => p.green,
     };
@@ -230,11 +212,17 @@ pub(super) fn agent_section_icon(
     p: &Palette,
 ) -> (&'static str, Style) {
     let icon = match (style, group) {
-        (StatusIndicatorStyle::Dots, AgentStatusGroup::Triage | AgentStatusGroup::FollowUp)
-        | (StatusIndicatorStyle::Dots, AgentStatusGroup::Working) => "●",
+        (
+            StatusIndicatorStyle::Dots,
+            AgentStatusGroup::Triage
+            | AgentStatusGroup::FollowUp
+            | AgentStatusGroup::Blocked
+            | AgentStatusGroup::Working,
+        ) => "●",
         (StatusIndicatorStyle::Dots, AgentStatusGroup::Idle) => "○",
         (StatusIndicatorStyle::Symbols, AgentStatusGroup::Triage) => "!",
         (StatusIndicatorStyle::Symbols, AgentStatusGroup::FollowUp) => "*",
+        (StatusIndicatorStyle::Symbols, AgentStatusGroup::Blocked) => "◉",
         (StatusIndicatorStyle::Symbols, AgentStatusGroup::Working) => super::spinner_frame(tick),
         (StatusIndicatorStyle::Symbols, AgentStatusGroup::Idle) => "✓",
     };

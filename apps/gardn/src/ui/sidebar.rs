@@ -12,11 +12,10 @@ use ratatui::{
 use super::scrollbar::{render_scrollbar, should_show_scrollbar};
 use super::status::{
     agent_section_icon, agent_section_style, state_icon, state_label, state_label_color,
-    AgentStatusGroup,
 };
 use super::text::display_width;
 use super::widgets::fill_rect;
-use crate::app::state::{AgentPanelScope, CollapsedSidebarHover, Palette};
+use crate::app::state::{AgentPanelScope, AgentStatusGroup, CollapsedSidebarHover, Palette};
 use crate::app::{AppState, ClientViewState, Mode};
 use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
@@ -529,23 +528,8 @@ fn append_follow_up_fallback_entries(
     }
 }
 
-fn agent_panel_entry_needs_triage(app: &AppState, entry: &AgentPanelEntry) -> bool {
-    if entry.state == AgentState::Blocked {
-        return true;
-    }
-    if entry.state != AgentState::Idle {
-        return false;
-    }
-    if !entry.seen {
-        return true;
-    }
-    let Some((workspace_id, pane_id)) = app.triage_hold.as_ref() else {
-        return false;
-    };
-    app.workspaces
-        .get(entry.ws_idx)
-        .is_some_and(|workspace| workspace.id == *workspace_id)
-        && entry.pane_id == *pane_id
+fn agent_panel_entry_section(app: &AppState, entry: &AgentPanelEntry) -> Option<AgentStatusGroup> {
+    app.agent_sidebar_section(entry.ws_idx, entry.pane_id)
 }
 
 #[cfg(test)]
@@ -553,7 +537,7 @@ pub(crate) fn agent_panel_triage_entries(app: &AppState) -> Vec<AgentPanelEntry>
     let empty_runtimes = TerminalRuntimeRegistry::new();
     let mut entries: Vec<_> = agent_panel_entries_from(app, &empty_runtimes)
         .into_iter()
-        .filter(|entry| agent_panel_entry_needs_triage(app, entry))
+        .filter(|entry| agent_panel_entry_section(app, entry) == Some(AgentStatusGroup::Triage))
         .collect();
     sort_agent_panel_entries_by_oldest_activity(&mut entries);
     entries
@@ -621,45 +605,49 @@ fn agent_panel_sections_from_entries(
     scoped_entries: Vec<AgentPanelEntry>,
     sort_by_recent_activity: bool,
 ) -> Vec<AgentPanelSection> {
-    let mut sections = Vec::new();
+    let mut triage = Vec::new();
     let mut follow_up = Vec::new();
-    let mut rest = Vec::new();
+    let mut blocked = Vec::new();
+    let mut working = Vec::new();
+    let mut idle = Vec::new();
     for mut entry in scoped_entries {
-        if app.is_agent_follow_up(entry.ws_idx, entry.pane_id) {
-            entry.follow_up_added_at_unix_secs =
-                app.follow_up_added_at(entry.ws_idx, entry.pane_id);
-            follow_up.push(entry);
-        } else {
-            rest.push(entry);
+        match agent_panel_entry_section(app, &entry) {
+            Some(AgentStatusGroup::Triage) => triage.push(entry),
+            Some(AgentStatusGroup::FollowUp) => {
+                entry.follow_up_added_at_unix_secs =
+                    app.follow_up_added_at(entry.ws_idx, entry.pane_id);
+                follow_up.push(entry);
+            }
+            Some(AgentStatusGroup::Blocked) => blocked.push(entry),
+            Some(AgentStatusGroup::Working) => working.push(entry),
+            Some(AgentStatusGroup::Idle) => idle.push(entry),
+            None => {}
         }
     }
-    sort_follow_up_entries(&mut follow_up);
-
-    let mut triage: Vec<_> = rest
-        .iter()
-        .filter(|entry| agent_panel_entry_needs_triage(app, entry))
-        .cloned()
-        .collect();
     sort_agent_panel_entries_by_oldest_activity(&mut triage);
+    sort_follow_up_entries(&mut follow_up);
+    if sort_by_recent_activity {
+        sort_agent_panel_entries_by_recent_activity(&mut blocked);
+        sort_agent_panel_entries_by_recent_activity(&mut working);
+        sort_agent_panel_entries_by_recent_activity(&mut idle);
+    }
+
+    let mut sections = Vec::new();
     if !triage.is_empty() {
         sections.push(AgentPanelSection {
             group: AgentStatusGroup::Triage,
             entries: triage,
         });
     }
-
     sections.push(AgentPanelSection {
         group: AgentStatusGroup::FollowUp,
         entries: follow_up,
     });
-
-    let mut working: Vec<_> = rest
-        .iter()
-        .filter(|entry| entry.state == AgentState::Working)
-        .cloned()
-        .collect();
-    if sort_by_recent_activity {
-        sort_agent_panel_entries_by_recent_activity(&mut working);
+    if !blocked.is_empty() {
+        sections.push(AgentPanelSection {
+            group: AgentStatusGroup::Blocked,
+            entries: blocked,
+        });
     }
     if !working.is_empty() {
         sections.push(AgentPanelSection {
@@ -667,23 +655,12 @@ fn agent_panel_sections_from_entries(
             entries: working,
         });
     }
-
-    let mut idle: Vec<_> = rest
-        .into_iter()
-        .filter(|entry| {
-            entry.state != AgentState::Working && !agent_panel_entry_needs_triage(app, entry)
-        })
-        .collect();
-    if sort_by_recent_activity {
-        sort_agent_panel_entries_by_recent_activity(&mut idle);
-    }
     if !idle.is_empty() {
         sections.push(AgentPanelSection {
             group: AgentStatusGroup::Idle,
             entries: idle,
         });
     }
-
     sections
 }
 pub(super) fn agent_panel_status_key(state: AgentState, seen: bool) -> &'static str {
@@ -6885,7 +6862,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_panel_sections_order_actionable_before_working_and_idle() {
+    fn agent_panel_sections_use_triage_follow_up_blocked_working_idle_order() {
         let mut app = crate::app::state::AppState::test_new();
 
         let mut triage = Workspace::test_new("Done");
@@ -6899,6 +6876,30 @@ mod tests {
         triage_state.detected_agent = Some(Agent::Pi);
         triage_state.state = AgentState::Idle;
         triage_state.seen = false;
+
+        let mut follow_up = Workspace::test_new("Follow Up");
+        let follow_up_pane = follow_up.terminal_tab(0).unwrap().root_pane;
+        let follow_up_state = follow_up
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&follow_up_pane)
+            .unwrap();
+        follow_up_state.detected_agent = Some(Agent::Claude);
+        follow_up_state.state = AgentState::Blocked;
+        follow_up_state.blocked_review = crate::pane::BlockedReviewState::Pending;
+
+        let mut blocked = Workspace::test_new("Blocked");
+        let blocked_pane = blocked.terminal_tab(0).unwrap().root_pane;
+        let blocked_state = blocked
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&blocked_pane)
+            .unwrap();
+        blocked_state.detected_agent = Some(Agent::Claude);
+        blocked_state.state = AgentState::Blocked;
+        blocked_state.blocked_review = crate::pane::BlockedReviewState::Reviewed;
 
         let mut working = Workspace::test_new("Working");
         let working_pane = working.terminal_tab(0).unwrap().root_pane;
@@ -6923,22 +6924,73 @@ mod tests {
         idle_state.state = AgentState::Idle;
         idle_state.seen = true;
 
-        app.workspaces = vec![triage, working, idle];
+        app.workspaces = vec![triage, follow_up, blocked, working, idle];
         app.active = Some(0);
         app.selected = 0;
         app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        assert!(app.insert_agent_follow_up(1, follow_up_pane));
 
         let sections = agent_panel_sections(&app);
 
-        assert_eq!(sections.len(), 4);
-        assert_eq!(sections[0].group, AgentStatusGroup::Triage);
+        assert_eq!(
+            sections
+                .iter()
+                .map(|section| section.group)
+                .collect::<Vec<_>>(),
+            vec![
+                AgentStatusGroup::Triage,
+                AgentStatusGroup::FollowUp,
+                AgentStatusGroup::Blocked,
+                AgentStatusGroup::Working,
+                AgentStatusGroup::Idle,
+            ]
+        );
         assert_eq!(sections[0].entries[0].primary_label, "Done");
-        assert_eq!(sections[1].group, AgentStatusGroup::FollowUp);
-        assert!(sections[1].entries.is_empty());
-        assert_eq!(sections[2].group, AgentStatusGroup::Working);
-        assert_eq!(sections[2].entries[0].primary_label, "Working");
-        assert_eq!(sections[3].group, AgentStatusGroup::Idle);
-        assert_eq!(sections[3].entries[0].primary_label, "Idle");
+        assert_eq!(sections[1].entries[0].primary_label, "Follow Up");
+        assert_eq!(sections[2].entries[0].primary_label, "Blocked");
+        assert_eq!(sections[3].entries[0].primary_label, "Working");
+        assert_eq!(sections[4].entries[0].primary_label, "Idle");
+        assert_eq!(
+            app.workspaces[1]
+                .pane_state(follow_up_pane)
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Pending
+        );
+    }
+
+    #[test]
+    fn focusing_pending_blocked_agent_does_not_review_it() {
+        let mut app = crate::app::state::AppState::test_new();
+        let mut blocked = Workspace::test_new("Blocked");
+        let blocked_pane = blocked.terminal_tab(0).unwrap().root_pane;
+        let pane = blocked
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&blocked_pane)
+            .unwrap();
+        pane.detected_agent = Some(Agent::Claude);
+        pane.state = AgentState::Blocked;
+        pane.blocked_review = crate::pane::BlockedReviewState::Pending;
+        app.workspaces = vec![blocked, Workspace::test_new("Idle")];
+        app.active = Some(1);
+        app.selected = 1;
+        app.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+
+        app.focus_workspace_tab_pane(0, 0, blocked_pane);
+
+        assert_eq!(
+            app.workspaces[0]
+                .pane_state(blocked_pane)
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Pending
+        );
+        assert_eq!(
+            app.agent_sidebar_section(0, blocked_pane),
+            Some(AgentStatusGroup::Triage)
+        );
     }
 
     #[test]
@@ -7717,6 +7769,7 @@ mod tests {
                 [
                     (AgentStatusGroup::Triage, "●", palette.peach),
                     (AgentStatusGroup::FollowUp, "●", palette.mauve),
+                    (AgentStatusGroup::Blocked, "●", palette.red),
                     (AgentStatusGroup::Working, "●", palette.yellow),
                     (AgentStatusGroup::Idle, "○", palette.green),
                 ],
@@ -7726,6 +7779,7 @@ mod tests {
                 [
                     (AgentStatusGroup::Triage, "!", palette.peach),
                     (AgentStatusGroup::FollowUp, "*", palette.mauve),
+                    (AgentStatusGroup::Blocked, "◉", palette.red),
                     (AgentStatusGroup::Working, "⠋", palette.yellow),
                     (AgentStatusGroup::Idle, "✓", palette.green),
                 ],

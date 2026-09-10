@@ -259,24 +259,7 @@ impl AppState {
     }
 
     fn pane_is_idle_agent(&self, pane: &crate::pane::PaneState) -> bool {
-        let terminal_state = self
-            .terminals
-            .get(&pane.attached_terminal_id)
-            .map(|terminal| terminal.state);
-        let state = match terminal_state {
-            Some(AgentState::Unknown) | None => {
-                #[cfg(test)]
-                {
-                    pane.state
-                }
-                #[cfg(not(test))]
-                {
-                    AgentState::Unknown
-                }
-            }
-            Some(state) => state,
-        };
-        state == AgentState::Idle
+        self.pane_agent_state(pane) == AgentState::Idle
     }
 
     pub(crate) fn unseen_idle_hold_for_pane(
@@ -4908,6 +4891,12 @@ impl AppState {
             .unwrap_or_else(|| self.pane_is_in_active_tab(ws_idx, pane_id));
         let suppress_active_tab_notifications =
             active_tab_suppresses_notifications(is_active_tab, self.outer_terminal_focus);
+        let entered_blocked =
+            change.previous_state != AgentState::Blocked && change.state == AgentState::Blocked;
+        if entered_blocked {
+            self.advance_blocked_review_generation(pane_id);
+        }
+        let mut blocked_review_changed = false;
         let workspace_id = self.workspaces[ws_idx].id.clone();
         {
             let Some(pane) = self.workspaces[ws_idx]
@@ -4917,6 +4906,22 @@ impl AppState {
                 return;
             };
 
+            let next_blocked_review = if entered_blocked {
+                if pane.blocked_review == crate::pane::BlockedReviewState::None {
+                    crate::pane::BlockedReviewState::Pending
+                } else {
+                    pane.blocked_review
+                }
+            } else if change.state != AgentState::Blocked {
+                crate::pane::BlockedReviewState::None
+            } else {
+                pane.blocked_review
+            };
+            if pane.blocked_review != next_blocked_review {
+                pane.blocked_review = next_blocked_review;
+                blocked_review_changed = true;
+            }
+
             if change.state != AgentState::Idle {
                 pane.seen = true;
             } else if !suppress_completion
@@ -4924,6 +4929,9 @@ impl AppState {
             {
                 pane.seen = suppress_active_tab_notifications;
             }
+        }
+        if blocked_review_changed {
+            self.mark_session_dirty();
         }
 
         if change.state == AgentState::Working
@@ -8070,6 +8078,119 @@ mod tests {
         let toast = state.toast.as_ref().unwrap();
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
         assert_eq!(toast.title, "codex Needs Attention");
+    }
+
+    #[test]
+    fn blocked_review_survives_initial_observation_and_resets_on_reentry() {
+        let mut state = app_with_workspaces(&["agent"]);
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap()
+            .blocked_review = crate::pane::BlockedReviewState::Reviewed;
+
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Blocked,
+            visible_blocker: true,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+        assert_eq!(
+            state.workspaces[0]
+                .pane_state(pane_id)
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Reviewed
+        );
+
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Working,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: true,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Blocked,
+            visible_blocker: true,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+        assert_eq!(
+            state.workspaces[0]
+                .pane_state(pane_id)
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Pending
+        );
+
+        let crate::app::state::ContextMenuKind::Agent {
+            review_ref: Some(review_ref),
+            ..
+        } = state.agent_context_menu_kind(0, pane_id).unwrap()
+        else {
+            panic!("pending blocked agent should expose Mark Reviewed");
+        };
+        assert!(state.mark_blocked_reviewed(review_ref));
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Blocked,
+            visible_blocker: true,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+        assert_eq!(
+            state.workspaces[0]
+                .pane_state(pane_id)
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Reviewed
+        );
+
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Working,
+            visible_blocker: false,
+            visible_idle: false,
+            visible_working: true,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Codex),
+            state: AgentState::Blocked,
+            visible_blocker: true,
+            visible_idle: false,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+        assert_eq!(
+            state.workspaces[0]
+                .pane_state(pane_id)
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Pending
+        );
     }
 
     #[test]

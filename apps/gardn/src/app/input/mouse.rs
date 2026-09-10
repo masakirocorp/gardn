@@ -1448,12 +1448,9 @@ impl AppState {
             MouseEventKind::Down(MouseButton::Right) if agent_context_target.is_some() => {
                 let (ws_idx, _, pane_id) =
                     agent_context_target.expect("agent target checked by match guard");
+                let kind = self.agent_context_menu_kind(ws_idx, pane_id)?;
                 self.context_menu = Some(ContextMenuState {
-                    kind: ContextMenuKind::Agent {
-                        ws_idx,
-                        pane_id,
-                        in_follow_up: self.is_agent_follow_up(ws_idx, pane_id),
-                    },
+                    kind,
                     x: mouse.column,
                     y: mouse.row,
                     list: ModalListState::hidden(0),

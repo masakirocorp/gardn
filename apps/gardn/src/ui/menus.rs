@@ -1539,6 +1539,7 @@ mod tests {
                 ws_idx: 0,
                 pane_id,
                 in_follow_up: false,
+                review_ref: None,
             },
             x: 4,
             y: 4,
