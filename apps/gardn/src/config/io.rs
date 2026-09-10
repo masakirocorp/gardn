@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::{fs::File, io};
 
 use tracing::warn;
 
@@ -179,6 +180,91 @@ pub fn config_path() -> PathBuf {
         return PathBuf::from(path);
     }
     config_dir().join("config.toml")
+}
+
+struct ConfigFileLock(File);
+
+impl ConfigFileLock {
+    fn acquire(path: &Path) -> io::Result<Self> {
+        let mut lock_path = path.as_os_str().to_os_string();
+        lock_path.push(".lock");
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(PathBuf::from(lock_path))?;
+        file.lock()?;
+        Ok(Self(file))
+    }
+}
+
+impl Drop for ConfigFileLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+pub(crate) fn mutate_config_file<F>(mutate: F) -> io::Result<bool>
+where
+    F: FnOnce(Option<&str>) -> io::Result<Option<String>>,
+{
+    let path = config_path();
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let _lock = ConfigFileLock::acquire(&path)?;
+    let content = read_optional_config(&path)?;
+    let Some(updated) = mutate(content.as_deref())? else {
+        return Ok(false);
+    };
+    std::fs::write(path, updated)?;
+    Ok(true)
+}
+
+pub(crate) fn plan_native_notification_default(content: &str) -> io::Result<Option<String>> {
+    let table = content.parse::<toml::Table>().map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("config file is invalid TOML: {err}"),
+        )
+    })?;
+    let toast = match table.get("ui") {
+        None => None,
+        Some(toml::Value::Table(ui)) => match ui.get("toast") {
+            None => None,
+            Some(toml::Value::Table(toast)) => Some(toast),
+            Some(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "ui.toast is not a TOML table",
+                ));
+            }
+        },
+        Some(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "ui is not a TOML table",
+            ));
+        }
+    };
+
+    if toast.is_some_and(|toast| toast.contains_key("delivery") || toast.contains_key("enabled")) {
+        return Ok(None);
+    }
+
+    let updated = upsert_section_value(content, "ui.toast", "delivery", "\"system\"");
+    updated.parse::<toml::Table>().map_err(|err| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("adding ui.toast.delivery would make config invalid: {err}"),
+        )
+    })?;
+    Ok(Some(updated))
 }
 
 pub fn config_diagnostic_summary(diagnostics: &[String]) -> Option<String> {
@@ -1004,5 +1090,78 @@ mouse_capture = false
         let (updated, removed) = remove_keybinding_config_sections(content);
         assert!(!removed);
         assert_eq!(updated, content);
+    }
+
+    #[test]
+    fn missing_config_converges_to_system_once() {
+        let _env_lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "gardn-native-notification-default-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = dir.join("config.toml");
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+
+        assert!(mutate_config_file(|content| {
+            plan_native_notification_default(content.unwrap_or_default())
+        })
+        .unwrap());
+        assert!(!mutate_config_file(|content| {
+            plan_native_notification_default(content.unwrap_or_default())
+        })
+        .unwrap());
+
+        let config: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(
+            config.ui.toast.delivery,
+            super::super::ToastDelivery::System
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn implicit_notification_config_preserves_existing_settings() {
+        let content = "[ui]\ncopy_on_select = false\n";
+        let updated = plan_native_notification_default(content)
+            .unwrap()
+            .expect("implicit config should change");
+        let config: Config = toml::from_str(&updated).unwrap();
+
+        assert!(!config.ui.copy_on_select);
+        assert_eq!(
+            config.ui.toast.delivery,
+            super::super::ToastDelivery::System
+        );
+    }
+
+    #[test]
+    fn explicit_notification_delivery_is_never_replaced() {
+        for value in ["\"off\"", "\"gardn\"", "\"terminal\"", "\"system\"", "[]"] {
+            let content = format!("[ui.toast]\ndelivery = {value}\n");
+            assert_eq!(plan_native_notification_default(&content).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn legacy_notification_choice_is_never_replaced() {
+        for value in ["true", "false", "\"invalid\""] {
+            let content = format!("[ui.toast]\nenabled = {value}\n");
+            assert_eq!(plan_native_notification_default(&content).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn malformed_config_is_rejected_without_a_replacement() {
+        let error =
+            plan_native_notification_default("[ui.toast\ndelivery = \"gardn\"\n").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
     }
 }

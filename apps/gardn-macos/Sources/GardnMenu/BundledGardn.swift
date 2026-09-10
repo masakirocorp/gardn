@@ -202,6 +202,45 @@ enum BundledGardn {
         }
     }
 
+    static func installNativeNotificationDefault() async {
+        #if DEBUG
+            return
+        #else
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                DispatchQueue.global(qos: .utility).async {
+                    defer { continuation.resume() }
+                    do {
+                        let process = try process(
+                            arguments: ["config", "__install-native-notification-default"]
+                        )
+                        let stderr = Pipe()
+                        process.standardOutput = FileHandle.nullDevice
+                        process.standardError = stderr
+                        process.standardInput = FileHandle.nullDevice
+                        try process.run()
+                        let errorData =
+                            try stderr.fileHandleForReading.read(upToCount: 4_096) ?? Data()
+                        process.waitUntilExit()
+                        guard process.terminationReason == .exit,
+                            process.terminationStatus == 0
+                        else {
+                            let detail = String(decoding: errorData, as: UTF8.self)
+                                .trimmingCharacters(in: .whitespacesAndNewlines)
+                            log.error(
+                                "notification default helper failed with status \(process.terminationStatus): \(detail, privacy: .public)"
+                            )
+                            return
+                        }
+                    } catch {
+                        log.error(
+                            "notification default helper failed: \(error.localizedDescription, privacy: .public)"
+                        )
+                    }
+                }
+            }
+        #endif
+    }
+
     static func logFailure(_ error: Error) {
         log.error("bundled gardn failed: \(error.localizedDescription, privacy: .public)")
     }

@@ -40,6 +40,9 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         if PathCli.shouldClaimPath(bundleURL: Bundle.main.bundleURL) {
             Self.terminateOtherCopies()
             PathCli.installBundledCLI()
+            Task {
+                await BundledGardn.installNativeNotificationDefault()
+            }
         } else if Self.otherCopiesRunning() {
             NSApp.terminate(nil)
             return
