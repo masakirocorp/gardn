@@ -886,7 +886,6 @@ claude = [["terminal_title"]]
                 "unknown config key ui.\"foo.bar\"; ignoring key",
                 "unknown config key ui.mouse_captur; ignoring key",
                 "unknown config key ui.toast.delivry; ignoring key",
-                "unknown config key ui.toast.enabled; ignoring key",
             ]
         );
         assert!(loaded.invalid_sections.is_empty());
@@ -894,7 +893,7 @@ claude = [["terminal_title"]]
         assert!(!loaded.config.ui.mouse_capture);
         assert_eq!(
             loaded.config.ui.toast.delivery,
-            super::super::ToastDelivery::Off
+            super::super::ToastDelivery::Gardn
         );
         assert!(loaded
             .config
