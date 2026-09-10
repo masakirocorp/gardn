@@ -1,17 +1,21 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Make pane menus accurate\n\nThe New menus now list available actions in a consistent order. Pane menus now show working zoom actions and identify what the close action removes.\n"
-    filename: pane-menu-actions.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Filter the sidebar by connection\n\nAssign a color to each SSH connection and use that color on connection badges in the sidebar. Filter spaces and agents by one shared connection without changing the active workspace or starting a connection.\n"
+    filename: connection-identity-filters.md
+    v: 0.0.0
+  - content: "---\npackages:\n  gardn:\n    type: patch\n  gardn-docs:\n    type: patch\n---\n\n### Route notifications through one coordinator\n\nGardn now routes state and explicit notifications through one coordinator. In-app, terminal, system, and sound presenters receive one typed request with stable workspace, tab, and terminal targets. Notification results report whether delivery was queued or suppressed. An installed Gardn macOS app now selects system delivery when no notification choice exists.\n"
+    filename: notification-routing.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
+  - changelogIds:
+      - connection-identity-filters.md
+      - notification-routing.md
+    id: cargo:gardn
+    updated: true
   - id: cargo:gardn-local-api
     updated: false
   - id: cargo:portable-pty
     updated: false
-  - changelogIds:
-      - pane-menu-actions.md
-    id: cargo:gardn
-    updated: true
 npm:packages:
   - id: npm:@gardn/website
