@@ -71,6 +71,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         }
         "api" => api_cli::run_api_command(&args[2..])?,
         "status" => run_status_command(&args[2..])?,
+        "sound" => run_sound_command(&args[2..])?,
         "group" => run_group_command(&args[2..])?,
         "connection" => connection::run_connection_command(&args[2..])?,
         "config" => run_config_command(&args[2..])?,
@@ -89,6 +90,36 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
     };
 
     Ok(CommandOutcome::Handled(exit_code))
+}
+
+fn run_sound_command(args: &[String]) -> std::io::Result<i32> {
+    let sound = match parse_sound_play_args(args) {
+        Ok(sound) => sound,
+        Err(()) => {
+            eprintln!("usage: gardn sound play <done|request>");
+            return Ok(2);
+        }
+    };
+    let config = crate::config::Config::load().config.ui.sound;
+    match crate::sound::play_blocking(sound, &config) {
+        Ok(crate::sound::PlaybackOutcome::Played) => Ok(0),
+        Ok(crate::sound::PlaybackOutcome::Suppressed) => Ok(3),
+        Err(err) => {
+            eprintln!("sound playback failed: {err}");
+            Ok(1)
+        }
+    }
+}
+
+fn parse_sound_play_args(args: &[String]) -> Result<crate::sound::Sound, ()> {
+    match args {
+        [action, sound] if action == "play" => match sound.as_str() {
+            "done" => Ok(crate::sound::Sound::Done),
+            "request" => Ok(crate::sound::Sound::Request),
+            _ => Err(()),
+        },
+        _ => Err(()),
+    }
 }
 
 fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>> {
@@ -2886,5 +2917,30 @@ mod tests {
         .unwrap_err();
 
         assert!(err.contains("invalid value for --timeout"));
+    }
+
+    #[test]
+    fn hidden_sound_helper_parses_built_in_sounds() {
+        assert_eq!(
+            super::parse_sound_play_args(&["play".into(), "done".into()]),
+            Ok(crate::sound::Sound::Done)
+        );
+        assert_eq!(
+            super::parse_sound_play_args(&["play".into(), "request".into()]),
+            Ok(crate::sound::Sound::Request)
+        );
+    }
+
+    #[test]
+    fn hidden_sound_helper_rejects_invalid_arguments() {
+        assert_eq!(super::parse_sound_play_args(&["play".into()]), Err(()));
+        assert_eq!(
+            super::parse_sound_play_args(&["play".into(), "other".into()]),
+            Err(())
+        );
+        assert_eq!(
+            super::parse_sound_play_args(&["done".into(), "play".into()]),
+            Err(())
+        );
     }
 }

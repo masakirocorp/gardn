@@ -1,4 +1,3 @@
-import AppKit
 import Foundation
 import os
 import UserNotifications
@@ -9,12 +8,18 @@ enum AgentNotifications {
     private static let lock = NSLock()
     private static var isAuthorized = false
 
+    private enum EffectOutcome: Sendable {
+        case notRequested
+        case succeeded
+        case failed(String)
+    }
+
     static func requestAuthorization() {
         let center = UNUserNotificationCenter.current()
         center.getNotificationSettings { settings in
             switch settings.authorizationStatus {
             case .notDetermined:
-                center.requestAuthorization(options: [.alert, .sound]) { granted, error in
+                center.requestAuthorization(options: [.alert]) { granted, error in
                     if let error {
                         log.error("notification authorization failed: \(error.localizedDescription, privacy: .public)")
                     }
@@ -40,37 +45,30 @@ enum AgentNotifications {
         receipt: @escaping @Sendable (PresentationOutcome) -> Void
     ) {
         let notification = request.notification
-        let complete: (PresentationOutcome) -> Void = { outcome in
-            receipt(outcome)
+        Task.detached(priority: .userInitiated) {
+            async let visual = visualOutcome(for: notification)
+            async let sound = soundOutcome(for: notification.sound)
+            let (visualOutcome, soundOutcome) = await (visual, sound)
+            receipt(combine(visual: visualOutcome, sound: soundOutcome))
+        }
+    }
+
+    private static func visualOutcome(for notification: StateNotification) async -> EffectOutcome {
+        switch notification.visual {
+        case .none:
+            return .notRequested
+        case .gardn, .terminal:
+            return .failed("unsupported_visual")
+        case .system:
+            break
         }
 
-        if notification.visual == .none {
-            guard notification.sound != .none else {
-                complete(.rejected("empty_presentation"))
-                return
-            }
-            DispatchQueue.main.async {
-                NSSound.beep()
-                complete(.submitted)
-            }
-            return
-        }
-        guard notification.visual == .system else {
-            complete(.rejected("unsupported_visual"))
-            return
-        }
+        guard notificationsAllowed() else { return .failed("not_authorized") }
 
-        lock.lock()
-        let allowed = isAuthorized
-        lock.unlock()
-        guard allowed else {
-            complete(.rejected("not_authorized"))
-            return
-        }
         let content = UNMutableNotificationContent()
         content.title = notification.title
         content.body = notification.body ?? ""
-        content.sound = notification.sound == .none ? nil : .default
+        content.sound = nil
         let notificationId: [String: Any] = [
             "coordinator_epoch": notification.id.coordinatorEpoch,
             "sequence": notification.id.sequence,
@@ -85,14 +83,54 @@ enum AgentNotifications {
         content.userInfo = userInfo
         let identifier = "gardn-\(notification.id.coordinatorEpoch)-\(notification.id.sequence)"
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
-        let center = UNUserNotificationCenter.current()
-        center.add(request) { error in
-            if let error {
-                log.error("notification post failed: \(error.localizedDescription, privacy: .public)")
-                complete(.rejected(error.localizedDescription))
-            } else {
-                complete(.submitted)
+
+        return await withCheckedContinuation { continuation in
+            UNUserNotificationCenter.current().add(request) { error in
+                if let error {
+                    log.error("notification post failed: \(error.localizedDescription, privacy: .public)")
+                    continuation.resume(returning: .failed(error.localizedDescription))
+                } else {
+                    continuation.resume(returning: .succeeded)
+                }
             }
         }
+    }
+
+    private static func soundOutcome(for sound: NotificationSound) async -> EffectOutcome {
+        guard sound != .none else { return .notRequested }
+        switch await BundledGardn.playSound(sound) {
+        case .played:
+            return .succeeded
+        case .suppressed:
+            return .failed("sound_suppressed")
+        case .failed(let reason):
+            log.error("sound playback failed: \(reason, privacy: .public)")
+            return .failed(reason)
+        }
+    }
+
+    private static func notificationsAllowed() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return isAuthorized
+    }
+
+    private static func combine(
+        visual: EffectOutcome,
+        sound: EffectOutcome
+    ) -> PresentationOutcome {
+        if case .succeeded = visual {
+            return .submitted
+        }
+        if case .succeeded = sound {
+            return .submitted
+        }
+        if case .failed(let reason) = visual {
+            return .rejected(reason)
+        }
+        if case .failed(let reason) = sound {
+            return .rejected(reason)
+        }
+        return .rejected("empty_presentation")
     }
 }

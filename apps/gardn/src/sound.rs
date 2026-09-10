@@ -4,12 +4,12 @@
 //! Uses afplay (macOS), Windows MediaPlayer, or decoder-capable Linux audio players — no Rust audio dependencies.
 
 use std::io::Write;
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 use std::io::{Read, Result as IoResult};
 use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::sync::atomic::{AtomicU64, Ordering};
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 use std::time::{Duration, Instant};
 
 use tracing::warn;
@@ -17,9 +17,9 @@ use tracing::warn;
 const DISABLE_SOUND_ENV: &str = "GARDN_DISABLE_SOUND";
 #[cfg(any(windows, test))]
 const WINDOWS_SOUND_PATH_ENV: &str = "GARDN_SOUND_PATH";
-#[cfg(not(any(windows, target_os = "macos")))]
-const AUDIO_PLAYER_TIMEOUT: Duration = Duration::from_secs(15);
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
+const AUDIO_PLAYER_TIMEOUT: Duration = Duration::from_secs(10);
+#[cfg(not(windows))]
 const AUDIO_PLAYER_POLL_INTERVAL: Duration = Duration::from_millis(25);
 
 static SOUND_TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -36,33 +36,51 @@ pub enum Sound {
     Request,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlaybackOutcome {
+    Played,
+    Suppressed,
+}
+
 /// Play a notification sound in a background thread.
-/// Silently does nothing if no audio player is available.
 pub fn play(sound: Sound, config: &crate::config::SoundConfig) {
-    if sound_playback_disabled_by_env() {
+    if !config.enabled || sound_playback_disabled_by_env() {
         return;
     }
-
     let custom_path = config.path_for(sound);
     std::thread::spawn(move || {
-        if let Some(path) = custom_path {
-            match play_file(&path) {
-                Ok(()) => return,
-                Err(err) => {
-                    warn!(path = %path.display(), sound = ?sound, err = %err, "custom sound playback failed, falling back to built-in sound")
-                }
-            }
-        }
-
-        let data = match sound {
-            Sound::Done => SOUND_DONE,
-            Sound::Request => SOUND_REQUEST,
-        };
-
-        if let Err(err) = play_bytes(data) {
+        if let Err(err) = play_resolved(sound, custom_path) {
             warn!(sound = ?sound, err = %err, "sound playback failed");
         }
     });
+}
+
+pub fn play_blocking(
+    sound: Sound,
+    config: &crate::config::SoundConfig,
+) -> Result<PlaybackOutcome, String> {
+    if !config.enabled || sound_playback_disabled_by_env() {
+        return Ok(PlaybackOutcome::Suppressed);
+    }
+    play_resolved(sound, config.path_for(sound))?;
+    Ok(PlaybackOutcome::Played)
+}
+
+fn play_resolved(sound: Sound, custom_path: Option<PathBuf>) -> Result<(), String> {
+    if let Some(path) = custom_path {
+        match play_file(&path) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                warn!(path = %path.display(), sound = ?sound, err = %err, "custom sound playback failed, falling back to built-in sound")
+            }
+        }
+    }
+
+    let data = match sound {
+        Sound::Done => SOUND_DONE,
+        Sound::Request => SOUND_REQUEST,
+    };
+    play_bytes(data)
 }
 
 fn sound_playback_disabled_by_env() -> bool {
@@ -117,10 +135,12 @@ fn run_player(path: &Path) -> Result<Output, String> {
 
 #[cfg(target_os = "macos")]
 fn run_player(path: &Path) -> Result<Output, String> {
-    crate::noninteractive_process::command("afplay")
-        .arg(path)
-        .output()
-        .map_err(|e| format!("no audio player available: {e}"))
+    AudioPlayer {
+        program: "afplay",
+        args: &[],
+    }
+    .output(path)
+    .map_err(|e| format!("audio player failed: {e}"))
 }
 
 #[cfg(not(any(windows, target_os = "macos")))]
@@ -191,14 +211,14 @@ fn run_windows_player(path: &Path) -> Result<Output, String> {
         .map_err(|e| format!("Windows MediaPlayer playback failed: {e}"))
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 #[derive(Debug, Clone, Copy)]
 struct AudioPlayer {
     program: &'static str,
     args: &'static [&'static str],
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 impl AudioPlayer {
     fn output(self, path: &Path) -> std::io::Result<Output> {
         self.output_with_timeout(path, AUDIO_PLAYER_TIMEOUT)
@@ -259,7 +279,7 @@ impl AudioPlayer {
     }
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 fn read_output<R>(mut reader: R) -> std::thread::JoinHandle<IoResult<Vec<u8>>>
 where
     R: Read + Send + 'static,
@@ -271,7 +291,7 @@ where
     })
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 fn finish_output(
     stdout_reader: std::thread::JoinHandle<IoResult<Vec<u8>>>,
     stderr_reader: std::thread::JoinHandle<IoResult<Vec<u8>>>,
@@ -285,7 +305,7 @@ fn finish_output(
     Ok((stdout, stderr))
 }
 
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 fn terminate_and_reap(child: &mut std::process::Child) -> std::io::Result<()> {
     if let Err(kill_err) = child.kill() {
         if child.try_wait()?.is_none() {
@@ -361,6 +381,19 @@ mod tests {
         assert_ne!(temp_sound_path(), temp_sound_path());
     }
 
+    #[test]
+    fn disabled_config_suppresses_blocking_playback() {
+        let config = crate::config::SoundConfig {
+            enabled: false,
+            ..crate::config::SoundConfig::default()
+        };
+
+        assert_eq!(
+            play_blocking(Sound::Done, &config),
+            Ok(PlaybackOutcome::Suppressed)
+        );
+    }
+
     #[cfg(not(any(windows, target_os = "macos")))]
     #[test]
     fn linux_audio_players_are_mp3_capable() {
@@ -373,9 +406,9 @@ mod tests {
         assert!(!programs.contains(&"aplay"));
     }
 
-    #[cfg(not(any(windows, target_os = "macos")))]
+    #[cfg(not(windows))]
     #[test]
-    fn linux_audio_player_does_not_wait_forever() {
+    fn audio_player_does_not_wait_forever() {
         let pid_path = temp_sound_path().with_extension("pid");
         let player = AudioPlayer {
             program: "sh",
