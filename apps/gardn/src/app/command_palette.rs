@@ -4,7 +4,6 @@ use crate::{
         view_state::ClientViewState, AppState,
     },
     layout::NavDirection,
-    workspace::DEFAULT_GROUP_ID,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -518,21 +517,17 @@ pub(crate) fn command_palette_commands_for_view(
             CommandPaletteAction::NewAgent,
         ));
     }
-    let active_group_id = state
-        .groups
-        .get(view.active_group)
-        .map(|group| group.id.as_str())
-        .unwrap_or(DEFAULT_GROUP_ID);
     commands.extend(
-        state
-            .workspaces
-            .iter()
-            .enumerate()
-            .filter(|(_, workspace)| {
-                !view.group_filter_enabled || workspace.group_id == active_group_id
-            })
-            .enumerate()
-            .map(|(shortcut_idx, (idx, workspace))| {
+        crate::app::connection_scope::visible_workspace_indices(
+            state,
+            view.active_group,
+            view.group_filter_enabled,
+            &view.connection_scope,
+        )
+        .enumerate()
+        .filter_map(|(shortcut_idx, idx)| {
+            let workspace = state.workspaces.get(idx)?;
+            Some(
                 CommandPaletteCommand::new(
                     format!("Switch to Space: {}", workspace.display_name()),
                     "spaces",
@@ -541,8 +536,9 @@ pub(crate) fn command_palette_commands_for_view(
                 .with_key_label(indexed_keybind_label(
                     &state.keybinds.switch_workspace,
                     shortcut_idx,
-                ))
-            }),
+                )),
+            )
+        }),
     );
     commands
 }

@@ -223,7 +223,10 @@ pub(crate) use self::{
         prepare_workspace_settings_state, update_settings_mouse_for_view,
         update_settings_state_for_view, SettingsAction,
     },
-    sidebar::{AgentMenuAction, GroupDropTarget, GroupMenuAction, WorkspaceDropTarget},
+    sidebar::{
+        agent_menu_rows, group_menu_rows, AgentMenuAction, FilterMenuRow, GroupDropTarget,
+        GroupMenuAction, WorkspaceDropTarget,
+    },
 };
 
 #[cfg(test)]
@@ -1469,6 +1472,8 @@ fn app_for_mouse_test() -> App {
         api_rx,
         crate::api::EventHub::default(),
     );
+    app.state.host_display =
+        crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname("test-host", None);
     app.state.mode = Mode::Terminal;
     app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
     app.state.update_available = None;

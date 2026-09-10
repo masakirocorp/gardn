@@ -2709,6 +2709,7 @@ mod tests {
                 "Robotbox",
                 "robotbox",
                 "/home/charlie/projects",
+                None,
             ));
         client_view
             .settings
@@ -2770,6 +2771,7 @@ mod tests {
                 "Robotbox",
                 "robotbox",
                 "/home/charlie/projects",
+                None,
             ));
         client_view
             .settings

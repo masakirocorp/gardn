@@ -170,10 +170,8 @@ impl AppState {
         }
 
         if matches!(mouse.kind, MouseEventKind::Moved) && self.mode == Mode::GroupMenu {
-            self.group_menu.hover(
-                self.group_menu_row_at(mouse.column, mouse.row)
-                    .filter(|idx| self.group_menu_action_for_row(*idx).is_some()),
-            );
+            self.group_menu
+                .hover(self.group_menu_row_at(mouse.column, mouse.row));
             return None;
         }
 
@@ -211,6 +209,14 @@ impl AppState {
                         }
                         super::sidebar::GroupMenuAction::Group(idx) => {
                             self.switch_group(idx);
+                            leave_modal(self);
+                        }
+                        super::sidebar::GroupMenuAction::Connection(scope) => {
+                            self.connection_scope = scope;
+                            crate::app::connection_scope::reanchor_state_selection(self);
+                            self.workspace_scroll = 0;
+                            self.agent_panel_scroll = 0;
+                            self.mark_session_dirty();
                             leave_modal(self);
                         }
                         super::sidebar::GroupMenuAction::NewWorkspace => {

@@ -3175,6 +3175,7 @@ pub struct ConnectionDraft {
     pub name: String,
     pub target: String,
     pub directory: String,
+    pub accent: Option<TerminalAccent>,
 }
 
 /// Cross-session and managed-binding impact shown before connection retirement.
@@ -3221,6 +3222,7 @@ impl ConnectionEditorState {
         name: impl Into<String>,
         target: impl Into<String>,
         directory: impl Into<String>,
+        accent: Option<TerminalAccent>,
     ) -> Self {
         Self::existing_profile(
             ConnectionEditorMode::Detail {
@@ -3229,6 +3231,7 @@ impl ConnectionEditorState {
             name,
             target,
             directory,
+            accent,
         )
     }
     fn existing_profile(
@@ -3236,6 +3239,7 @@ impl ConnectionEditorState {
         name: impl Into<String>,
         target: impl Into<String>,
         directory: impl Into<String>,
+        accent: Option<TerminalAccent>,
     ) -> Self {
         Self {
             mode,
@@ -3243,6 +3247,7 @@ impl ConnectionEditorState {
                 name: name.into(),
                 target: target.into(),
                 directory: directory.into(),
+                accent,
             },
             pending_forget_remote_terminal: None,
             connection_retirement: None,
@@ -3634,6 +3639,7 @@ pub struct AppState {
     pub collapsed_command_status_groups: Vec<String>,
     pub collapsed_workspace_groups: Vec<String>,
     pub agent_panel_scope: AgentPanelScope,
+    pub(crate) connection_scope: crate::app::connection_scope::ConnectionScope,
     /// Keep a just-focused Done agent in Triage until focus leaves that pane.
     pub(crate) triage_hold: Option<(String, crate::layout::PaneId)>,
     /// Capture mouse input for Gardn's own mouse UI. When false, Gardn only
@@ -3793,12 +3799,11 @@ impl AppState {
             {
                 self.host_display.coordinator()
             }
-            crate::app::host_label::HostLabelTarget::ExecutionHost(host_id) => self
-                .ssh_connection_profiles
-                .iter()
-                .find(|profile| profile.execution_host_id() == *host_id)
-                .map(|profile| crate::app::host_label::HostLabel::new(profile.name()))
-                .unwrap_or_else(|| crate::app::host_label::HostLabel::new(host_id.as_str())),
+            crate::app::host_label::HostLabelTarget::ExecutionHost(host_id) => {
+                crate::app::connection_scope::profile_for_host(self, host_id)
+                    .map(|profile| crate::app::host_label::HostLabel::new(profile.name()))
+                    .unwrap_or_else(|| crate::app::host_label::HostLabel::new(host_id.as_str()))
+            }
         }
     }
 
@@ -3965,26 +3970,34 @@ impl AppState {
     }
 
     pub fn workspace_in_active_group(&self, ws_idx: usize) -> bool {
-        if !self.group_filter_enabled {
-            return self.workspaces.get(ws_idx).is_some();
-        }
+        let Some(workspace) = self.workspaces.get(ws_idx) else {
+            return false;
+        };
+        !self.group_filter_enabled
+            || self
+                .groups
+                .get(self.active_group)
+                .is_some_and(|group| workspace.group_id == group.id)
+    }
 
-        self.workspaces
-            .get(ws_idx)
-            .is_some_and(|workspace| workspace.group_id == self.active_group_id())
+    pub fn workspace_is_visible(&self, ws_idx: usize) -> bool {
+        crate::app::connection_scope::workspace_is_visible(
+            self,
+            ws_idx,
+            self.active_group,
+            self.group_filter_enabled,
+            &self.connection_scope,
+        )
     }
 
     pub fn visible_workspace_indices(&self) -> Vec<usize> {
-        if !self.group_filter_enabled {
-            return (0..self.workspaces.len()).collect();
-        }
-
-        let active_group_id = self.active_group_id();
-        self.workspaces
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, workspace)| (workspace.group_id == active_group_id).then_some(idx))
-            .collect()
+        crate::app::connection_scope::visible_workspace_indices(
+            self,
+            self.active_group,
+            self.group_filter_enabled,
+            &self.connection_scope,
+        )
+        .collect()
     }
 
     pub fn workspace_group_collapsed(&self, group_id: &str) -> bool {
@@ -4019,7 +4032,13 @@ impl AppState {
             .iter()
             .enumerate()
             .filter_map(|(idx, workspace)| {
-                (!self.workspace_group_collapsed(&workspace.group_id)).then_some(idx)
+                (!self.workspace_group_collapsed(&workspace.group_id)
+                    && crate::app::connection_scope::workspace_matches(
+                        self,
+                        idx,
+                        &self.connection_scope,
+                    ))
+                .then_some(idx)
             })
             .collect()
     }
@@ -4041,24 +4060,11 @@ impl AppState {
         self.workspace_scroll = self
             .workspace_scroll
             .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
-        if !self
-            .sidebar_visible_workspace_indices()
-            .contains(&self.selected)
-        {
-            let visible = self.sidebar_visible_workspace_indices();
-            if let Some(next) = visible
-                .iter()
-                .copied()
-                .find(|idx| *idx > previous_selected)
-                .or_else(|| {
-                    visible
-                        .iter()
-                        .rev()
-                        .copied()
-                        .find(|idx| *idx < previous_selected)
-                })
-                .or_else(|| visible.first().copied())
-            {
+        if let Some(next) = crate::app::connection_scope::nearest_visible(
+            previous_selected,
+            self.sidebar_visible_workspace_indices(),
+        ) {
+            if next != self.selected {
                 self.selected = next;
                 self.ensure_workspace_visible(next);
             }
@@ -4067,14 +4073,13 @@ impl AppState {
     }
 
     pub fn first_visible_workspace(&self) -> Option<usize> {
-        if !self.group_filter_enabled {
-            return (!self.workspaces.is_empty()).then_some(0);
-        }
-
-        let active_group_id = self.active_group_id();
-        self.workspaces
-            .iter()
-            .position(|workspace| workspace.group_id == active_group_id)
+        crate::app::connection_scope::visible_workspace_indices(
+            self,
+            self.active_group,
+            self.group_filter_enabled,
+            &self.connection_scope,
+        )
+        .next()
     }
 
     pub(crate) fn mark_session_dirty(&mut self) {
@@ -4777,6 +4782,7 @@ impl AppState {
             collapsed_command_status_groups: Vec::new(),
             collapsed_workspace_groups: Vec::new(),
             agent_panel_scope: AgentPanelScope::CurrentWorkspace,
+            connection_scope: crate::app::connection_scope::ConnectionScope::All,
             triage_hold: None,
             mouse_capture: true,
             pending_pane_mouse_motion: None,

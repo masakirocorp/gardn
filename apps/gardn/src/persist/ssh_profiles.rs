@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tracing::warn;
 
+use crate::config::TerminalAccent;
 use crate::execution_host::{ExecutionHostId, HostPath};
 
 const CATALOG_FILE: &str = "ssh-profiles.json";
@@ -69,6 +70,7 @@ pub(crate) struct SshConnectionProfile {
     /// Raw OpenSSH destination preserved for `ssh` argv (outer whitespace trimmed only).
     target: String,
     suggested_directory: Option<HostPath>,
+    accent: Option<TerminalAccent>,
     /// Nonzero generation of the authenticated target binding behind this profile.
     host_binding_generation: u64,
 }
@@ -81,7 +83,17 @@ impl SshConnectionProfile {
         target: impl Into<String>,
         suggested_directory: Option<HostPath>,
     ) -> Result<Self, SshConnectionProfileError> {
-        Self::from_parts(id, name, target, suggested_directory, 1)
+        Self::new_with_accent(id, name, target, suggested_directory, None)
+    }
+
+    pub(crate) fn new_with_accent(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        target: impl Into<String>,
+        suggested_directory: Option<HostPath>,
+        accent: Option<TerminalAccent>,
+    ) -> Result<Self, SshConnectionProfileError> {
+        Self::from_parts(id, name, target, suggested_directory, accent, 1)
     }
 
     fn from_parts(
@@ -89,6 +101,7 @@ impl SshConnectionProfile {
         name: impl Into<String>,
         target: impl Into<String>,
         suggested_directory: Option<HostPath>,
+        accent: Option<TerminalAccent>,
         host_binding_generation: u64,
     ) -> Result<Self, SshConnectionProfileError> {
         let id = validate_id(id.into())?;
@@ -102,6 +115,7 @@ impl SshConnectionProfile {
             name,
             target,
             suggested_directory,
+            accent,
             host_binding_generation,
         })
     }
@@ -122,6 +136,13 @@ impl SshConnectionProfile {
         self.suggested_directory.as_ref()
     }
 
+    pub(crate) fn accent(&self) -> Option<TerminalAccent> {
+        self.accent
+    }
+
+    pub(crate) fn set_accent(&mut self, accent: Option<TerminalAccent>) {
+        self.accent = accent;
+    }
     pub(crate) fn host_binding_generation(&self) -> u64 {
         self.host_binding_generation
     }
@@ -230,6 +251,8 @@ struct SshConnectionProfileSerde {
     target: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     suggested_directory: Option<HostPath>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    accent: Option<TerminalAccent>,
     host_binding_generation: u64,
 }
 
@@ -243,6 +266,7 @@ impl Serialize for SshConnectionProfile {
             name: self.name.clone(),
             target: self.target.clone(),
             suggested_directory: self.suggested_directory.clone(),
+            accent: self.accent,
             host_binding_generation: self.host_binding_generation,
         }
         .serialize(serializer)
@@ -260,6 +284,7 @@ impl<'de> Deserialize<'de> for SshConnectionProfile {
             raw.name,
             raw.target,
             raw.suggested_directory,
+            raw.accent,
             raw.host_binding_generation,
         )
         .map_err(serde::de::Error::custom)
@@ -558,6 +583,27 @@ mod tests {
         assert_eq!(profile.host_binding_generation(), generation);
         assert_eq!(profile.execution_host_id(), host_id);
     }
+    #[test]
+    fn accent_round_trips_without_changing_host_binding_generation() {
+        let mut profile = SshConnectionProfile::new("workbox", "Workbox", "workbox", None).unwrap();
+        let host_id = profile.execution_host_id();
+        profile.set_accent(Some(TerminalAccent::Magenta));
+
+        let json = serde_json::to_string(&profile).unwrap();
+        let restored: SshConnectionProfile = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.accent(), Some(TerminalAccent::Magenta));
+        assert_eq!(restored.execution_host_id(), host_id);
+        assert_eq!(restored.host_binding_generation(), 1);
+    }
+
+    #[test]
+    fn missing_accent_deserializes_as_neutral() {
+        let profile: SshConnectionProfile = serde_json::from_str(
+            r#"{"id":"workbox","name":"Workbox","target":"workbox","host_binding_generation":1}"#,
+        )
+        .unwrap();
+        assert_eq!(profile.accent(), None);
+    }
 
     #[test]
     fn target_change_increments_generation_and_host_id() {
@@ -577,7 +623,7 @@ mod tests {
         assert_eq!(profile.host_binding_generation(), 2);
 
         let mut exhausted =
-            SshConnectionProfile::from_parts("full", "Full", "old", None, u64::MAX).unwrap();
+            SshConnectionProfile::from_parts("full", "Full", "old", None, None, u64::MAX).unwrap();
         assert_eq!(
             exhausted.set_target("new"),
             Err(SshConnectionProfileError::HostBindingGenerationOverflow)
@@ -637,7 +683,7 @@ mod tests {
             SshConnectionProfileError::InvalidIdCharacter
         );
         assert_eq!(
-            SshConnectionProfile::from_parts("id", "n", "t", None, 0).unwrap_err(),
+            SshConnectionProfile::from_parts("id", "n", "t", None, None, 0).unwrap_err(),
             SshConnectionProfileError::ZeroHostBindingGeneration
         );
     }

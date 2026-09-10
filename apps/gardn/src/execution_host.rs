@@ -39,6 +39,31 @@ const MAX_EXECUTION_HOST_ID_LEN: usize = 128;
 #[serde(transparent)]
 pub(crate) struct ExecutionHostId(String);
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub(crate) struct SshProfileId(String);
+
+impl SshProfileId {
+    pub(crate) fn new(value: impl Into<String>) -> Option<Self> {
+        let value = value.into();
+        (!value.is_empty() && !value.contains(':')).then_some(Self(value))
+    }
+
+    pub(crate) fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for SshProfileId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::new(value).ok_or_else(|| serde::de::Error::custom("invalid SSH profile id"))
+    }
+}
+
 impl ExecutionHostId {
     pub(crate) fn new(value: impl Into<String>) -> Result<Self, ExecutionHostIdError> {
         let value = value.into();
@@ -67,6 +92,17 @@ impl ExecutionHostId {
 
     pub(crate) fn is_local(&self) -> bool {
         self.0 == LOCAL_EXECUTION_HOST_ID
+    }
+
+    pub(crate) fn ssh_profile_id(&self) -> Option<&str> {
+        let (prefix_and_profile, generation) = self.0.rsplit_once(':')?;
+        let profile_id = prefix_and_profile.strip_prefix("ssh:")?;
+        (!profile_id.is_empty()
+            && !profile_id.contains(':')
+            && generation
+                .parse::<u64>()
+                .is_ok_and(|generation| generation > 0))
+        .then_some(profile_id)
     }
 }
 
@@ -215,6 +251,41 @@ mod tests {
             Err(ExecutionHostIdError::InvalidCharacter)
         );
         assert!(ExecutionHostId::new("ssh:workbox").is_ok());
+    }
+
+    #[test]
+    fn execution_host_exposes_validated_ssh_profile_identity() {
+        assert_eq!(
+            ExecutionHostId::new("ssh:workbox:7")
+                .unwrap()
+                .ssh_profile_id(),
+            Some("workbox")
+        );
+        assert_eq!(
+            ExecutionHostId::new("ssh:workbox")
+                .unwrap()
+                .ssh_profile_id(),
+            None
+        );
+        assert_eq!(
+            ExecutionHostId::new("ssh:workbox:0")
+                .unwrap()
+                .ssh_profile_id(),
+            None
+        );
+        assert_eq!(ExecutionHostId::local().ssh_profile_id(), None);
+    }
+
+    #[test]
+    fn ssh_profile_identity_rejects_invalid_serialized_values() {
+        assert!(serde_json::from_str::<SshProfileId>(r#""""#).is_err());
+        assert!(serde_json::from_str::<SshProfileId>(r#""work:box""#).is_err());
+        assert_eq!(
+            serde_json::from_str::<SshProfileId>(r#""workbox""#)
+                .unwrap()
+                .as_str(),
+            "workbox"
+        );
     }
 
     #[test]

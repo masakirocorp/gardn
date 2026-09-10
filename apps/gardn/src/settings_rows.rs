@@ -1641,6 +1641,7 @@ fn notification_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLi
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ConnectionField {
     Name,
+    Color,
     Target,
     Directory,
 }
@@ -1664,61 +1665,42 @@ pub(crate) enum ConnectionRowId {
     Action(ConnectionAction),
 }
 
+const CONNECTION_STATIC_ROWS: [ConnectionRowId; 12] = [
+    ConnectionRowId::Field(ConnectionField::Target),
+    ConnectionRowId::Field(ConnectionField::Name),
+    ConnectionRowId::Field(ConnectionField::Color),
+    ConnectionRowId::Field(ConnectionField::Directory),
+    ConnectionRowId::Action(ConnectionAction::Save),
+    ConnectionRowId::Action(ConnectionAction::Discard),
+    ConnectionRowId::Action(ConnectionAction::Delete),
+    ConnectionRowId::Action(ConnectionAction::Test),
+    ConnectionRowId::Action(ConnectionAction::Toggle),
+    ConnectionRowId::Action(ConnectionAction::LaunchWorkspace),
+    ConnectionRowId::Action(ConnectionAction::EditDetails),
+    ConnectionRowId::Action(ConnectionAction::ForgetConnection),
+];
+
 impl ConnectionRowId {
-    /// Dense index used by the existing list selection model.
-    pub(crate) const fn selection_index(self) -> usize {
+    pub(crate) fn selection_index(self) -> usize {
         match self {
-            Self::Field(ConnectionField::Target) => 0,
-            Self::Field(ConnectionField::Name) => 1,
-            Self::Field(ConnectionField::Directory) => 2,
-            Self::Action(ConnectionAction::Save) => 3,
-            Self::Action(ConnectionAction::Discard) => 4,
-            Self::Action(ConnectionAction::Delete) => 5,
-            Self::Action(ConnectionAction::Test) => 6,
-            Self::Action(ConnectionAction::Toggle) => 7,
-            Self::Action(ConnectionAction::LaunchWorkspace) => 8,
-            Self::Action(ConnectionAction::EditDetails) => 9,
-            Self::Action(ConnectionAction::ForgetConnection) => 10,
-            Self::Action(ConnectionAction::ForgetTermination { offset }) => 11 + offset,
+            Self::Action(ConnectionAction::ForgetTermination { offset }) => {
+                CONNECTION_STATIC_ROWS.len() + offset
+            }
+            _ => CONNECTION_STATIC_ROWS
+                .iter()
+                .position(|row| *row == self)
+                .expect("static connection row id"),
         }
     }
 
     pub(crate) fn from_selection_index(index: usize) -> Option<Self> {
-        Some(match index {
-            0 => Self::Field(ConnectionField::Target),
-            1 => Self::Field(ConnectionField::Name),
-            2 => Self::Field(ConnectionField::Directory),
-            3 => Self::Action(ConnectionAction::Save),
-            4 => Self::Action(ConnectionAction::Discard),
-            5 => Self::Action(ConnectionAction::Delete),
-            6 => Self::Action(ConnectionAction::Test),
-            7 => Self::Action(ConnectionAction::Toggle),
-            8 => Self::Action(ConnectionAction::LaunchWorkspace),
-            9 => Self::Action(ConnectionAction::EditDetails),
-            10 => Self::Action(ConnectionAction::ForgetConnection),
-            offset if offset >= 11 => Self::Action(ConnectionAction::ForgetTermination {
-                offset: offset - 11,
-            }),
-            _ => return None,
+        CONNECTION_STATIC_ROWS.get(index).copied().or_else(|| {
+            Some(Self::Action(ConnectionAction::ForgetTermination {
+                offset: index.checked_sub(CONNECTION_STATIC_ROWS.len())?,
+            }))
         })
     }
 }
-
-#[cfg(test)]
-pub(crate) const CONNECTION_TARGET_INDEX: usize =
-    ConnectionRowId::Field(ConnectionField::Target).selection_index();
-#[cfg(test)]
-pub(crate) const CONNECTION_SAVE_INDEX: usize =
-    ConnectionRowId::Action(ConnectionAction::Save).selection_index();
-#[cfg(test)]
-pub(crate) const CONNECTION_DISCARD_INDEX: usize =
-    ConnectionRowId::Action(ConnectionAction::Discard).selection_index();
-#[cfg(test)]
-pub(crate) const CONNECTION_DELETE_INDEX: usize =
-    ConnectionRowId::Action(ConnectionAction::Delete).selection_index();
-#[cfg(test)]
-pub(crate) const CONNECTION_TEST_INDEX: usize =
-    ConnectionRowId::Action(ConnectionAction::Test).selection_index();
 
 fn connection_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
     if connection_editor_open(settings) {
@@ -1794,6 +1776,11 @@ fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Ve
     let editing = editor.is_editing();
     let target = editor.draft.target.clone();
     let name = editor.draft.name.clone();
+    let color = editor
+        .draft
+        .accent
+        .map(TerminalAccent::display_name)
+        .unwrap_or("None");
     let directory = editor.draft.directory.clone();
     let mut rows = vec![
         SettingsListRow::Caption(
@@ -1812,6 +1799,13 @@ fn connection_form_rows(editor: &crate::app::state::ConnectionEditorState) -> Ve
             index: ConnectionRowId::Field(ConnectionField::Name).selection_index(),
             title: "Name (Optional)".into(),
             value: name.into(),
+        },
+        SettingsListRow::Value {
+            index: ConnectionRowId::Field(ConnectionField::Color).selection_index(),
+            title: "Color".into(),
+            description: "Badge color for this connection".into(),
+            value: format!("‹ {color} ›").into(),
+            editable: false,
         },
         SettingsListRow::Spacer,
         SettingsListRow::Caption(
@@ -2518,7 +2512,7 @@ mod tests {
     #[test]
     fn connection_retirement_preview_discloses_scope_before_confirmation() {
         let mut editor = crate::app::state::ConnectionEditorState::detail_profile(
-            "robotbox", "Robotbox", "robotbox", "",
+            "robotbox", "Robotbox", "robotbox", "", None,
         );
         editor.connection_retirement = Some(crate::app::state::ConnectionRetirementState::Review(
             crate::app::state::ConnectionRetirementPreview {

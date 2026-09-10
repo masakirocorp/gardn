@@ -294,7 +294,7 @@ impl App {
         let workspace_target = |state: &AppState| match context {
             ActionContext::Direct | ActionContext::Prefix => state.active,
             ActionContext::Navigate => {
-                Some(state.selected).filter(|idx| state.workspace_in_active_group(*idx))
+                Some(state.selected).filter(|idx| state.workspace_is_visible(*idx))
             }
         };
 
@@ -1152,7 +1152,7 @@ pub(super) fn handle_navigate_reserved_key(state: &mut AppState, key: &TerminalK
     if modifiers.is_empty() {
         match code {
             KeyCode::Enter => {
-                if state.workspace_in_active_group(state.selected) {
+                if state.workspace_is_visible(state.selected) {
                     state.switch_workspace(state.selected);
                     leave_navigate_mode(state);
                 }
@@ -1512,7 +1512,7 @@ pub(crate) fn execute_navigate_action_in_context(
             }
         }
         NavigateAction::CloseWorkspace => {
-            if state.workspace_in_active_group(state.selected) {
+            if state.workspace_is_visible(state.selected) {
                 if state.confirm_close {
                     super::modal::open_confirm_close(state);
                 } else {
@@ -1701,7 +1701,7 @@ fn workspace_action_target(state: &AppState, context: ActionContext) -> Option<u
     match context {
         ActionContext::Direct | ActionContext::Prefix => state.active,
         ActionContext::Navigate => {
-            Some(state.selected).filter(|idx| state.workspace_in_active_group(*idx))
+            Some(state.selected).filter(|idx| state.workspace_is_visible(*idx))
         }
     }
 }

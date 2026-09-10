@@ -3038,13 +3038,6 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
 
-        assert_eq!(buffer[(0, 0)].style().bg, Some(app.palette.panel_bg));
-        assert_eq!(
-            buffer[(app.view.sidebar_rect.x, app.view.sidebar_rect.y)]
-                .style()
-                .bg,
-            Some(app.palette.panel_bg)
-        );
         assert_eq!(
             buffer[(app.view.terminal_area.x, app.view.terminal_area.y)]
                 .style()
@@ -3212,7 +3205,7 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_sidebar_empty_state_keeps_agents_label() {
+    fn collapsed_sidebar_empty_state_keeps_agent_scope_filter() {
         let mut app = crate::app::state::AppState::test_new();
         app.sidebar_collapsed = true;
         app.workspaces.clear();
@@ -3231,7 +3224,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        assert!(text.contains("f:s"));
+        assert!(text.contains("S ·"));
         assert!(!text.contains("agt"));
     }
 
@@ -3262,12 +3255,14 @@ mod tests {
 
         assert!(line1.starts_with("  · one"));
         assert!(!line1.contains("1 one"));
-        assert_eq!(line2, "    test-host");
+        assert_eq!(line2, "     test-host");
     }
 
     #[test]
     fn expanded_sidebar_work_summary_colors_stats_by_kind() {
         let mut app = crate::app::state::AppState::test_new();
+        app.sidebar_width = 32;
+        app.sidebar_max_width = 32;
         let mut ws = Workspace::test_new("one");
         ws.cached_git_work_summary = Some(GitWorkSummary {
             repo_count: 1,
@@ -3288,7 +3283,7 @@ mod tests {
         let row = card.y + 1;
 
         let line = buffer_row_text(buffer, card, row);
-        assert_eq!(line, "    test-host · +2 ~1 -1");
+        assert_eq!(line, "     test-host  · +2 ~1 -1");
         let plus = line.find('+').expect("added count");
         let tilde = plus + line[plus..].find('~').expect("modified count");
         let minus = plus + line[plus..].find('-').expect("deleted count");

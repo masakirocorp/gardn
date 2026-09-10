@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ratatui::layout::Rect;
 
 use crate::app::state::{AgentPanelScope, AppState, ViewLayout};
@@ -17,19 +19,180 @@ pub(crate) struct GroupDropTarget {
     pub indicator_row: Option<u16>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum GroupMenuAction {
     AllSpaces,
     Group(usize),
+    Connection(crate::app::connection_scope::ConnectionScope),
     NewWorkspace,
     NewGroup,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AgentMenuAction {
     ThisSpace,
     ThisGroup,
     AllAgents,
+    Connection(crate::app::connection_scope::ConnectionScope),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum FilterMenuRow<A> {
+    Heading(String),
+    Separator,
+    Item {
+        label: String,
+        count: Option<usize>,
+        action: A,
+    },
+}
+
+impl<A> FilterMenuRow<A> {
+    pub(crate) fn label(&self) -> &str {
+        match self {
+            Self::Heading(label) | Self::Item { label, .. } => label,
+            Self::Separator => "---",
+        }
+    }
+
+    pub(crate) fn display_label(&self, show_counters: bool) -> Cow<'_, str> {
+        match self {
+            Self::Item {
+                label,
+                count: Some(count),
+                ..
+            } if show_counters => Cow::Owned(format!("{label} {count}")),
+            _ => Cow::Borrowed(self.label()),
+        }
+    }
+
+    pub(crate) fn action(&self) -> Option<&A> {
+        match self {
+            Self::Item { action, .. } => Some(action),
+            Self::Heading(_) | Self::Separator => None,
+        }
+    }
+}
+
+pub(crate) fn group_menu_rows(
+    state: &AppState,
+    group_filter_enabled: bool,
+    active_group: usize,
+    connection_scope: &crate::app::connection_scope::ConnectionScope,
+) -> Vec<FilterMenuRow<GroupMenuAction>> {
+    let mut all_count = 0;
+    let mut group_counts = vec![0; state.groups.len()];
+    for (ws_idx, workspace) in state.workspaces.iter().enumerate() {
+        if !crate::app::connection_scope::workspace_matches(state, ws_idx, connection_scope) {
+            continue;
+        }
+        all_count += 1;
+        if let Some(group_idx) = state.group_index_by_id(&workspace.group_id) {
+            group_counts[group_idx] += 1;
+        }
+    }
+
+    let all_marker = if group_filter_enabled { " " } else { "✓" };
+    let mut rows = vec![
+        FilterMenuRow::Heading("Spaces".to_string()),
+        FilterMenuRow::Item {
+            label: format!("{all_marker} All"),
+            count: Some(all_count),
+            action: GroupMenuAction::AllSpaces,
+        },
+    ];
+    rows.extend(state.groups.iter().enumerate().map(|(idx, group)| {
+        let marker = if group_filter_enabled && idx == active_group {
+            "✓"
+        } else {
+            " "
+        };
+        FilterMenuRow::Item {
+            label: format!("{marker} {} {}", group.icon, group.name),
+            count: Some(group_counts[idx]),
+            action: GroupMenuAction::Group(idx),
+        }
+    }));
+    rows.extend([
+        FilterMenuRow::Separator,
+        FilterMenuRow::Heading("Connections".to_string()),
+    ]);
+    rows.extend(
+        crate::app::connection_scope::choices(state)
+            .into_iter()
+            .map(|(scope, label)| FilterMenuRow::Item {
+                label: format!(
+                    "{} {label}",
+                    if &scope == connection_scope {
+                        "✓"
+                    } else {
+                        " "
+                    }
+                ),
+                count: None,
+                action: GroupMenuAction::Connection(scope),
+            }),
+    );
+    rows.extend([
+        FilterMenuRow::Separator,
+        FilterMenuRow::Heading("New".to_string()),
+        FilterMenuRow::Item {
+            label: "  Space".to_string(),
+            count: None,
+            action: GroupMenuAction::NewWorkspace,
+        },
+        FilterMenuRow::Item {
+            label: "  Group".to_string(),
+            count: None,
+            action: GroupMenuAction::NewGroup,
+        },
+    ]);
+    rows
+}
+
+pub(crate) fn agent_menu_rows(
+    state: &AppState,
+    agent_scope: AgentPanelScope,
+    connection_scope: &crate::app::connection_scope::ConnectionScope,
+) -> Vec<FilterMenuRow<AgentMenuAction>> {
+    let marker = |scope| if agent_scope == scope { "✓" } else { " " };
+    let mut rows = vec![
+        FilterMenuRow::Heading("Agents".to_string()),
+        FilterMenuRow::Item {
+            label: format!("{} All", marker(AgentPanelScope::AllWorkspaces)),
+            count: None,
+            action: AgentMenuAction::AllAgents,
+        },
+        FilterMenuRow::Item {
+            label: format!("{} Space", marker(AgentPanelScope::CurrentWorkspace)),
+            count: None,
+            action: AgentMenuAction::ThisSpace,
+        },
+        FilterMenuRow::Item {
+            label: format!("{} Group", marker(AgentPanelScope::CurrentGroup)),
+            count: None,
+            action: AgentMenuAction::ThisGroup,
+        },
+        FilterMenuRow::Separator,
+        FilterMenuRow::Heading("Connections".to_string()),
+    ];
+    rows.extend(
+        crate::app::connection_scope::choices(state)
+            .into_iter()
+            .map(|(scope, label)| FilterMenuRow::Item {
+                label: format!(
+                    "{} {label}",
+                    if &scope == connection_scope {
+                        "✓"
+                    } else {
+                        " "
+                    }
+                ),
+                count: None,
+                action: AgentMenuAction::Connection(scope),
+            }),
+    );
+    rows
 }
 
 impl AppState {
@@ -342,8 +505,16 @@ impl AppState {
             return crate::ui::collapsed_group_header_rect(self.view.sidebar_rect);
         }
 
-        let ws_area =
-            crate::ui::workspace_list_rect(self.view.sidebar_rect, self.sidebar_section_split);
+        let ws_area = if self.view.right_sidebar_rect == Rect::default()
+            && self.sidebar_arrangement == crate::config::SidebarArrangementConfig::CombinedRight
+        {
+            crate::ui::right_aligned_workspace_list_rect(
+                self.view.sidebar_rect,
+                self.sidebar_section_split,
+            )
+        } else {
+            crate::ui::workspace_list_rect(self.view.sidebar_rect, self.sidebar_section_split)
+        };
         if ws_area == Rect::default() {
             return Rect::default();
         }
@@ -357,84 +528,41 @@ impl AppState {
     }
 
     pub(crate) fn group_selector_label(&self) -> String {
-        if self.group_filter_enabled {
+        let spaces = if self.group_filter_enabled {
             format!("{} {}", self.active_group_icon(), self.active_group_name())
         } else {
             "All".to_string()
-        }
-    }
-
-    pub(crate) fn group_menu_labels(&self) -> Vec<String> {
-        let all_marker = if self.group_filter_enabled {
-            " "
-        } else {
-            "✓"
         };
-        let mut labels = vec![
-            "Filter".to_string(),
-            format!("{all_marker} All {}", self.workspaces.len()),
-        ];
-        labels.extend(self.groups.iter().enumerate().map(|(idx, group)| {
-            let marker = if self.group_filter_enabled && idx == self.active_group {
-                "✓"
-            } else {
-                " "
-            };
-            let count = self
-                .workspaces
-                .iter()
-                .filter(|ws| ws.group_id == group.id)
-                .count();
-            format!("{marker} {} {} {count}", group.icon, group.name)
-        }));
-        labels.push("---".to_string());
-        labels.push("New".to_string());
-        labels.push("  Space".to_string());
-        labels.push("  Group".to_string());
-        labels
+        format!(
+            "{spaces} · {}",
+            crate::app::connection_scope::scope_label(self, &self.connection_scope)
+        )
     }
 
-    pub(crate) fn group_menu_action_for_row(&self, row_idx: usize) -> Option<GroupMenuAction> {
-        if row_idx == 1 {
-            return Some(GroupMenuAction::AllSpaces);
-        }
+    pub(crate) fn group_menu_rows(&self) -> Vec<FilterMenuRow<GroupMenuAction>> {
+        group_menu_rows(
+            self,
+            self.group_filter_enabled,
+            self.active_group,
+            &self.connection_scope,
+        )
+    }
 
-        let group_start = 2;
-        let group_end = group_start + self.groups.len();
-        if (group_start..group_end).contains(&row_idx) {
-            return Some(GroupMenuAction::Group(row_idx - group_start));
-        }
-
-        let separator_idx = group_end;
-        if row_idx == separator_idx {
-            return None;
-        }
-
-        let create_idx = separator_idx + 1;
-        if row_idx == create_idx {
-            return None;
-        }
-
-        let new_workspace_idx = create_idx + 1;
-        if row_idx == new_workspace_idx {
-            return Some(GroupMenuAction::NewWorkspace);
-        }
-
-        let new_group_idx = new_workspace_idx + 1;
-        if row_idx == new_group_idx {
-            return Some(GroupMenuAction::NewGroup);
-        }
-
-        None
+    #[cfg(test)]
+    pub(crate) fn group_menu_labels(&self) -> Vec<String> {
+        self.group_menu_rows()
+            .into_iter()
+            .map(|row| row.display_label(true).into_owned())
+            .collect()
     }
 
     pub(crate) fn group_menu_rect(&self) -> Rect {
         let screen = self.screen_rect();
         let selector = self.group_selector_rect();
-        let labels = self.group_menu_labels();
-        let content_width = labels
+        let rows = self.group_menu_rows();
+        let content_width = rows
             .iter()
-            .map(|label| label.chars().count() as u16)
+            .map(|row| row.display_label(self.show_counters).chars().count() as u16)
             .max()
             .unwrap_or(8)
             .saturating_add(2);
@@ -446,7 +574,7 @@ impl AppState {
                 .min(self.view.sidebar_rect.width.max(1))
                 .min(screen.width.max(1))
         };
-        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let menu_h = (rows.len() as u16 + 2).min(screen.height.max(1));
         let x = selector
             .x
             .min(screen.x + screen.width.saturating_sub(menu_w));
@@ -455,56 +583,31 @@ impl AppState {
         Rect::new(x, y, menu_w, menu_h)
     }
 
-    pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
-        let all_marker = if matches!(self.agent_panel_scope, AgentPanelScope::AllWorkspaces) {
-            "✓"
-        } else {
-            " "
-        };
-        let space_marker = if matches!(self.agent_panel_scope, AgentPanelScope::CurrentWorkspace) {
-            "✓"
-        } else {
-            " "
-        };
-        let group_marker = if matches!(self.agent_panel_scope, AgentPanelScope::CurrentGroup) {
-            "✓"
-        } else {
-            " "
-        };
-        vec![
-            "Filter".to_string(),
-            format!("{all_marker} All"),
-            format!("{space_marker} Space"),
-            format!("{group_marker} Group"),
-        ]
+    pub(crate) fn agent_menu_rows(&self) -> Vec<FilterMenuRow<AgentMenuAction>> {
+        agent_menu_rows(self, self.agent_panel_scope, &self.connection_scope)
     }
 
-    pub(crate) fn agent_menu_action_for_row(&self, row_idx: usize) -> Option<AgentMenuAction> {
-        match row_idx {
-            1 => Some(AgentMenuAction::AllAgents),
-            2 => Some(AgentMenuAction::ThisSpace),
-            3 => Some(AgentMenuAction::ThisGroup),
-            _ => None,
-        }
+    #[cfg(test)]
+    pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
+        self.agent_menu_rows()
+            .into_iter()
+            .map(|row| row.display_label(self.show_counters).into_owned())
+            .collect()
     }
 
     pub(crate) fn agent_menu_rect(&self) -> Rect {
         let screen = self.screen_rect();
         let header = self.agent_menu_anchor_rect();
-        let labels = self.agent_menu_labels();
-        let content_width = labels
+        let rows = self.agent_menu_rows();
+        let content_width = rows
             .iter()
-            .enumerate()
-            .filter_map(|(idx, label)| {
-                self.agent_menu_action_for_row(idx)
-                    .is_some()
-                    .then_some(label.chars().count() as u16)
-            })
+            .filter(|row| row.action().is_some())
+            .map(|row| row.display_label(self.show_counters).chars().count() as u16)
             .max()
             .unwrap_or(8)
             .saturating_add(2);
         let menu_w = content_width.saturating_add(2).min(screen.width.max(1));
-        let menu_h = (labels.len() as u16 + 2).min(screen.height.max(1));
+        let menu_h = (rows.len() as u16 + 2).min(screen.height.max(1));
         let desired_x = header.x;
         let x = desired_x.min(screen.x + screen.width.saturating_sub(menu_w));
         let max_y = screen.y + screen.height.saturating_sub(menu_h);
@@ -1569,14 +1672,18 @@ mod tests {
 
         let labels = app.state.group_menu_labels();
 
-        assert_eq!(labels[0], "Filter");
+        assert_eq!(labels[0], "Spaces");
         assert!(labels[1].contains("All 2"));
         assert!(labels[2].contains("Group 1 1"));
         assert!(labels[3].contains("Work 1"));
         assert_eq!(labels[4], "---");
-        assert_eq!(labels[5], "New");
-        assert_eq!(labels[6], "  Space");
-        assert_eq!(labels[7], "  Group");
+        assert_eq!(labels[5], "Connections");
+        assert_eq!(labels[6], "✓ All connections");
+        assert_eq!(labels[7], "  test-host");
+        assert_eq!(labels[8], "---");
+        assert_eq!(labels[9], "New");
+        assert_eq!(labels[10], "  Space");
+        assert_eq!(labels[11], "  Group");
     }
 
     #[test]
@@ -2731,7 +2838,16 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["Filter", "✓ All", "  Space", "  Group"]
+            vec![
+                "Agents",
+                "✓ All",
+                "  Space",
+                "  Group",
+                "---",
+                "Connections",
+                "✓ All connections",
+                "  test-host",
+            ]
         );
     }
 
@@ -2741,11 +2857,20 @@ mod tests {
 
         assert_eq!(
             app.state.agent_menu_labels(),
-            vec!["Filter", "✓ All", "  Space", "  Group"]
+            vec![
+                "Agents",
+                "✓ All",
+                "  Space",
+                "  Group",
+                "---",
+                "Connections",
+                "✓ All connections",
+                "  test-host",
+            ]
         );
         assert_eq!(
             app.state.agent_menu_rect().width,
-            "  Space".len() as u16 + 4
+            "✓ All connections".chars().count() as u16 + 4
         );
     }
 
