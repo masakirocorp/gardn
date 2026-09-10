@@ -32,6 +32,7 @@ pub(super) const APP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 const INITIAL_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const STREAM_WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 const MAX_INITIAL_REQUEST_BYTES: usize = 1024 * 1024;
+const MAX_PENDING_PRESENTATIONS: usize = 64;
 
 pub struct ServerHandle {
     _thread: std::thread::JoinHandle<()>,
@@ -657,6 +658,8 @@ fn stream_notification_presenter(
     let stream_active = Arc::new(AtomicBool::new(true));
     let _activity = PresenterStreamActivity(Arc::clone(&stream_active));
     let (event_tx, event_rx) = std::sync::mpsc::channel();
+    let (presentation_tx, presentation_rx) =
+        std::sync::mpsc::sync_channel(MAX_PENDING_PRESENTATIONS);
     let (ack_tx, ack_rx) = std::sync::mpsc::channel();
     let request = Request {
         id: request_id.clone(),
@@ -665,6 +668,7 @@ fn stream_notification_presenter(
     if let Err(err) = api_tx.send(ApiRequestMessage {
         request,
         respond_to: event_tx,
+        presentation_tx: Some(presentation_tx),
         response_written: Some(ack_rx),
         stream_active: Some(stream_active),
     }) {
@@ -710,8 +714,8 @@ fn stream_notification_presenter(
         if should_stop_connection(&mut stream, running)? {
             return Ok(());
         }
-        match event_rx.recv_timeout(CONNECTION_POLL_INTERVAL) {
-            Ok(event) => match write_text_line(&mut stream, &event) {
+        match presentation_rx.recv_timeout(CONNECTION_POLL_INTERVAL) {
+            Ok(request) => match write_presentation(&mut stream, &request) {
                 Ok(()) => {}
                 Err(err) if is_connection_closed_error(&err) => return Ok(()),
                 Err(err) => return Err(err),
@@ -720,6 +724,25 @@ fn stream_notification_presenter(
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
         }
     }
+}
+
+fn write_presentation(
+    stream: &mut impl Write,
+    request: &gardn_local_api::PresentationRequest,
+) -> std::io::Result<()> {
+    if request.notification.expires_at_unix_ms <= crate::server::notifications::unix_time_ms() {
+        return Ok(());
+    }
+    let event = serde_json::json!({
+        "method": "notification.presentation",
+        "params": request,
+    });
+    let encoded = serde_json::to_string(&event)?;
+    if request.notification.expires_at_unix_ms <= crate::server::notifications::unix_time_ms() {
+        return Ok(());
+    }
+    writeln!(stream, "{encoded}")?;
+    stream.flush()
 }
 
 fn stream_subscriptions(
@@ -936,6 +959,7 @@ fn dispatch_to_app_inner(
     if let Err(err) = api_tx.send(ApiRequestMessage {
         request,
         respond_to,
+        presentation_tx: None,
         response_written,
         stream_active,
     }) {
@@ -2485,5 +2509,34 @@ mod tests {
         drop(api_tx);
         responder.join().unwrap();
         let _ = std::fs::remove_file(path);
+    }
+    #[test]
+    fn expired_presentation_is_not_serialized_or_written() {
+        let now = crate::server::notifications::unix_time_ms();
+        let request = gardn_local_api::PresentationRequest {
+            registration_id: gardn_local_api::RegistrationId {
+                coordinator_epoch: "epoch".into(),
+                sequence: 1,
+            },
+            notification: gardn_local_api::StateNotification {
+                id: gardn_local_api::NotificationId {
+                    coordinator_epoch: "epoch".into(),
+                    sequence: 2,
+                },
+                source: gardn_local_api::NotificationSource::Explicit,
+                target: None,
+                title: "expired".into(),
+                body: None,
+                visual: gardn_local_api::NotificationVisual::System,
+                sound: gardn_local_api::NotificationSound::None,
+                created_at_unix_ms: now.saturating_sub(1),
+                expires_at_unix_ms: now.saturating_sub(1),
+            },
+        };
+        let mut output = Vec::new();
+
+        write_presentation(&mut output, &request).unwrap();
+
+        assert!(output.is_empty());
     }
 }

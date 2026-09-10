@@ -78,7 +78,7 @@ final class AgentStore: ObservableObject {
         }
     }
     func stop() {
-        presenterStream = nil
+        retirePresenterStream()
         presenterTask?.cancel()
         presenterTask = nil
         runtimeProbeGeneration += 1
@@ -93,21 +93,21 @@ final class AgentStore: ObservableObject {
 
     func selectCoordinator(_ id: String) {
         catalog.select(id)
-        runtimeNotice = .unknown
-        reconnectToSelected()
-        presenterStream = nil
-        refresh()
-        refreshRuntimeStatus()
+        finishCoordinatorChange()
     }
 
 
     func addRemoteCoordinator(target: String, session: String) {
         if catalog.addRemote(target: target, session: session) != nil {
-            runtimeNotice = .unknown
-            reconnectToSelected()
-            refresh()
-            refreshRuntimeStatus()
+            finishCoordinatorChange()
         }
+    }
+
+    private func finishCoordinatorChange() {
+        runtimeNotice = .unknown
+        reconnectToSelected()
+        refresh()
+        refreshRuntimeStatus()
     }
 
     func openSettings() {
@@ -140,6 +140,7 @@ final class AgentStore: ObservableObject {
 
 
     private func reconnectToSelected() {
+        retirePresenterStream()
         catalog.refreshLocals()
         guard let selected = catalog.selected else {
             client = GardnClient(socketPath: GardnClient.defaultSocketPath())
@@ -154,6 +155,11 @@ final class AgentStore: ObservableObject {
             connected = false
             agents = []
         }
+    }
+
+    private func retirePresenterStream() {
+        presenterStream?.cancel()
+        presenterStream = nil
     }
 
 

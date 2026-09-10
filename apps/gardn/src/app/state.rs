@@ -3693,7 +3693,6 @@ pub struct AppState {
     pub new_terminal_cwd: NewTerminalCwdConfig,
     pub pane_scrollback_limit_bytes: usize,
     pub sound: SoundConfig,
-    pub local_sound_playback: bool,
     pub toast_config: ToastConfig,
     pub update_version_check: bool,
     pub update_manifest_check: bool,
@@ -4823,7 +4822,6 @@ impl AppState {
                 enabled: false,
                 ..SoundConfig::default()
             },
-            local_sound_playback: false,
             toast_config: ToastConfig {
                 delay_seconds: 0,
                 ..ToastConfig::default()

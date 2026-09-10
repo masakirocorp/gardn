@@ -33,6 +33,7 @@ pub(crate) trait AuthenticatedOutboundDelivery: Send {
 pub(crate) enum PresenterTransport {
     Client(u64),
     Local(u64),
+    Embedded,
 }
 
 #[derive(Debug, Clone)]
@@ -171,6 +172,7 @@ impl NotificationCoordinator {
         visual: NotificationVisual,
         sound: NotificationSound,
         foreground_client_id: Option<u64>,
+        excluded: Option<PresenterTransport>,
     ) -> Option<(&Presenter, NotificationVisual)> {
         match visual {
             NotificationVisual::System => self
@@ -178,7 +180,11 @@ impl NotificationCoordinator {
                 .iter()
                 .filter(|presenter| {
                     presenter.eligible
-                        && matches!(presenter.transport, PresenterTransport::Local(_))
+                        && Some(presenter.transport) != excluded
+                        && matches!(
+                            presenter.transport,
+                            PresenterTransport::Local(_) | PresenterTransport::Embedded
+                        )
                         && presenter.supports(NotificationVisual::System, sound)
                 })
                 .min_by_key(|presenter| presenter.order)
@@ -188,6 +194,7 @@ impl NotificationCoordinator {
                         .iter()
                         .find(|presenter| {
                             presenter.eligible
+                                && Some(presenter.transport) != excluded
                                 && presenter.is_foreground_client(foreground_client_id)
                                 && presenter.supports(NotificationVisual::System, sound)
                         })
@@ -198,6 +205,7 @@ impl NotificationCoordinator {
                         .iter()
                         .find(|presenter| {
                             presenter.eligible
+                                && Some(presenter.transport) != excluded
                                 && presenter.is_foreground_client(foreground_client_id)
                                 && presenter.supports(NotificationVisual::Terminal, sound)
                         })
@@ -208,7 +216,9 @@ impl NotificationCoordinator {
                 .iter()
                 .find(|presenter| {
                     presenter.eligible
-                        && presenter.is_foreground_client(foreground_client_id)
+                        && Some(presenter.transport) != excluded
+                        && (presenter.is_foreground_client(foreground_client_id)
+                            || matches!(presenter.transport, PresenterTransport::Embedded))
                         && presenter.supports(NotificationVisual::Terminal, sound)
                 })
                 .map(|presenter| (presenter, NotificationVisual::Terminal)),
@@ -217,6 +227,7 @@ impl NotificationCoordinator {
                 .iter()
                 .find(|presenter| {
                     presenter.eligible
+                        && Some(presenter.transport) != excluded
                         && presenter.is_foreground_client(foreground_client_id)
                         && presenter.supports(NotificationVisual::None, sound)
                 })
@@ -226,7 +237,11 @@ impl NotificationCoordinator {
                         .iter()
                         .filter(|presenter| {
                             presenter.eligible
-                                && matches!(presenter.transport, PresenterTransport::Local(_))
+                                && Some(presenter.transport) != excluded
+                                && matches!(
+                                    presenter.transport,
+                                    PresenterTransport::Local(_) | PresenterTransport::Embedded
+                                )
                                 && presenter.supports(NotificationVisual::None, sound)
                         })
                         .min_by_key(|presenter| presenter.order)
@@ -238,11 +253,20 @@ impl NotificationCoordinator {
 
     pub(crate) fn prepare(
         &mut self,
-        mut draft: NotificationDraft,
+        draft: NotificationDraft,
         foreground_client_id: Option<u64>,
     ) -> Option<PreparedPresentation> {
+        self.prepare_excluding(draft, foreground_client_id, None)
+    }
+
+    pub(crate) fn prepare_excluding(
+        &mut self,
+        mut draft: NotificationDraft,
+        foreground_client_id: Option<u64>,
+        excluded: Option<PresenterTransport>,
+    ) -> Option<PreparedPresentation> {
         let (presenter, selected_visual) =
-            self.select(draft.visual, draft.sound, foreground_client_id)?;
+            self.select(draft.visual, draft.sound, foreground_client_id, excluded)?;
         let registration_id = presenter.id.clone();
         let transport = presenter.transport;
         draft.visual = selected_visual;
@@ -421,5 +445,50 @@ mod tests {
         assert!(!coordinator.record_receipt(PresenterTransport::Client(8), &receipt));
         assert!(coordinator.record_receipt(PresenterTransport::Client(7), &receipt));
         assert!(!coordinator.record_receipt(PresenterTransport::Client(7), &receipt));
+    }
+
+    #[test]
+    fn excluding_first_presenter_selects_one_alternate() {
+        let mut coordinator = NotificationCoordinator::new("epoch".into());
+        coordinator.register(
+            PresenterTransport::Local(7),
+            registration(true, false, true),
+            true,
+        );
+        coordinator.register(
+            PresenterTransport::Local(8),
+            registration(true, false, true),
+            true,
+        );
+
+        let first = coordinator
+            .prepare(draft(NotificationVisual::System), None)
+            .unwrap();
+        let alternate = coordinator
+            .prepare_excluding(
+                draft(NotificationVisual::System),
+                None,
+                Some(first.transport),
+            )
+            .unwrap();
+
+        assert_eq!(first.transport, PresenterTransport::Local(7));
+        assert_eq!(alternate.transport, PresenterTransport::Local(8));
+    }
+
+    #[test]
+    fn embedded_presenter_handles_terminal_without_foreground_client() {
+        let mut coordinator = NotificationCoordinator::new("epoch".into());
+        coordinator.register(
+            PresenterTransport::Embedded,
+            registration(false, true, true),
+            true,
+        );
+
+        let prepared = coordinator
+            .prepare(draft(NotificationVisual::Terminal), None)
+            .unwrap();
+
+        assert_eq!(prepared.transport, PresenterTransport::Embedded);
     }
 }

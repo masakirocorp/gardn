@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use gardn_local_api::{PresenterRegistration, RegistrationId};
-
 use crate::app::ClientViewState;
 use crate::protocol::RenderEncoding;
 use crate::server::client_transport::ClientWriter;
@@ -63,10 +61,6 @@ pub(crate) struct ClientConnection {
     pub(crate) staged_clipboard_files: Vec<StagedClipboardFile>,
     /// Channels for sending framed ServerMessage data to the client writer thread.
     pub(crate) writer: Option<ClientWriter>,
-    /// Registered notification presentation capabilities.
-    pub(crate) presenter_registration: Option<PresenterRegistration>,
-    /// Server-assigned identifier for the notification presenter.
-    pub(crate) registration_id: Option<RegistrationId>,
 }
 
 impl ClientConnection {
@@ -131,8 +125,6 @@ impl ClientConnection {
             host_sgr_pixels_active: None,
             staged_clipboard_files: Vec::new(),
             writer,
-            presenter_registration: None,
-            registration_id: None,
         }
     }
 

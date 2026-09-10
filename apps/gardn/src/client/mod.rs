@@ -1322,6 +1322,9 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
                     return Err(ClientError::ServerShutdown { reason });
                 }
                 ServerMessage::PresentationRequest(request) => {
+                    if state.registration_id.as_ref() != Some(&request.registration_id) {
+                        continue;
+                    }
                     let outcome = present_notification(&request.notification, &state.sound_config);
                     let receipt = ClientMessage::PresentationReceipt(PresentationReceipt {
                         registration_id: request.registration_id,

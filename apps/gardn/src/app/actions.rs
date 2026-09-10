@@ -4956,14 +4956,16 @@ impl AppState {
             .unwrap_or_else(|| self.pane_is_in_active_tab(ws_idx, pane_id));
         let suppress_active_tab_notifications =
             active_tab_suppresses_notifications(is_active_tab, self.outer_terminal_focus);
+        let policy_suppresses_notifications =
+            self.toast_config.delay_seconds == 0 && suppress_active_tab_notifications;
 
         let client_notification_kind = notification_toast_for_state_change(
-            suppress_active_tab_notifications,
+            policy_suppresses_notifications,
             change.previous_state,
             change.state,
         );
         let sound = notification_sound_for_state_change(
-            suppress_active_tab_notifications,
+            policy_suppresses_notifications,
             change.previous_state,
             change.state,
         );
@@ -4991,6 +4993,7 @@ impl AppState {
                 known_agent,
                 kind,
                 change.state,
+                is_active_tab,
             );
         }
 
@@ -5026,6 +5029,7 @@ impl AppState {
         known_agent: Option<Agent>,
         kind: ToastKind,
         expected_state: AgentState,
+        is_active_tab: bool,
     ) -> Option<AgentNotificationDelivery> {
         let workspace = self.workspaces.get(ws_idx)?;
         let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
@@ -5043,7 +5047,6 @@ impl AppState {
             return None;
         }
 
-        let is_active_tab = self.pane_is_in_active_tab(ws_idx, pane_id);
         let suppress_active_tab_notifications =
             active_tab_suppresses_notifications(is_active_tab, self.outer_terminal_focus);
         let sound = sound_for_toast_kind(kind, suppress_active_tab_notifications)
@@ -5089,13 +5092,7 @@ impl AppState {
     }
 
     fn apply_agent_notification_delivery(&mut self, delivery: &AgentNotificationDelivery) {
-        if self.local_sound_playback {
-            if let Some(sound) = delivery.sound {
-                crate::sound::play(sound, &self.sound);
-            }
-        } else {
-            self.agent_notification_outbox.push_back(delivery.clone());
-        }
+        self.agent_notification_outbox.push_back(delivery.clone());
 
         if matches!(
             self.toast_config.delivery,
@@ -5120,9 +5117,10 @@ impl AppState {
             .min()
     }
 
-    pub fn drain_due_agent_notifications(
+    pub(crate) fn drain_due_agent_notifications_with_context(
         &mut self,
         now: std::time::Instant,
+        is_active_tab: impl Fn(&Self, usize, PaneId) -> bool,
     ) -> Vec<AgentNotificationDelivery> {
         let due_panes: Vec<PaneId> = self
             .pending_agent_notifications
@@ -5150,6 +5148,7 @@ impl AppState {
                 pending.known_agent,
                 pending.kind,
                 pending.state,
+                is_active_tab(self, ws_idx, pane_id),
             ) else {
                 continue;
             };
@@ -7846,13 +7845,49 @@ mod tests {
         let deadline = state
             .next_pending_agent_notification_deadline()
             .expect("pending delayed notification");
-        let deliveries = state.drain_due_agent_notifications(deadline);
+        let deliveries = state
+            .drain_due_agent_notifications_with_context(deadline, |state, ws_idx, pane_id| {
+                state.pane_is_in_active_tab(ws_idx, pane_id)
+            });
 
         assert_eq!(deliveries.len(), 1);
         let toast = state.toast.as_ref().expect("delayed toast");
         assert_eq!(toast.title, "pi Needs Attention");
         assert_eq!(toast.context, "background · 2");
         assert!(state.pending_agent_notifications.is_empty());
+    }
+
+    #[test]
+    fn immediate_notification_uses_supplied_foreground_view() {
+        let mut state = app_with_workspaces(&["foreground", "background"]);
+        state.active = Some(1);
+        let pane_id = *state.workspaces[1]
+            .terminal_tabs()
+            .next()
+            .unwrap()
+            .1
+            .panes
+            .keys()
+            .next()
+            .unwrap();
+
+        state.handle_app_event_for_active_tab(
+            AppEvent::StateChanged {
+                pane_id,
+                agent: Some(Agent::Pi),
+                state: AgentState::Blocked,
+                visible_blocker: false,
+                visible_idle: false,
+                visible_working: false,
+                process_exited: false,
+                observed_at: std::time::Instant::now(),
+            },
+            false,
+        );
+
+        let mut deliveries = state.take_agent_notification_deliveries();
+        let delivery = deliveries.pop_front().expect("notification delivery");
+        assert!(delivery.client_notification.is_some());
     }
 
     #[test]
@@ -7886,6 +7921,53 @@ mod tests {
         assert_eq!(toast.kind, ToastKind::NeedsAttention);
         assert_eq!(toast.title, "hermes Needs Attention");
         assert_eq!(toast.context, "background · 2");
+    }
+    #[test]
+    fn delayed_notification_rechecks_current_active_view() {
+        let mut state = app_with_workspaces(&["foreground", "background"]);
+        state.active = Some(0);
+        state.toast_config.delay_seconds = 1;
+        let pane_id = *state.workspaces[1]
+            .terminal_tabs()
+            .next()
+            .unwrap()
+            .1
+            .panes
+            .keys()
+            .next()
+            .unwrap();
+        let terminal_id = state.workspaces[1]
+            .pane_state(pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        state.terminals.get_mut(&terminal_id).unwrap().state = AgentState::Working;
+
+        state.handle_app_event_for_active_tab(
+            AppEvent::StateChanged {
+                pane_id,
+                agent: Some(Agent::Pi),
+                state: AgentState::Idle,
+                visible_blocker: false,
+                visible_idle: false,
+                visible_working: false,
+                process_exited: false,
+                observed_at: std::time::Instant::now(),
+            },
+            false,
+        );
+        let deadline = state
+            .next_pending_agent_notification_deadline()
+            .expect("pending delayed notification");
+        state.active = Some(1);
+
+        let deliveries = state
+            .drain_due_agent_notifications_with_context(deadline, |state, ws_idx, pane_id| {
+                state.pane_is_in_active_tab(ws_idx, pane_id)
+            });
+
+        assert!(deliveries.is_empty());
+        assert!(state.take_agent_notification_deliveries().is_empty());
     }
 
     #[test]

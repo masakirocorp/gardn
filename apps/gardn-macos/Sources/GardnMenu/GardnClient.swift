@@ -144,7 +144,8 @@ struct GardnClient {
         return json
     }
 
-    func startPresenterStream(onRequest: @escaping ([String: Any], @escaping ([String: Any]) -> Void) -> Void) -> GardnPresenterStream? {
+    @MainActor
+    func startPresenterStream(onRequest: @escaping GardnPresenterStream.RequestHandler) -> GardnPresenterStream? {
         let stream = GardnPresenterStream(
             socketPath: socketPath,
             requestHandler: onRequest
@@ -282,11 +283,221 @@ private func activityAge(unixSecs: UInt64?) -> String? {
     return "\(hours / 24)d"
 }
 
-private func unixRequest(path: String, payload: Data) throws -> Data {
+struct NotificationId: Codable, Equatable, Sendable {
+    let coordinatorEpoch: String
+    let sequence: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case coordinatorEpoch = "coordinator_epoch"
+        case sequence
+    }
+}
+
+struct RegistrationId: Codable, Equatable, Sendable {
+    let coordinatorEpoch: String
+    let sequence: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case coordinatorEpoch = "coordinator_epoch"
+        case sequence
+    }
+}
+
+struct NotificationTarget: Codable, Sendable {
+    let workspaceId: String
+    let tabId: String
+    let terminalId: String
+
+    enum CodingKeys: String, CodingKey {
+        case workspaceId = "workspace_id"
+        case tabId = "tab_id"
+        case terminalId = "terminal_id"
+    }
+}
+
+enum NotificationSource: String, Codable, Sendable, Equatable {
+    case state, explicit
+}
+
+enum NotificationVisual: String, Codable, Sendable, Equatable {
+    case none, gardn, terminal, system
+}
+
+enum NotificationSound: String, Codable, Sendable, Equatable {
+    case none, done, request
+}
+
+struct StateNotification: Codable, Sendable {
+    let id: NotificationId
+    let source: NotificationSource
+    let target: NotificationTarget?
+    let title: String
+    let body: String?
+    let visual: NotificationVisual
+    let sound: NotificationSound
+    let createdAtUnixMs: UInt64
+    let expiresAtUnixMs: UInt64
+
+    enum CodingKeys: String, CodingKey {
+        case id, source, target, title, body, visual, sound
+        case createdAtUnixMs = "created_at_unix_ms"
+        case expiresAtUnixMs = "expires_at_unix_ms"
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(source, forKey: .source)
+        try container.encode(target, forKey: .target)
+        try container.encode(title, forKey: .title)
+        try container.encode(body, forKey: .body)
+        try container.encode(visual, forKey: .visual)
+        try container.encode(sound, forKey: .sound)
+        try container.encode(createdAtUnixMs, forKey: .createdAtUnixMs)
+        try container.encode(expiresAtUnixMs, forKey: .expiresAtUnixMs)
+    }
+}
+
+struct PresentationRequest: Codable, Sendable {
+    let registrationId: RegistrationId
+    let notification: StateNotification
+
+    enum CodingKeys: String, CodingKey {
+        case registrationId = "registration_id"
+        case notification
+    }
+}
+
+enum PresentationOutcome: Codable, Sendable {
+    case submitted
+    case rejected(String)
+    case unknown
+
+    private enum CodingKeys: String, CodingKey { case rejected }
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer()
+        if let name = try? value.decode(String.self) {
+            switch name {
+            case "submitted": self = .submitted
+            case "unknown": self = .unknown
+            default:
+                throw DecodingError.dataCorruptedError(in: value, debugDescription: "Invalid presentation outcome")
+            }
+        } else {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self = .rejected(try container.decode(String.self, forKey: .rejected))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        switch self {
+        case .submitted:
+            var container = encoder.singleValueContainer()
+            try container.encode("submitted")
+        case .unknown:
+            var container = encoder.singleValueContainer()
+            try container.encode("unknown")
+        case .rejected(let reason):
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(reason, forKey: .rejected)
+        }
+    }
+}
+
+struct PresentationReceipt: Codable, Sendable {
+    let registrationId: RegistrationId
+    let notificationId: NotificationId
+    let outcome: PresentationOutcome
+
+    enum CodingKeys: String, CodingKey {
+        case registrationId = "registration_id"
+        case notificationId = "notification_id"
+        case outcome
+    }
+}
+
+struct PresenterRegistration: Codable {
+    struct Capabilities: Codable {
+        let terminal: Bool
+        let system: Bool
+        let sound: Bool
+    }
+
+    let name: String
+    let renderingHostId: String
+    let capabilities: Capabilities
+
+    enum CodingKeys: String, CodingKey {
+        case name, capabilities
+        case renderingHostId = "rendering_host_id"
+    }
+}
+
+struct PresenterRegistrationResponse: Codable {
+    enum Kind: String, Codable {
+        case registered = "notification_presenter_registered"
+    }
+
+    let type: Kind
+    let registrationId: RegistrationId
+
+    enum CodingKeys: String, CodingKey {
+        case type
+        case registrationId = "registration_id"
+    }
+}
+
+struct PresenterCommand<Params: Codable>: Codable {
+    let id: String
+    let method: String
+    let params: Params
+}
+
+enum PresenterEnvelope: Codable {
+    case registered(id: String, PresenterRegistrationResponse)
+    case presentation(PresentationRequest)
+
+    private enum CodingKeys: String, CodingKey { case id, method, params, result }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if container.contains(.method) {
+            let method = try container.decode(String.self, forKey: .method)
+            guard method == "notification.presentation" else {
+                throw DecodingError.dataCorruptedError(forKey: .method, in: container, debugDescription: "Unexpected presenter method")
+            }
+            self = .presentation(try container.decode(PresentationRequest.self, forKey: .params))
+        } else {
+            self = .registered(
+                id: try container.decode(String.self, forKey: .id),
+                try container.decode(PresenterRegistrationResponse.self, forKey: .result)
+            )
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .registered(let id, let response):
+            try container.encode(id, forKey: .id)
+            try container.encode(response, forKey: .result)
+        case .presentation(let request):
+            try container.encode("notification.presentation", forKey: .method)
+            try container.encode(request, forKey: .params)
+        }
+    }
+}
+
+func connectUnixSocket(path: String) throws -> Int32 {
     let fd = socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else { throw GardnClientError(message: "socket() failed") }
-    defer { close(fd) }
-
+    var connected = false
+    defer { if !connected { close(fd) } }
+    var noSigPipe: Int32 = 1
+    guard setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
+        throw GardnClientError(message: "socket configuration failed")
+    }
     var addr = sockaddr_un()
     addr.sun_family = sa_family_t(AF_UNIX)
     let maxPath = 104
@@ -310,6 +521,13 @@ private func unixRequest(path: String, payload: Data) throws -> Data {
     guard connectResult == 0 else {
         throw GardnClientError(message: "Gardn isn’t running")
     }
+    connected = true
+    return fd
+}
+
+private func unixRequest(path: String, payload: Data) throws -> Data {
+    let fd = try connectUnixSocket(path: path)
+    defer { close(fd) }
 
     try payload.withUnsafeBytes { buffer in
         var written = 0
@@ -334,129 +552,146 @@ private func unixRequest(path: String, payload: Data) throws -> Data {
     return collected
 }
 
+@MainActor
 final class GardnPresenterStream {
-    private(set) var active = false
+    typealias RequestHandler = (PresentationRequest, @escaping @Sendable (PresentationOutcome) -> Void) -> Void
 
+    enum State: Equatable {
+        case idle
+        case registering
+        case registered(RegistrationId)
+        case stopped
+    }
+
+    private(set) var state: State = .idle
+    var active: Bool {
+        switch state {
+        case .registering, .registered: return true
+        case .idle, .stopped: return false
+        }
+    }
+
+    private static let registrationRequestId = "menu:notification.presenter.register"
     private let socketPath: String
-    private let requestHandler: ([String: Any], @escaping ([String: Any]) -> Void) -> Void
-    private let lock = NSLock()
+    private let requestHandler: RequestHandler
     private var fd: Int32 = -1
     private var source: DispatchSourceRead?
     private var buffer = Data()
 
-    init(
-        socketPath: String,
-        requestHandler: @escaping ([String: Any], @escaping ([String: Any]) -> Void) -> Void
-    ) {
+    init(socketPath: String, requestHandler: @escaping RequestHandler) {
         self.socketPath = socketPath
         self.requestHandler = requestHandler
     }
 
     func start() -> Bool {
-        guard let connected = try? connect() else { return false }
-        fd = connected
-        let registration: [String: Any] = [
-            "id": "menu:notification.presenter.register",
-            "method": "notification.presenter.register",
-            "params": [
-                "name": "GardnMenu",
-                "rendering_host_id": Host.current().localizedName ?? "macos",
-                "capabilities": ["system": true, "terminal": false, "sound": true],
-            ],
-        ]
-        guard send(registration) else {
-            close(fd)
+        guard state == .idle else { return false }
+        do {
+            fd = try connectUnixSocket(path: socketPath)
+            let registration = PresenterCommand(
+                id: Self.registrationRequestId,
+                method: "notification.presenter.register",
+                params: PresenterRegistration(
+                    name: "GardnMenu",
+                    renderingHostId: Host.current().localizedName ?? "macos",
+                    capabilities: .init(terminal: false, system: true, sound: true)
+                )
+            )
+            var line = try JSONEncoder().encode(registration)
+            line.append(0x0A)
+            try line.withUnsafeBytes { bytes in
+                var offset = 0
+                while offset < bytes.count {
+                    let count = Darwin.send(fd, bytes.baseAddress!.advanced(by: offset), bytes.count - offset, 0)
+                    guard count > 0 else { throw GardnClientError(message: "write failed") }
+                    offset += count
+                }
+            }
+        } catch {
+            if fd >= 0 { close(fd) }
             fd = -1
+            state = .stopped
             return false
         }
-        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .userInitiated))
-        source.setEventHandler { [weak self] in self?.readAvailable() }
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .main)
+        source.setEventHandler { [weak self] in
+            MainActor.assumeIsolated { self?.readAvailable() }
+        }
         source.setCancelHandler { [fd] in close(fd) }
         self.source = source
+        state = .registering
         source.activate()
-        active = true
         return true
+    }
+
+    func cancel() {
+        guard active else { return }
+        state = .stopped
+        shutdown(fd, SHUT_RDWR)
+        source?.cancel()
+        source = nil
+        fd = -1
+        buffer.removeAll()
     }
 
     deinit {
         source?.cancel()
     }
 
-    private func connect() throws -> Int32 {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw GardnClientError(message: "socket() failed") }
-        var addr = sockaddr_un()
-        addr.sun_family = sa_family_t(AF_UNIX)
-        guard socketPath.utf8.count + 1 <= 104 else {
-            close(fd)
-            throw GardnClientError(message: "socket path too long")
-        }
-        withUnsafeMutablePointer(to: &addr) { ptr in
-            let dest = UnsafeMutableRawPointer(ptr)
-                .advanced(by: MemoryLayout<sockaddr_un>.offset(of: \.sun_path)!)
-                .assumingMemoryBound(to: CChar.self)
-            _ = socketPath.withCString { strlcpy(dest, $0, 104) }
-        }
-        let result = withUnsafePointer(to: &addr) { ptr in
-            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
-        guard result == 0 else {
-            close(fd)
-            throw GardnClientError(message: "Gardn isn’t running")
-        }
-        return fd
-    }
-
-    private func send(_ object: [String: Any]) -> Bool {
-        guard let data = try? JSONSerialization.data(withJSONObject: object) else { return false }
-        var line = data
-        line.append(0x0A)
-        lock.lock()
-        defer { lock.unlock() }
-        return line.withUnsafeBytes { bytes in
-            var offset = 0
-            while offset < bytes.count {
-                let count = Darwin.send(fd, bytes.baseAddress!.advanced(by: offset), bytes.count - offset, 0)
-                if count <= 0 { return false }
-                offset += count
-            }
-            return true
-        }
-    }
-
     private func readAvailable() {
+        guard active else { return }
         var chunk = [UInt8](repeating: 0, count: 4096)
         let count = recv(fd, &chunk, chunk.count, 0)
         guard count > 0 else {
-            active = false
-            source?.cancel()
+            cancel()
             return
         }
         buffer.append(contentsOf: chunk.prefix(count))
-        while let newline = buffer.firstIndex(of: 0x0A) {
-            let line = buffer.prefix(upTo: newline)
+        while active, let newline = buffer.firstIndex(of: 0x0A) {
+            let line = Data(buffer.prefix(upTo: newline))
             buffer.removeSubrange(...newline)
-            guard let object = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any] else { continue }
-            let params = (object["params"] as? [String: Any]) ?? (object["result"] as? [String: Any]) ?? [:]
-            if params["notification"] is [String: Any] {
-                requestHandler(params) { [weak self] receipt in
-                    self?.sendReceipt(receipt)
+            guard let envelope = try? JSONDecoder().decode(PresenterEnvelope.self, from: line) else {
+                cancel()
+                return
+            }
+            switch envelope {
+            case .registered(let id, let response):
+                guard state == .registering, id == Self.registrationRequestId else {
+                    cancel()
+                    return
+                }
+                state = .registered(response.registrationId)
+            case .presentation(let request):
+                guard case .registered(let registrationId) = state,
+                      request.registrationId == registrationId else {
+                    cancel()
+                    return
+                }
+                requestHandler(request) { [weak self] outcome in
+                    Task { @MainActor [weak self] in
+                        self?.sendReceipt(PresentationReceipt(
+                            registrationId: request.registrationId,
+                            notificationId: request.notification.id,
+                            outcome: outcome
+                        ))
+                    }
                 }
             }
         }
     }
 
-    private func sendReceipt(_ receipt: [String: Any]) {
-        let request: [String: Any] = [
-            "id": "menu:notification.presenter.receipt",
-            "method": "notification.presenter.receipt",
-            "params": receipt,
-        ]
-        guard let payload = try? JSONSerialization.data(withJSONObject: request) else { return }
-        var line = payload
-        line.append(0x0A)
-        _ = try? unixRequest(path: socketPath, payload: line)
+    private func sendReceipt(_ receipt: PresentationReceipt) {
+        guard case .registered(let registrationId) = state,
+              receipt.registrationId == registrationId else { return }
+        let request = PresenterCommand(
+            id: "menu:notification.presenter.receipt",
+            method: "notification.presenter.receipt",
+            params: receipt
+        )
+        let socketPath = socketPath
+        Task.detached(priority: .utility) {
+            guard var line = try? JSONEncoder().encode(request) else { return }
+            line.append(0x0A)
+            _ = try? unixRequest(path: socketPath, payload: line)
+        }
     }
 }

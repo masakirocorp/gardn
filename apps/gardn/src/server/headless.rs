@@ -150,7 +150,7 @@ enum AltScreenReadConflict {
 
 struct LocalPresenterConnection {
     registration_id: RegistrationId,
-    events: std::sync::mpsc::Sender<String>,
+    presentations: std::sync::mpsc::SyncSender<gardn_local_api::PresentationRequest>,
     response_written: std::sync::mpsc::Receiver<()>,
     stream_active: Arc<AtomicBool>,
     eligible: bool,
@@ -1265,6 +1265,36 @@ impl HeadlessServer {
             .is_some_and(|view| self.client_view_contains_pane(view, pane_id))
     }
 
+    fn foreground_notification_panes(&self) -> HashSet<crate::layout::PaneId> {
+        let Some(client_id) = self.foreground_client_id else {
+            return HashSet::new();
+        };
+        let Some(view) = self
+            .clients
+            .get(&client_id)
+            .and_then(|client| client.view_state.as_ref())
+        else {
+            return HashSet::new();
+        };
+        let mut panes = self
+            .app
+            .state
+            .popup_panes
+            .values()
+            .map(|popup| popup.pane_id)
+            .collect::<HashSet<_>>();
+        for workspace in &self.app.state.workspaces {
+            for (_, tab) in workspace.terminal_tabs() {
+                for &pane_id in tab.panes.keys() {
+                    if self.client_view_contains_pane(view, pane_id) {
+                        panes.insert(pane_id);
+                    }
+                }
+            }
+        }
+        panes
+    }
+
     fn promote_client_to_foreground(&mut self, client_id: u64) -> bool {
         let stamp = self.allocate_activity_stamp();
         let Some(client) = self.clients.get_mut(&client_id) else {
@@ -1809,17 +1839,27 @@ impl HeadlessServer {
                 ServerMessage::PresentationRequest(prepared.request.clone()),
             ),
             PresenterTransport::Local(key) => {
-                let Some(presenter) = self.local_presenters.get(&key) else {
+                let Some(presentations) = self
+                    .local_presenters
+                    .get(&key)
+                    .map(|presenter| presenter.presentations.clone())
+                else {
+                    self.notification_coordinator
+                        .unregister_transport(prepared.transport);
                     return false;
                 };
-                let event = serde_json::json!({
-                    "method": "notification.presentation",
-                    "params": &prepared.request,
-                });
-                serde_json::to_string(&event)
-                    .ok()
-                    .is_some_and(|event| presenter.events.send(event).is_ok())
+                match presentations.try_send(prepared.request.clone()) {
+                    Ok(()) => true,
+                    Err(std::sync::mpsc::TrySendError::Full(_)) => false,
+                    Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+                        self.local_presenters.remove(&key);
+                        self.notification_coordinator
+                            .unregister_transport(prepared.transport);
+                        false
+                    }
+                }
             }
+            PresenterTransport::Embedded => false,
         }
     }
 
@@ -1829,27 +1869,37 @@ impl HeadlessServer {
         foreground_client_id: Option<u64>,
     ) -> bool {
         self.refresh_local_presenters();
-        loop {
-            let Some(prepared) = self
-                .notification_coordinator
-                .prepare(draft.clone(), foreground_client_id)
-            else {
+        let mut excluded = None;
+        for _ in 0..2 {
+            let Some(prepared) = self.notification_coordinator.prepare_excluding(
+                draft.clone(),
+                foreground_client_id,
+                excluded,
+            ) else {
                 return false;
             };
             if self.send_prepared_presentation(&prepared) {
                 self.notification_coordinator.accept(&prepared);
                 return true;
             }
-            self.notification_coordinator
-                .unregister_transport(prepared.transport);
-            if let PresenterTransport::Local(key) = prepared.transport {
-                self.local_presenters.remove(&key);
+            if matches!(prepared.transport, PresenterTransport::Client(_)) {
+                self.notification_coordinator
+                    .unregister_transport(prepared.transport);
             }
+            excluded = Some(prepared.transport);
         }
+        false
     }
 
     fn drain_agent_notification_outbox(&mut self) -> bool {
-        let deliveries = self.app.state.take_agent_notification_deliveries();
+        let mut deliveries: Vec<_> = self
+            .app
+            .state
+            .take_agent_notification_deliveries()
+            .into_iter()
+            .collect();
+        self.app
+            .refresh_agent_notification_delivery_contexts(&mut deliveries);
         let mut dispatched = false;
         for delivery in deliveries {
             if matches!(
@@ -2329,9 +2379,11 @@ impl HeadlessServer {
                     .handle_internal_event_for_active_tab(ev, is_active_tab);
                 true
             }
-            AppEvent::HookStateReported { .. } => {
+            AppEvent::HookStateReported { pane_id, .. } => {
+                let is_active_tab = self.foreground_client_view_contains_pane(*pane_id);
                 self.sync_foreground_client_state();
-                self.app.handle_internal_event(ev);
+                self.app
+                    .handle_internal_event_for_active_tab(ev, is_active_tab);
                 true
             }
             AppEvent::UpdateReady { version, install } => {
@@ -2823,13 +2875,9 @@ impl HeadlessServer {
             } => {
                 let registration_id = self.notification_coordinator.register(
                     PresenterTransport::Client(client_id),
-                    registration.clone(),
+                    registration,
                     false,
                 );
-                if let Some(client) = self.clients.get_mut(&client_id) {
-                    client.presenter_registration = Some(registration);
-                    client.registration_id = Some(registration_id.clone());
-                }
                 if self.send_to_client(
                     client_id,
                     ServerMessage::PresenterRegistrationAck {
@@ -3487,6 +3535,9 @@ impl HeadlessServer {
             let Some(stream_active) = msg.stream_active else {
                 return false;
             };
+            let Some(presentations) = msg.presentation_tx else {
+                return false;
+            };
             let registration_id = self
                 .notification_coordinator
                 .register_local(registration.clone());
@@ -3503,7 +3554,7 @@ impl HeadlessServer {
                     key,
                     LocalPresenterConnection {
                         registration_id,
-                        events: msg.respond_to,
+                        presentations,
                         response_written,
                         stream_active,
                         eligible: false,
@@ -4100,7 +4151,6 @@ impl HeadlessServer {
             self.app.state.toast = None;
             changed = true;
         }
-
         if self
             .app
             .copy_feedback_deadline
@@ -4117,7 +4167,13 @@ impl HeadlessServer {
             .next_pending_agent_notification_deadline()
             .is_some_and(|deadline| now >= deadline)
         {
-            let deliveries = self.app.state.drain_due_agent_notifications(now);
+            let foreground_panes = self.foreground_notification_panes();
+            let deliveries = self
+                .app
+                .state
+                .drain_due_agent_notifications_with_context(now, |_, _, pane_id| {
+                    foreground_panes.contains(&pane_id)
+                });
             self.drain_agent_notification_outbox();
             if !deliveries.is_empty() {
                 self.app.sync_toast_deadline(None);
@@ -4454,8 +4510,7 @@ pub fn run_server() -> io::Result<()> {
             event_hub,
         );
 
-        app.state.local_sound_playback = false;
-        app.local_terminal_notifications = false;
+        app.local_notification_coordinator = None;
         app.local_input_source_switch = false;
 
         let mut server = match HeadlessServer::new(
@@ -4526,8 +4581,7 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
             &received.manifest.snapshot,
             &mut imports,
         )?;
-        app.state.local_sound_playback = false;
-        app.local_terminal_notifications = false;
+        app.local_notification_coordinator = None;
         app.local_input_source_switch = false;
         crate::server::handoff::report_restored(&mut received.stream)?;
         if std::env::var("GARDN_TEST_HANDOFF_IMPORT_FAIL").as_deref() == Ok("after_restored") {
@@ -4638,9 +4692,8 @@ mod tests {
         let (api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = crate::app::App::new(&config, true, None, api_rx, api::EventHub::default());
 
-        app.state.local_sound_playback = false;
+        app.local_notification_coordinator = None;
         app.state.toast_config.delay_seconds = 0;
-        app.local_terminal_notifications = false;
         app.local_input_source_switch = false;
 
         let dir = std::env::temp_dir().join(format!(
@@ -4834,6 +4887,7 @@ mod tests {
                     method: api::schema::Method::WorkspaceList(api::schema::EmptyParams::default()),
                 },
                 respond_to,
+                presentation_tx: None,
                 response_written: None,
                 stream_active: None,
             })
@@ -4861,6 +4915,7 @@ mod tests {
                     method: api::schema::Method::WorkspaceList(api::schema::EmptyParams::default()),
                 },
                 respond_to: queued_tx,
+                presentation_tx: None,
                 response_written: None,
                 stream_active: None,
             })
@@ -7368,6 +7423,7 @@ next_tab = ""
                     method: api::schema::Method::TabFocus(api::schema::TabTarget { tab_id }),
                 },
                 respond_to,
+                presentation_tx: None,
                 response_written: None,
                 stream_active: None,
             })
@@ -8746,6 +8802,7 @@ next_tab = ""
                 }),
             },
             respond_to,
+            presentation_tx: None,
             response_written: None,
             stream_active: None,
         });
@@ -8989,6 +9046,19 @@ next_tab = ""
         server.sync_window_title();
         no_window_title(&control_rx);
     }
+    #[test]
+    fn scheduled_tasks_clear_expired_copy_feedback() {
+        let mut server = test_headless_server();
+        let deadline = Instant::now();
+        server.app.state.copy_feedback = Some(crate::app::state::CopyFeedback {
+            message: "copied to clipboard".to_owned(),
+        });
+        server.app.copy_feedback_deadline = Some(deadline);
+
+        assert!(server.handle_scheduled_tasks_headless(deadline, false));
+        assert!(server.app.state.copy_feedback.is_none());
+        assert!(server.app.copy_feedback_deadline.is_none());
+    }
 
     #[test]
     fn window_title_is_resent_after_a_client_detaches() {
@@ -9012,6 +9082,7 @@ next_tab = ""
     fn local_presenter_activates_after_registration_response_and_records_receipt() {
         let mut server = test_headless_server();
         let (events, event_rx) = std::sync::mpsc::channel();
+        let (presentations, presentation_rx) = std::sync::mpsc::sync_channel(1);
         let (response_written, response_written_rx) = std::sync::mpsc::channel();
         let stream_active = Arc::new(AtomicBool::new(true));
         let registration = gardn_local_api::PresenterRegistration {
@@ -9031,6 +9102,7 @@ next_tab = ""
                     method: api::schema::Method::NotificationPresenterRegister(registration),
                 },
                 respond_to: events,
+                presentation_tx: Some(presentations),
                 response_written: Some(response_written_rx),
                 stream_active: Some(Arc::clone(&stream_active)),
             })
@@ -9053,13 +9125,40 @@ next_tab = ""
         };
         assert!(!server.dispatch_notification(draft.clone(), None));
         response_written.send(()).unwrap();
-        assert!(server.dispatch_notification(draft, None));
+        assert!(server.dispatch_notification(draft.clone(), None));
+        assert!(!server.dispatch_notification(draft, None));
+        assert_eq!(server.local_presenters.len(), 1);
 
-        let event: serde_json::Value = serde_json::from_str(&event_rx.recv().unwrap()).unwrap();
-        let request: gardn_local_api::PresentationRequest =
-            serde_json::from_value(event["params"].clone()).unwrap();
+        let request = presentation_rx.recv().unwrap();
         assert_eq!(request.registration_id, registration_id);
         assert_eq!(request.notification.visual, NotificationVisual::System);
+
+        let wrong_receipt_id = gardn_local_api::RegistrationId {
+            coordinator_epoch: "wrong-epoch".into(),
+            sequence: registration_id.sequence,
+        };
+        let (wrong_tx, wrong_rx) = std::sync::mpsc::channel();
+        assert!(
+            !server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+                request: api::schema::Request {
+                    id: "wrong-receipt".into(),
+                    method: api::schema::Method::NotificationPresenterReceipt(
+                        gardn_local_api::PresentationReceipt {
+                            registration_id: wrong_receipt_id,
+                            notification_id: request.notification.id.clone(),
+                            outcome: PresentationOutcome::Submitted,
+                        },
+                    ),
+                },
+                respond_to: wrong_tx,
+                presentation_tx: None,
+                response_written: None,
+                stream_active: None,
+            })
+        );
+        let wrong_receipt: serde_json::Value =
+            serde_json::from_str(&wrong_rx.recv().unwrap()).unwrap();
+        assert_eq!(wrong_receipt["result"]["accepted"], false);
 
         let (receipt_tx, receipt_rx) = std::sync::mpsc::channel();
         assert!(
@@ -9075,10 +9174,24 @@ next_tab = ""
                     ),
                 },
                 respond_to: receipt_tx,
+                presentation_tx: None,
                 response_written: None,
                 stream_active: None,
             })
         );
+        drop(presentation_rx);
+        assert!(!server.dispatch_notification(
+            NotificationDraft {
+                source: NotificationSource::Explicit,
+                target: None,
+                title: "disconnected".into(),
+                body: None,
+                visual: NotificationVisual::System,
+                sound: NotificationSound::Done,
+            },
+            None,
+        ));
+        assert!(server.local_presenters.is_empty());
         let receipt: serde_json::Value = serde_json::from_str(&receipt_rx.recv().unwrap()).unwrap();
         assert_eq!(receipt["result"]["accepted"], true);
 

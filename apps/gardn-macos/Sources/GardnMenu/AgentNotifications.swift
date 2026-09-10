@@ -35,38 +35,28 @@ enum AgentNotifications {
         }
     }
 
-    static func present(request: [String: Any], receipt: @escaping ([String: Any]) -> Void) {
-        let registration = request["registration_id"] as? [String: Any]
-        let notification = request["notification"] as? [String: Any]
-        let registrationId = registration ?? [:]
-        let notificationId = notification?["id"] as? [String: Any] ?? [:]
-        let baseReceipt: (Any) -> Void = { outcome in
-            receipt([
-                "registration_id": registrationId,
-                "notification_id": notificationId,
-                "outcome": outcome,
-            ])
-        }
-        guard let notification else {
-            baseReceipt(["rejected": "missing_notification"])
-            return
+    static func present(
+        request: PresentationRequest,
+        receipt: @escaping @Sendable (PresentationOutcome) -> Void
+    ) {
+        let notification = request.notification
+        let complete: (PresentationOutcome) -> Void = { outcome in
+            receipt(outcome)
         }
 
-        let visual = notification["visual"] as? String ?? "none"
-        let sound = notification["sound"] as? String ?? "none"
-        if visual == "none" {
-            guard sound != "none" else {
-                baseReceipt(["rejected": "empty_presentation"])
+        if notification.visual == .none {
+            guard notification.sound != .none else {
+                complete(.rejected("empty_presentation"))
                 return
             }
             DispatchQueue.main.async {
                 NSSound.beep()
-                baseReceipt("submitted")
+                complete(.submitted)
             }
             return
         }
-        guard visual == "system" else {
-            baseReceipt(["rejected": "unsupported_visual"])
+        guard notification.visual == .system else {
+            complete(.rejected("unsupported_visual"))
             return
         }
 
@@ -74,30 +64,34 @@ enum AgentNotifications {
         let allowed = isAuthorized
         lock.unlock()
         guard allowed else {
-            baseReceipt(["rejected": "not_authorized"])
+            complete(.rejected("not_authorized"))
             return
         }
         let content = UNMutableNotificationContent()
-        content.title = notification["title"] as? String ?? "Gardn"
-        content.body = notification["body"] as? String ?? ""
-        content.sound = sound == "none" ? nil : .default
+        content.title = notification.title
+        content.body = notification.body ?? ""
+        content.sound = notification.sound == .none ? nil : .default
+        let notificationId: [String: Any] = [
+            "coordinator_epoch": notification.id.coordinatorEpoch,
+            "sequence": notification.id.sequence,
+        ]
         var userInfo: [String: Any] = [
             "notification_id": notificationId,
         ]
-        if let target = notification["target"] as? [String: Any], let terminalId = target["terminal_id"] as? String {
-            userInfo[terminalIdKey] = terminalId
-            content.threadIdentifier = terminalId
+        if let target = notification.target {
+            userInfo[terminalIdKey] = target.terminalId
+            content.threadIdentifier = target.terminalId
         }
         content.userInfo = userInfo
-        let identifier = "gardn-\(notificationId["coordinator_epoch"] as? String ?? "epoch")-\(notificationId["sequence"] as? NSNumber ?? 0)"
+        let identifier = "gardn-\(notification.id.coordinatorEpoch)-\(notification.id.sequence)"
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
         let center = UNUserNotificationCenter.current()
         center.add(request) { error in
             if let error {
                 log.error("notification post failed: \(error.localizedDescription, privacy: .public)")
-                baseReceipt(["rejected": error.localizedDescription])
+                complete(.rejected(error.localizedDescription))
             } else {
-                baseReceipt("submitted")
+                complete(.submitted)
             }
         }
     }

@@ -382,77 +382,38 @@ impl App {
             self.emit_layout_updated_event(ws_idx, tab_idx);
         }
 
-        if self.local_terminal_notifications
-            && matches!(
-                self.state.toast_config.delivery,
-                crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System
-            )
-        {
-            let notify = match self.state.toast_config.delivery {
-                crate::config::ToastDelivery::Terminal => crate::terminal_notify::show_notification,
-                crate::config::ToastDelivery::System => crate::platform::show_desktop_notification,
-                _ => unreachable!("toast delivery was checked above"),
-            };
-
-            if let Some((version, install)) = update_ready {
-                let _ = notify(
-                    &format!("v{version} Available"),
-                    Some(&install.availability_notification_detail()),
-                );
-            } else {
-                for update in &pane_updates {
-                    if update.suppress_completion {
-                        continue;
-                    }
-                    let is_active_tab = self
-                        .state
-                        .pane_is_in_active_tab(update.ws_idx, update.pane_id);
-                    let suppress_active_tab_notifications =
-                        crate::app::actions::active_tab_suppresses_notifications(
-                            is_active_tab,
-                            self.state.outer_terminal_focus,
-                        );
-                    let Some(kind) = crate::app::actions::notification_toast_for_state_change(
-                        suppress_active_tab_notifications,
-                        update.previous_state,
-                        update.state,
-                    ) else {
-                        continue;
-                    };
-                    let Some(ws) = self.state.workspaces.get(update.ws_idx) else {
-                        continue;
-                    };
-                    let Some(pane) = ws
-                        .terminal_tabs()
-                        .find_map(|(_, tab)| tab.panes.get(&update.pane_id))
-                    else {
-                        continue;
-                    };
-                    let Some(agent_label) = self
-                        .state
-                        .terminals
-                        .get(&pane.attached_terminal_id)
-                        .and_then(|terminal| terminal.effective_agent_label())
-                    else {
-                        continue;
-                    };
-                    let event_text = match kind {
-                        ToastKind::NeedsAttention => "needs attention",
-                        ToastKind::Finished => "finished",
-                        ToastKind::UpdateInstalled => "updated",
-                    };
-                    let workspace_label =
-                        ws.display_name_from(&self.state.terminals, &self.terminal_runtimes);
-                    let _ = notify(
-                        &format!("{} {}", agent_label, event_text),
-                        Some(&crate::app::actions::notification_context(
-                            ws,
-                            &workspace_label,
-                            update.ws_idx,
-                            update.pane_id,
-                        )),
-                    );
+        if let Some((version, install)) = update_ready {
+            let visual = match self.state.toast_config.delivery {
+                crate::config::ToastDelivery::Terminal => {
+                    gardn_local_api::NotificationVisual::Terminal
                 }
+                crate::config::ToastDelivery::System => gardn_local_api::NotificationVisual::System,
+                crate::config::ToastDelivery::Off | crate::config::ToastDelivery::Gardn => {
+                    gardn_local_api::NotificationVisual::None
+                }
+            };
+            self.dispatch_notification(
+                crate::server::notifications::NotificationDraft {
+                    source: gardn_local_api::NotificationSource::State,
+                    target: None,
+                    title: format!("v{version} Available"),
+                    body: Some(install.availability_notification_detail()),
+                    visual,
+                    sound: gardn_local_api::NotificationSound::None,
+                },
+                None,
+            );
+        }
+
+        if self.local_notification_coordinator.is_some() {
+            let mut deliveries: Vec<_> = self
+                .state
+                .take_agent_notification_deliveries()
+                .into_iter()
+                .collect();
+            self.refresh_agent_notification_delivery_contexts(&mut deliveries);
+            for delivery in deliveries {
+                self.dispatch_agent_notification_delivery(&delivery);
             }
         }
 
@@ -745,33 +706,6 @@ impl App {
         }
     }
 
-    pub(crate) fn emit_delayed_client_local_agent_notifications(
-        &self,
-        deliveries: &[crate::app::state::AgentNotificationDelivery],
-    ) {
-        if !self.local_terminal_notifications
-            || !matches!(
-                self.state.toast_config.delivery,
-                crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System
-            )
-        {
-            return;
-        }
-
-        let notify = match self.state.toast_config.delivery {
-            crate::config::ToastDelivery::Terminal => crate::terminal_notify::show_notification,
-            crate::config::ToastDelivery::System => crate::platform::show_desktop_notification,
-            _ => unreachable!("toast delivery was checked above"),
-        };
-
-        for delivery in deliveries {
-            let Some(toast) = &delivery.client_notification else {
-                continue;
-            };
-            let _ = notify(&toast.title, Some(&toast.context));
-        }
-    }
-
     pub(crate) fn refresh_agent_notification_delivery_contexts(
         &mut self,
         deliveries: &mut [crate::app::state::AgentNotificationDelivery],
@@ -808,6 +742,136 @@ impl App {
                     toast.context = context;
                 }
             }
+        }
+    }
+
+    pub(super) fn dispatch_agent_notification_delivery(
+        &mut self,
+        delivery: &crate::app::state::AgentNotificationDelivery,
+    ) {
+        if matches!(
+            self.state.toast_config.delivery,
+            crate::config::ToastDelivery::Off
+        ) {
+            return;
+        }
+        let toast = delivery
+            .client_notification
+            .as_ref()
+            .or(delivery.toast.as_ref());
+        let visual = match (self.state.toast_config.delivery, toast.is_some()) {
+            (crate::config::ToastDelivery::Terminal, true) => {
+                gardn_local_api::NotificationVisual::Terminal
+            }
+            (crate::config::ToastDelivery::System, true) => {
+                gardn_local_api::NotificationVisual::System
+            }
+            _ => gardn_local_api::NotificationVisual::None,
+        };
+        let title = toast
+            .map(|toast| toast.title.clone())
+            .unwrap_or_else(|| format!("{} notification", delivery.agent_label));
+        let body =
+            toast.and_then(|toast| (!toast.context.is_empty()).then(|| toast.context.clone()));
+        let sound = delivery
+            .sound
+            .map(notification_sound_from_sound)
+            .unwrap_or(gardn_local_api::NotificationSound::None);
+        if matches!(visual, gardn_local_api::NotificationVisual::None) && sound.is_none() {
+            return;
+        }
+        self.dispatch_notification(
+            crate::server::notifications::NotificationDraft {
+                source: gardn_local_api::NotificationSource::State,
+                target: Some(gardn_local_api::NotificationTarget {
+                    workspace_id: delivery.workspace_id.clone(),
+                    tab_id: delivery.tab_id.clone(),
+                    terminal_id: delivery.terminal_id.clone(),
+                }),
+                title,
+                body,
+                visual,
+                sound,
+            },
+            None,
+        );
+    }
+
+    fn dispatch_notification(
+        &mut self,
+        draft: crate::server::notifications::NotificationDraft,
+        foreground_client_id: Option<u64>,
+    ) -> bool {
+        let Some(prepared) = self
+            .local_notification_coordinator
+            .as_mut()
+            .and_then(|coordinator| coordinator.prepare(draft, foreground_client_id))
+        else {
+            return false;
+        };
+        let outcome = self.present_local_notification(&prepared.request.notification);
+        let shown = matches!(
+            outcome,
+            gardn_local_api::PresentationOutcome::Submitted
+                | gardn_local_api::PresentationOutcome::Unknown
+        );
+        if let Some(coordinator) = self.local_notification_coordinator.as_mut() {
+            coordinator.accept(&prepared);
+            let receipt = gardn_local_api::PresentationReceipt {
+                registration_id: prepared.request.registration_id.clone(),
+                notification_id: prepared.request.notification.id.clone(),
+                outcome,
+            };
+            coordinator.record_receipt(prepared.transport, &receipt);
+        }
+        shown
+    }
+
+    fn present_local_notification(
+        &self,
+        notification: &gardn_local_api::StateNotification,
+    ) -> gardn_local_api::PresentationOutcome {
+        let sound_submitted = if self.state.sound.allows(None) {
+            crate::api::schema::notification_sound_to_sound(notification.sound)
+                .map(|sound| {
+                    crate::sound::play(sound, &self.state.sound);
+                    true
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        };
+        let result = match notification.visual {
+            gardn_local_api::NotificationVisual::Terminal => {
+                crate::terminal_notify::show_notification(
+                    &notification.title,
+                    notification.body.as_deref(),
+                )
+            }
+            gardn_local_api::NotificationVisual::System => {
+                crate::platform::show_desktop_notification(
+                    &notification.title,
+                    notification.body.as_deref(),
+                )
+            }
+            gardn_local_api::NotificationVisual::None if sound_submitted => {
+                return gardn_local_api::PresentationOutcome::Submitted;
+            }
+            gardn_local_api::NotificationVisual::None
+            | gardn_local_api::NotificationVisual::Gardn => {
+                return gardn_local_api::PresentationOutcome::Rejected(
+                    "unsupported presentation".to_owned(),
+                );
+            }
+        };
+        match result {
+            Ok(true) => gardn_local_api::PresentationOutcome::Submitted,
+            Ok(false) if sound_submitted => gardn_local_api::PresentationOutcome::Unknown,
+            Ok(false) => {
+                gardn_local_api::PresentationOutcome::Rejected("presentation unsupported".into())
+            }
+            Err(_) if sound_submitted => gardn_local_api::PresentationOutcome::Unknown,
+            Err(err) => gardn_local_api::PresentationOutcome::Rejected(err.to_string()),
         }
     }
 
@@ -1936,7 +2000,6 @@ impl App {
             .body
             .as_deref()
             .and_then(|body| sanitized_notification_text(body, 240));
-
         let now = Instant::now();
         let reason = match self.state.toast_config.delivery {
             crate::config::ToastDelivery::Off => NotificationShowReason::Suppressed,
@@ -1947,18 +2010,30 @@ impl App {
                     NotificationShowReason::RateLimited
                 } else {
                     let previous_toast = self.state.toast.clone();
-                    self.mark_api_notification_shown(now);
                     self.state.toast = Some(crate::app::state::ToastNotification {
                         kind: ToastKind::UpdateInstalled,
-                        title,
-                        context: body.unwrap_or_default(),
+                        title: title.clone(),
+                        context: body.clone().unwrap_or_default(),
                         position: params
                             .position
                             .map(crate::api::schema::toast_position_to_config),
                         target: None,
                     });
                     self.sync_toast_deadline(previous_toast);
-                    self.emit_api_notification_sound(requested_sound);
+                    self.mark_api_notification_shown(now);
+                    if !requested_sound.is_none() {
+                        self.dispatch_notification(
+                            crate::server::notifications::NotificationDraft {
+                                source: gardn_local_api::NotificationSource::Explicit,
+                                target: None,
+                                title,
+                                body,
+                                visual: gardn_local_api::NotificationVisual::None,
+                                sound: requested_sound,
+                            },
+                            None,
+                        );
+                    }
                     NotificationShowReason::Queued
                 }
             }
@@ -1966,27 +2041,35 @@ impl App {
                 if self.api_notification_rate_limited(now) {
                     NotificationShowReason::RateLimited
                 } else {
-                    let notify = match self.state.toast_config.delivery {
+                    let visual = match self.state.toast_config.delivery {
                         crate::config::ToastDelivery::Terminal => {
-                            crate::terminal_notify::show_notification
+                            gardn_local_api::NotificationVisual::Terminal
                         }
                         crate::config::ToastDelivery::System => {
-                            crate::platform::show_desktop_notification
+                            gardn_local_api::NotificationVisual::System
                         }
                         _ => unreachable!("notification delivery was checked above"),
                     };
-                    match notify(&title, body.as_deref()) {
-                        Ok(true) => {
-                            self.mark_api_notification_shown(now);
-                            self.emit_api_notification_sound(requested_sound);
-                            NotificationShowReason::Queued
-                        }
-                        Ok(false) | Err(_) => NotificationShowReason::NoForegroundClient,
+                    let shown = self.dispatch_notification(
+                        crate::server::notifications::NotificationDraft {
+                            source: gardn_local_api::NotificationSource::Explicit,
+                            target: None,
+                            title,
+                            body,
+                            visual,
+                            sound: requested_sound,
+                        },
+                        None,
+                    );
+                    if shown {
+                        self.mark_api_notification_shown(now);
+                        NotificationShowReason::Queued
+                    } else {
+                        NotificationShowReason::NoForegroundClient
                     }
                 }
             }
         };
-
         responses::encode_success(
             id,
             ResponseResult::NotificationShow {
@@ -2004,14 +2087,12 @@ impl App {
     pub(crate) fn mark_api_notification_shown(&mut self, now: Instant) {
         self.last_api_notification_at = Some(now);
     }
+}
 
-    fn emit_api_notification_sound(&self, sound: crate::api::schema::NotificationSound) {
-        if !self.state.local_sound_playback || !self.state.sound.allows(None) {
-            return;
-        }
-        if let Some(sound) = crate::api::schema::notification_sound_to_sound(sound) {
-            crate::sound::play(sound, &self.state.sound);
-        }
+fn notification_sound_from_sound(sound: crate::sound::Sound) -> gardn_local_api::NotificationSound {
+    match sound {
+        crate::sound::Sound::Done => gardn_local_api::NotificationSound::Done,
+        crate::sound::Sound::Request => gardn_local_api::NotificationSound::Request,
     }
 }
 
@@ -2765,6 +2846,7 @@ mod tests {
             app.state.toast.as_ref().map(|toast| toast.context.as_str()),
             Some("__gardn_projects__ · 1")
         );
+        assert!(app.state.take_agent_notification_deliveries().is_empty());
 
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
@@ -2836,7 +2918,7 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         );
-        app.local_terminal_notifications = false;
+        app.local_notification_coordinator = None;
 
         let mut workspace = crate::workspace::Workspace::test_new("stale");
         workspace.custom_name = None;
