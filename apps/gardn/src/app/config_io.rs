@@ -11,20 +11,9 @@ impl App {
         }
 
         let path = crate::config::config_path();
-        if let Some(parent) = path.parent() {
-            if let Err(err) = std::fs::create_dir_all(parent) {
-                crate::logging::config_write_failed(&path, error_context, &err.to_string());
-                self.state.config_diagnostic =
-                    Some(format!("failed to save {error_context}: {err}"));
-                self.config_diagnostic_deadline =
-                    Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
-                return false;
-            }
-        }
-
-        let content = std::fs::read_to_string(&path).unwrap_or_default();
-        let new_content = update(&content);
-        if let Err(err) = std::fs::write(&path, new_content) {
+        if let Err(err) = crate::config::mutate_config_file(|content| {
+            Ok(Some(update(content.unwrap_or_default())))
+        }) {
             crate::logging::config_write_failed(&path, error_context, &err.to_string());
             self.state.config_diagnostic = Some(format!("failed to save {error_context}: {err}"));
             self.config_diagnostic_deadline =
@@ -1197,5 +1186,35 @@ mod tests {
             Some(crossterm::event::KeyModifiers::SUPER | crossterm::event::KeyModifiers::ALT)
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn app_setting_persists_through_shared_config_writer() {
+        let _lock = match crate::config::test_config_env_lock().lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let dir = std::env::temp_dir().join(format!(
+            "gardn-shared-config-writer-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path = dir.join("config.toml");
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut app = test_app();
+
+        app.save_toast_delivery(crate::config::ToastDelivery::Terminal);
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let config: crate::config::Config = toml::from_str(&content).unwrap();
+        assert_eq!(
+            config.ui.toast.delivery,
+            crate::config::ToastDelivery::Terminal
+        );
+        let _ = std::fs::remove_dir_all(dir);
     }
 }
