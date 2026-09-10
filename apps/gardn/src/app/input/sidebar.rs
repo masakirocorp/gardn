@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ratatui::layout::Rect;
 
 use crate::app::state::{AgentPanelScope, AppState, ViewLayout};
@@ -38,7 +40,11 @@ pub(crate) enum AgentMenuAction {
 pub(crate) enum FilterMenuRow<A> {
     Heading(String),
     Separator,
-    Item { label: String, action: A },
+    Item {
+        label: String,
+        count: Option<usize>,
+        action: A,
+    },
 }
 
 impl<A> FilterMenuRow<A> {
@@ -46,6 +52,17 @@ impl<A> FilterMenuRow<A> {
         match self {
             Self::Heading(label) | Self::Item { label, .. } => label,
             Self::Separator => "---",
+        }
+    }
+
+    pub(crate) fn display_label(&self, show_counters: bool) -> Cow<'_, str> {
+        match self {
+            Self::Item {
+                label,
+                count: Some(count),
+                ..
+            } if show_counters => Cow::Owned(format!("{label} {count}")),
+            _ => Cow::Borrowed(self.label()),
         }
     }
 
@@ -79,7 +96,8 @@ pub(crate) fn group_menu_rows(
     let mut rows = vec![
         FilterMenuRow::Heading("Spaces".to_string()),
         FilterMenuRow::Item {
-            label: format!("{all_marker} All {all_count}"),
+            label: format!("{all_marker} All"),
+            count: Some(all_count),
             action: GroupMenuAction::AllSpaces,
         },
     ];
@@ -90,10 +108,8 @@ pub(crate) fn group_menu_rows(
             " "
         };
         FilterMenuRow::Item {
-            label: format!(
-                "{marker} {} {} {}",
-                group.icon, group.name, group_counts[idx]
-            ),
+            label: format!("{marker} {} {}", group.icon, group.name),
+            count: Some(group_counts[idx]),
             action: GroupMenuAction::Group(idx),
         }
     }));
@@ -113,6 +129,7 @@ pub(crate) fn group_menu_rows(
                         " "
                     }
                 ),
+                count: None,
                 action: GroupMenuAction::Connection(scope),
             }),
     );
@@ -121,10 +138,12 @@ pub(crate) fn group_menu_rows(
         FilterMenuRow::Heading("New".to_string()),
         FilterMenuRow::Item {
             label: "  Space".to_string(),
+            count: None,
             action: GroupMenuAction::NewWorkspace,
         },
         FilterMenuRow::Item {
             label: "  Group".to_string(),
+            count: None,
             action: GroupMenuAction::NewGroup,
         },
     ]);
@@ -141,14 +160,17 @@ pub(crate) fn agent_menu_rows(
         FilterMenuRow::Heading("Agents".to_string()),
         FilterMenuRow::Item {
             label: format!("{} All", marker(AgentPanelScope::AllWorkspaces)),
+            count: None,
             action: AgentMenuAction::AllAgents,
         },
         FilterMenuRow::Item {
             label: format!("{} Space", marker(AgentPanelScope::CurrentWorkspace)),
+            count: None,
             action: AgentMenuAction::ThisSpace,
         },
         FilterMenuRow::Item {
             label: format!("{} Group", marker(AgentPanelScope::CurrentGroup)),
+            count: None,
             action: AgentMenuAction::ThisGroup,
         },
         FilterMenuRow::Separator,
@@ -166,6 +188,7 @@ pub(crate) fn agent_menu_rows(
                         " "
                     }
                 ),
+                count: None,
                 action: AgentMenuAction::Connection(scope),
             }),
     );
@@ -529,7 +552,7 @@ impl AppState {
     pub(crate) fn group_menu_labels(&self) -> Vec<String> {
         self.group_menu_rows()
             .into_iter()
-            .map(|row| row.label().to_string())
+            .map(|row| row.display_label(true).into_owned())
             .collect()
     }
 
@@ -539,7 +562,7 @@ impl AppState {
         let rows = self.group_menu_rows();
         let content_width = rows
             .iter()
-            .map(|row| row.label().chars().count() as u16)
+            .map(|row| row.display_label(self.show_counters).chars().count() as u16)
             .max()
             .unwrap_or(8)
             .saturating_add(2);
@@ -568,7 +591,7 @@ impl AppState {
     pub(crate) fn agent_menu_labels(&self) -> Vec<String> {
         self.agent_menu_rows()
             .into_iter()
-            .map(|row| row.label().to_string())
+            .map(|row| row.display_label(self.show_counters).into_owned())
             .collect()
     }
 
@@ -579,7 +602,7 @@ impl AppState {
         let content_width = rows
             .iter()
             .filter(|row| row.action().is_some())
-            .map(|row| row.label().chars().count() as u16)
+            .map(|row| row.display_label(self.show_counters).chars().count() as u16)
             .max()
             .unwrap_or(8)
             .saturating_add(2);
@@ -1656,7 +1679,7 @@ mod tests {
         assert_eq!(labels[4], "---");
         assert_eq!(labels[5], "Connections");
         assert_eq!(labels[6], "✓ All connections");
-        assert_eq!(labels[7], "  eva-00");
+        assert_eq!(labels[7], "  test-host");
         assert_eq!(labels[8], "---");
         assert_eq!(labels[9], "New");
         assert_eq!(labels[10], "  Space");
@@ -2823,7 +2846,7 @@ mod tests {
                 "---",
                 "Connections",
                 "✓ All connections",
-                "  eva-00",
+                "  test-host",
             ]
         );
     }
@@ -2842,7 +2865,7 @@ mod tests {
                 "---",
                 "Connections",
                 "✓ All connections",
-                "  eva-00",
+                "  test-host",
             ]
         );
         assert_eq!(

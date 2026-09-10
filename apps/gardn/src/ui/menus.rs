@@ -14,11 +14,6 @@ use crate::app::{
     state::ContextMenuState, AppState, ClientViewState, FilterMenuRow, GroupMenuAction,
 };
 
-fn count_suffix(text: &str) -> Option<(&str, &str)> {
-    let (label, count) = text.rsplit_once(' ')?;
-    (!count.is_empty() && count.bytes().all(|byte| byte.is_ascii_digit())).then_some((label, count))
-}
-
 fn menu_separator_bounds(width: u16) -> (u16, u16) {
     if width <= 2 {
         (0, width)
@@ -94,6 +89,7 @@ fn right_aligned_count_gap(width: u16, left_width: usize, count_width: usize) ->
 fn counted_menu_line(
     app: &AppState,
     label: &str,
+    count: Option<usize>,
     selected: bool,
     accent: Option<Color>,
     width: u16,
@@ -109,41 +105,43 @@ fn counted_menu_line(
     } else {
         Style::default().fg(app.palette.text)
     };
-    let Some((left, count)) = count_suffix(label) else {
+    let Some(count) = count else {
         return Line::from(Span::styled(label.to_string(), label_style));
     };
     if !app.show_counters {
-        return Line::from(Span::styled(left.to_string(), label_style));
+        return Line::from(Span::styled(label.to_string(), label_style));
     }
+    let count = count.to_string();
     let count_style = if selected {
         selected_style
     } else {
         Style::default().fg(app.palette.overlay0)
     };
     Line::from(vec![
-        Span::styled(left.to_string(), label_style),
+        Span::styled(label.to_string(), label_style),
         Span::styled(
-            right_aligned_count_gap(width, display_width(left), display_width(count)),
+            right_aligned_count_gap(width, display_width(label), display_width(&count)),
             label_style,
         ),
-        Span::styled(count.to_string(), count_style),
+        Span::styled(count, count_style),
     ])
 }
 
 #[cfg(test)]
 fn group_menu_all_line(app: &AppState, selected: bool, width: u16) -> Line<'static> {
-    let label = app
+    let (label, count) = app
         .group_menu_rows()
         .into_iter()
         .find_map(|row| match row {
             FilterMenuRow::Item {
                 label,
+                count,
                 action: GroupMenuAction::AllSpaces,
-            } => Some(label),
+            } => Some((label, count)),
             _ => None,
         })
-        .unwrap_or_else(|| "  All 0".to_string());
-    counted_menu_line(app, &label, selected, None, width)
+        .unwrap_or_else(|| ("  All".to_string(), Some(0)));
+    counted_menu_line(app, &label, count, selected, None, width)
 }
 
 #[cfg(test)]
@@ -153,20 +151,22 @@ fn group_menu_group_line(
     selected: bool,
     width: u16,
 ) -> Line<'static> {
-    let label = app
+    let (label, count) = app
         .group_menu_rows()
         .into_iter()
         .find_map(|row| match row {
             FilterMenuRow::Item {
                 label,
+                count,
                 action: GroupMenuAction::Group(idx),
-            } if idx == group_idx => Some(label),
+            } if idx == group_idx => Some((label, count)),
             _ => None,
         })
         .unwrap_or_default();
     counted_menu_line(
         app,
         &label,
+        count,
         selected,
         Some(app.group_accent_color(group_idx)),
         width,
@@ -617,7 +617,11 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
                     dim_style,
                 );
             }
-            FilterMenuRow::Item { label, action } => {
+            FilterMenuRow::Item {
+                label,
+                count,
+                action,
+            } => {
                 let accent = match action {
                     GroupMenuAction::Group(group_idx) => Some(app.group_accent_color(*group_idx)),
                     _ => None,
@@ -626,7 +630,7 @@ pub(super) fn render_group_menu(app: &AppState, frame: &mut Frame) {
                     frame,
                     inner,
                     row_idx,
-                    counted_menu_line(app, label, selected, accent, inner.width),
+                    counted_menu_line(app, label, *count, selected, accent, inner.width),
                     selected,
                     selected_style,
                     text_style,
@@ -679,12 +683,12 @@ pub(super) fn render_agent_menu(app: &AppState, frame: &mut Frame) {
                     dim_style,
                 );
             }
-            FilterMenuRow::Item { label, .. } => {
+            FilterMenuRow::Item { label, count, .. } => {
                 render_menu_row(
                     frame,
                     inner,
                     row_idx,
-                    counted_menu_line(app, label, selected, None, inner.width),
+                    counted_menu_line(app, label, *count, selected, None, inner.width),
                     selected,
                     selected_style,
                     text_style,
@@ -1106,12 +1110,23 @@ fn render_client_filter_menu<A>(
                     dim_style,
                 );
             }
-            FilterMenuRow::Item { label, action } => {
+            FilterMenuRow::Item {
+                label,
+                count,
+                action,
+            } => {
                 render_menu_row(
                     frame,
                     inner,
                     row_idx,
-                    counted_menu_line(app, label, selected, accent_for(action), inner.width),
+                    counted_menu_line(
+                        app,
+                        label,
+                        *count,
+                        selected,
+                        accent_for(action),
+                        inner.width,
+                    ),
                     selected,
                     selected_style,
                     text_style,
@@ -1344,6 +1359,27 @@ mod tests {
             .find(|span| span.content.as_ref() == "1")
             .expect("group count span");
         assert_eq!(group_count.style.fg, Some(app.palette.overlay0));
+    }
+
+    #[test]
+    fn group_menu_preserves_numeric_connection_name_suffixes() {
+        let mut app = AppState::test_new();
+        app.host_display = crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname(
+            "Build Host 2",
+            None,
+        );
+        app.show_counters = false;
+        app.view.sidebar_rect = Rect::new(0, 0, 24, 20);
+        app.view.terminal_area = Rect::new(24, 0, 56, 20);
+
+        let backend = TestBackend::new(80, 20);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+        terminal
+            .draw(|frame| render_group_menu(&app, frame))
+            .expect("render group menu");
+
+        let text = buffer_text(terminal.backend().buffer(), 80, 20);
+        assert!(text.contains("Build Host 2"));
     }
 
     fn line_text(line: &Line<'_>) -> String {

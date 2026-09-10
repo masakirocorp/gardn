@@ -1472,6 +1472,8 @@ fn app_for_mouse_test() -> App {
         api_rx,
         crate::api::EventHub::default(),
     );
+    app.state.host_display =
+        crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname("test-host", None);
     app.state.mode = Mode::Terminal;
     app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::CombinedLeft;
     app.state.update_available = None;
