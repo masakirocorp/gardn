@@ -591,12 +591,16 @@ fn restore_tab(
         let saved_terminal_theme_binding = saved_pane.and_then(|pane| pane.terminal_theme_binding);
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
         let saved_seen = saved_pane.is_none_or(|p| p.seen);
-        let saved_blocked_review = saved_pane
-            .map(|pane| pane.blocked_review)
-            .unwrap_or_default();
+        let saved_terminal_semantics = saved_pane.and_then(|p| p.terminal_semantics.clone());
+        let saved_blocked_review = if saved_terminal_semantics.is_some() {
+            saved_pane
+                .map(|pane| pane.blocked_review)
+                .unwrap_or_default()
+        } else {
+            crate::pane::BlockedReviewState::None
+        };
         let saved_right_click_passthrough = saved_pane.is_some_and(|p| p.right_click_passthrough);
         let saved_env_pane_id = saved_pane.and_then(|p| p.env_pane_id).or(old_id.copied());
-        let saved_terminal_semantics = saved_pane.and_then(|p| p.terminal_semantics.clone());
         let saved_history =
             old_id.and_then(|old_id| history.and_then(|history| history.panes.get(old_id)));
         let startup = {
@@ -2635,7 +2639,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_remote_host_restores_visible_terminal_without_local_fallback() {
+    fn remote_restore_distinguishes_cold_and_handoff_review_state() {
         let json = r#"{
             "version": 5,
             "workspaces": [{
@@ -2663,7 +2667,7 @@ mod tests {
                 }]
             }]
         }"#;
-        let snapshot = super::super::snapshot::parse_snapshot(json).unwrap();
+        let mut snapshot = super::super::snapshot::parse_snapshot(json).unwrap();
         let expected = crate::execution_host::ResourceLocation::new(
             crate::execution_host::ExecutionHostId::new("ssh:missing-profile").unwrap(),
             crate::execution_host::HostPath::new("/srv/missing").unwrap(),
@@ -2693,7 +2697,7 @@ mod tests {
                 .next()
                 .unwrap()
                 .blocked_review,
-            crate::pane::BlockedReviewState::Reviewed
+            crate::pane::BlockedReviewState::None
         );
         assert_eq!(workspaces.len(), 1);
         assert_eq!(workspaces[0].default_location, expected);
@@ -2703,6 +2707,55 @@ mod tests {
             runtimes.is_empty(),
             "unavailable remote panes have no local PTY"
         );
+
+        let TabSnapshot::Terminal(tab) = &mut snapshot.workspaces[0].tabs[0] else {
+            panic!("expected terminal tab");
+        };
+        tab.panes.get_mut(&7).unwrap().terminal_semantics =
+            Some(crate::terminal::TerminalSemanticSnapshot {
+                detected_agent: Some(crate::detect::Agent::Codex),
+                fallback_state: crate::detect::AgentState::Blocked,
+                fallback_visible_blocker: true,
+                fallback_visible_idle: false,
+                fallback_visible_working: false,
+                hook_authority: None,
+                agent_metadata: Vec::new(),
+                state: crate::detect::AgentState::Blocked,
+                revision: 1,
+                hook_report_sequences: HashMap::new(),
+                metadata_report_sequences: HashMap::new(),
+                last_meaningful_agent_activity_unix_secs: None,
+            });
+        let (event_tx, _event_rx) = tokio::sync::mpsc::channel(1);
+        let (workspaces, terminals, runtimes) = restore(
+            &snapshot,
+            None,
+            24,
+            80,
+            1024,
+            "/bin/sh",
+            crate::config::ShellModeConfig::NonLogin,
+            false,
+            event_tx,
+            Arc::new(Notify::new()),
+            Arc::new(crate::render_signal::RenderSignal::new()),
+        );
+        assert_eq!(
+            workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .panes
+                .values()
+                .next()
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Reviewed
+        );
+        assert_eq!(
+            terminals.values().next().unwrap().state,
+            crate::detect::AgentState::Blocked
+        );
+        assert!(runtimes.is_empty());
     }
 
     fn single_pane_history(ansi: &str) -> SessionHistorySnapshot {

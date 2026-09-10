@@ -20,5 +20,10 @@ let package = Package(
             path: "Sources/GardnMenu",
             resources: [.process("Resources")]
         ),
+        .testTarget(
+            name: "GardnMenuTests",
+            dependencies: ["GardnMenu"],
+            path: "Tests/GardnMenuTests"
+        ),
     ]
 )
