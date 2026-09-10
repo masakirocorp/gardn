@@ -306,7 +306,72 @@ fn ping_over_socket_returns_version() {
     assert_eq!(value["result"]["version"], env!("CARGO_PKG_VERSION"));
     // Intentionally hardcoded so wire protocol bumps require updating this test.
     // Changing this value means old clients/servers are no longer compatible.
-    assert_eq!(value["result"]["protocol"], 13);
+    assert_eq!(value["result"]["protocol"], 14);
+
+    cleanup_spawned_gardn(child, base);
+}
+
+#[test]
+fn native_presenter_stream_receives_notification_and_accepts_receipt() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("gardn.sock");
+
+    let child = spawn_gardn(&config_home, &runtime_dir, &socket_path);
+    fs::create_dir_all(config_home.join("gardn-dev")).unwrap();
+    fs::write(
+        config_home.join("gardn-dev/config.toml"),
+        "onboarding = false\n\n[ui.toast]\ndelivery = \"system\"\n",
+    )
+    .unwrap();
+    let reload = send_request(
+        &socket_path,
+        r#"{"id":"reload","method":"server.reload_config","params":{}}"#,
+    );
+    assert_eq!(reload["result"]["status"], "applied");
+
+    let mut presenter = open_subscription(
+        &socket_path,
+        r#"{"id":"register","method":"notification.presenter.register","params":{"name":"test-native","rendering_host_id":"test-host","capabilities":{"terminal":false,"system":true,"sound":true}}}"#,
+    );
+    let registration = presenter.read_json_line(Duration::from_secs(2));
+    assert_eq!(
+        registration["result"]["type"],
+        "notification_presenter_registered"
+    );
+    let registration_id = registration["result"]["registration_id"].clone();
+
+    let shown = send_request(
+        &socket_path,
+        r#"{"id":"show","method":"notification.show","params":{"title":"Build finished","body":"gardn","sound":"done"}}"#,
+    );
+    assert_eq!(shown["result"]["type"], "notification_show");
+    assert_eq!(shown["result"]["shown"], true);
+
+    let presentation = presenter.read_json_line(Duration::from_secs(2));
+    assert_eq!(presentation["method"], "notification.presentation");
+    assert_eq!(presentation["params"]["registration_id"], registration_id);
+    assert_eq!(presentation["params"]["notification"]["visual"], "system");
+    assert_eq!(presentation["params"]["notification"]["sound"], "done");
+    let notification_id = presentation["params"]["notification"]["id"].clone();
+
+    let receipt = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "receipt",
+            "method": "notification.presenter.receipt",
+            "params": {
+                "registration_id": registration_id,
+                "notification_id": notification_id,
+                "outcome": "submitted"
+            }
+        })
+        .to_string(),
+    );
+    assert_eq!(receipt["result"]["type"], "notification_presenter_receipt");
+    assert_eq!(receipt["result"]["accepted"], true);
 
     cleanup_spawned_gardn(child, base);
 }

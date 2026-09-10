@@ -324,64 +324,6 @@ fn read_next_frame_containing(
     Err(format!("timed out waiting for frame containing {needle:?}"))
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
-enum NotifyKindWire {
-    Sound,
-    Toast,
-    SystemToast,
-}
-
-#[derive(Debug, Deserialize)]
-struct NotifyWire {
-    kind: NotifyKindWire,
-    message: String,
-}
-
-fn decode_notify_payload(payload: &[u8]) -> std::io::Result<NotifyWire> {
-    bincode::serde::decode_from_slice(payload, bincode::config::standard())
-        .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err.to_string()))
-        .and_then(|(notify, consumed): (NotifyWire, usize)| {
-            if consumed != payload.len() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidData,
-                    format!(
-                        "notify payload had trailing bytes: consumed={}, len={}",
-                        consumed,
-                        payload.len()
-                    ),
-                ));
-            }
-            Ok(notify)
-        })
-}
-
-fn wait_for_notify(
-    stream: &mut UnixStream,
-    expected_kind: NotifyKindWire,
-    expected_message: &str,
-    timeout: Duration,
-) -> Result<NotifyWire, String> {
-    stream
-        .set_read_timeout(Some(Duration::from_millis(200)))
-        .map_err(|e| e.to_string())?;
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        match read_server_message(stream) {
-            Ok((5, payload)) => {
-                let notify = decode_notify_payload(&payload).map_err(|err| err.to_string())?;
-                if notify.kind == expected_kind && notify.message == expected_message {
-                    return Ok(notify);
-                }
-            }
-            Ok(_) => {}
-            Err(_) => {}
-        }
-    }
-    Err(format!(
-        "timed out waiting for Notify::{expected_kind:?}({expected_message:?})"
-    ))
-}
-
 fn read_next_frame_payload(stream: &mut UnixStream, timeout: Duration) -> Result<Vec<u8>, String> {
     stream
         .set_read_timeout(Some(Duration::from_millis(200)))
@@ -442,8 +384,8 @@ fn client_connects_and_receives_frame() {
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13, "server should report protocol version 13");
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14, "server should report protocol version 14");
     assert!(
         error.is_none(),
         "handshake should not have error: {:?}",
@@ -510,8 +452,8 @@ fn client_sees_headless_startup_configuration_issue_notice() {
 
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     stream
@@ -561,8 +503,8 @@ fn client_input_forwarded_to_pane() {
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     let input_data = b"echo hello\n".to_vec();
@@ -605,8 +547,8 @@ fn client_resize_sends_message() {
 
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     stream
@@ -657,8 +599,8 @@ fn server_shutdown_sends_message_to_client() {
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Send SIGINT so the server takes the graceful shutdown path and
@@ -1220,8 +1162,8 @@ fn client_receives_frame_after_pane_output() {
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     read_next_frame_payload(&mut stream, Duration::from_secs(10))
@@ -1285,8 +1227,8 @@ fn navigate_mode_keybind_dispatch_in_server() {
 
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     stream
@@ -1397,8 +1339,8 @@ fn graceful_shutdown_sends_server_shutdown_to_client() {
     // Connect and handshake.
     let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
     let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
+        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
+    assert_eq!(version, 14);
     assert!(error.is_none(), "{:?}", error);
 
     // Drain initial frame(s).
@@ -1438,96 +1380,4 @@ fn graceful_shutdown_sends_server_shutdown_to_client() {
 
     drop(spawned);
     cleanup_test_base(&base);
-}
-
-#[test]
-fn client_receives_notify_on_agent_state_change() {
-    // Notification events (sound/toast) are forwarded as
-    // ServerMessage::Notify to connected clients when an agent state change
-    // is triggered via the API (pane.report_agent).
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("gardn.sock");
-    let client_socket = runtime_dir.join("gardn-client.sock");
-
-    // Enable toast and sound in config so the server produces notifications.
-    fs::create_dir_all(config_home.join("gardn")).unwrap();
-    fs::write(
-        config_home.join("gardn/config.toml"),
-        "onboarding = false\n[ui.toast]\nenabled = true\n[ui.sound]\nenabled = true\n",
-    )
-    .unwrap();
-    fs::create_dir_all(&runtime_dir).unwrap();
-    register_runtime_dir(&runtime_dir);
-
-    // Spawn the server directly (not using spawn_server helper because it
-    // overwrites the config file with a minimal one).
-    let pair = native_pty_system()
-        .openpty(PtySize {
-            rows: 24,
-            cols: 80,
-            pixel_width: 0,
-            pixel_height: 0,
-        })
-        .unwrap();
-
-    let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_gardn"));
-    cmd.arg("server");
-    cmd.env("XDG_CONFIG_HOME", &config_home);
-    cmd.env("XDG_RUNTIME_DIR", &runtime_dir);
-    cmd.env("GARDN_SOCKET_PATH", &api_socket);
-    cmd.env_remove("GARDN_CLIENT_SOCKET_PATH");
-    cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("GARDN_ENV");
-
-    let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_gardn_pid(child.process_id());
-    drop(pair.slave);
-
-    let spawned = SpawnedGardn {
-        _master: Some(pair.master),
-        child,
-    };
-    wait_for_socket(&api_socket, Duration::from_secs(10));
-    wait_for_file(&client_socket, Duration::from_secs(10));
-
-    // Connect as a client and perform handshake.
-    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    let (version, error) =
-        client_handshake(&mut stream, 13, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 13);
-    assert!(error.is_none(), "{:?}", error);
-
-    // Drain initial frame(s).
-    stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .unwrap();
-    while read_server_message(&mut stream).is_ok() {}
-
-    let (ws_id, pane_id) = create_workspace_and_root_pane(&api_socket, "notify-source");
-    assert!(
-        !ws_id.is_empty(),
-        "workspace.create should return a non-empty workspace id: {ws_id}"
-    );
-
-    let report_response = send_json_request(
-        &api_socket,
-        &format!(
-            r#"{{"id":"report_blocked","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"blocked","source":"test"}}}}"#
-        ),
-    );
-    assert_api_ok(&report_response, "pane.report_agent blocked");
-
-    let attention = wait_for_notify(
-        &mut stream,
-        NotifyKindWire::Sound,
-        "agent attention",
-        Duration::from_secs(5),
-    )
-    .expect("blocked agent report should forward request sound notify");
-    assert_eq!(attention.message, "agent attention");
-
-    cleanup_spawned_gardn(spawned, base);
 }

@@ -979,6 +979,7 @@ impl App {
             config_issue,
             toast: startup_config_toast,
             pending_agent_notifications: std::collections::HashMap::new(),
+            agent_notification_outbox: std::collections::VecDeque::new(),
             copy_feedback: None,
             outer_terminal_focus: None,
             prefix_code,

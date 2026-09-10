@@ -399,7 +399,7 @@ impl App {
                     &format!("v{version} Available"),
                     Some(&install.availability_notification_detail()),
                 );
-            } else if !crate::platform::menu_extra_is_running() {
+            } else {
                 for update in &pane_updates {
                     if update.suppress_completion {
                         continue;
@@ -750,7 +750,6 @@ impl App {
         deliveries: &[crate::app::state::AgentNotificationDelivery],
     ) {
         if !self.local_terminal_notifications
-            || crate::platform::menu_extra_is_running()
             || !matches!(
                 self.state.toast_config.delivery,
                 crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System
@@ -1940,7 +1939,7 @@ impl App {
 
         let now = Instant::now();
         let reason = match self.state.toast_config.delivery {
-            crate::config::ToastDelivery::Off => NotificationShowReason::Disabled,
+            crate::config::ToastDelivery::Off => NotificationShowReason::Suppressed,
             crate::config::ToastDelivery::Gardn => {
                 if self.state.toast.is_some() {
                     NotificationShowReason::Busy
@@ -1960,7 +1959,7 @@ impl App {
                     });
                     self.sync_toast_deadline(previous_toast);
                     self.emit_api_notification_sound(requested_sound);
-                    NotificationShowReason::Shown
+                    NotificationShowReason::Queued
                 }
             }
             crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System => {
@@ -1980,7 +1979,7 @@ impl App {
                         Ok(true) => {
                             self.mark_api_notification_shown(now);
                             self.emit_api_notification_sound(requested_sound);
-                            NotificationShowReason::Shown
+                            NotificationShowReason::Queued
                         }
                         Ok(false) | Err(_) => NotificationShowReason::NoForegroundClient,
                     }
@@ -1991,7 +1990,7 @@ impl App {
         responses::encode_success(
             id,
             ResponseResult::NotificationShow {
-                shown: matches!(reason, NotificationShowReason::Shown),
+                shown: matches!(reason, NotificationShowReason::Queued),
                 reason,
             },
         )
@@ -2006,11 +2005,11 @@ impl App {
         self.last_api_notification_at = Some(now);
     }
 
-    fn emit_api_notification_sound(&self, sound: crate::api::schema::NotificationShowSound) {
+    fn emit_api_notification_sound(&self, sound: crate::api::schema::NotificationSound) {
         if !self.state.local_sound_playback || !self.state.sound.allows(None) {
             return;
         }
-        if let Some(sound) = crate::api::schema::notification_show_sound_to_sound(sound) {
+        if let Some(sound) = crate::api::schema::notification_sound_to_sound(sound) {
             crate::sound::play(sound, &self.state.sound);
         }
     }

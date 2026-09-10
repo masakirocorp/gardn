@@ -5027,11 +5027,12 @@ impl AppState {
         kind: ToastKind,
         expected_state: AgentState,
     ) -> Option<AgentNotificationDelivery> {
-        let terminal_state = self
-            .workspaces
-            .get(ws_idx)?
-            .pane_state(pane_id)
-            .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))?;
+        let workspace = self.workspaces.get(ws_idx)?;
+        let tab_idx = workspace.find_tab_index_for_pane(pane_id)?;
+        let tab_number = workspace.public_tab_number(tab_idx)?;
+        let tab_id = crate::workspace::public_tab_id_for_number(&workspace_id, tab_number);
+        let terminal_id = workspace.pane_state(pane_id)?.attached_terminal_id.clone();
+        let terminal_state = self.terminals.get(&terminal_id)?;
         if terminal_state.state != expected_state {
             return None;
         }
@@ -5076,6 +5077,8 @@ impl AppState {
         Some(AgentNotificationDelivery {
             pane_id,
             workspace_id,
+            tab_id,
+            terminal_id: terminal_id.to_string(),
             agent_label,
             known_agent,
             kind,
@@ -5090,6 +5093,8 @@ impl AppState {
             if let Some(sound) = delivery.sound {
                 crate::sound::play(sound, &self.sound);
             }
+        } else {
+            self.agent_notification_outbox.push_back(delivery.clone());
         }
 
         if matches!(
@@ -5100,6 +5105,12 @@ impl AppState {
                 self.toast = Some(toast);
             }
         }
+    }
+
+    pub(crate) fn take_agent_notification_deliveries(
+        &mut self,
+    ) -> std::collections::VecDeque<AgentNotificationDelivery> {
+        std::mem::take(&mut self.agent_notification_outbox)
     }
 
     pub fn next_pending_agent_notification_deadline(&self) -> Option<std::time::Instant> {

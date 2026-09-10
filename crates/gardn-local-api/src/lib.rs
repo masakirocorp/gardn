@@ -86,6 +86,10 @@ pub enum Method {
     ConnectionRetireStatus(ConnectionRetireParams),
     #[serde(rename = "notification.show")]
     NotificationShow(NotificationShowParams),
+    #[serde(rename = "notification.presenter.register")]
+    NotificationPresenterRegister(PresenterRegistration),
+    #[serde(rename = "notification.presenter.receipt")]
+    NotificationPresenterReceipt(PresentationReceipt),
     #[serde(rename = "group.create")]
     GroupCreate(GroupCreateParams),
     #[serde(rename = "group.list")]
@@ -271,6 +275,106 @@ pub struct EmptyParams {}
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
 pub struct PingParams {}
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct NotificationId {
+    pub coordinator_epoch: String,
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct RegistrationId {
+    pub coordinator_epoch: String,
+    pub sequence: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct NotificationTarget {
+    pub workspace_id: String,
+    pub tab_id: String,
+    pub terminal_id: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationSource {
+    State,
+    Explicit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationVisual {
+    None,
+    Gardn,
+    Terminal,
+    System,
+}
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum NotificationSound {
+    #[default]
+    None,
+    Done,
+    Request,
+}
+
+impl NotificationSound {
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct StateNotification {
+    pub id: NotificationId,
+    pub source: NotificationSource,
+    pub target: Option<NotificationTarget>,
+    pub title: String,
+    pub body: Option<String>,
+    pub visual: NotificationVisual,
+    pub sound: NotificationSound,
+    pub created_at_unix_ms: u64,
+    pub expires_at_unix_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema)]
+pub struct PresenterCapabilities {
+    pub terminal: bool,
+    pub system: bool,
+    pub sound: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PresenterRegistration {
+    pub name: String,
+    pub rendering_host_id: String,
+    pub capabilities: PresenterCapabilities,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PresentationRequest {
+    pub registration_id: RegistrationId,
+    pub notification: StateNotification,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum PresentationOutcome {
+    Submitted,
+    Rejected(String),
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct PresentationReceipt {
+    pub registration_id: RegistrationId,
+    pub notification_id: NotificationId,
+    pub outcome: PresentationOutcome,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct NotificationShowParams {
     pub title: String,
@@ -278,32 +382,15 @@ pub struct NotificationShowParams {
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position: Option<ToastPosition>,
-    #[serde(default, skip_serializing_if = "NotificationShowSound::is_none")]
-    pub sound: NotificationShowSound,
-}
-
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, schemars::JsonSchema,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum NotificationShowSound {
-    #[default]
-    None,
-    Done,
-    Request,
-}
-
-impl NotificationShowSound {
-    pub fn is_none(&self) -> bool {
-        matches!(self, Self::None)
-    }
+    #[serde(default, skip_serializing_if = "NotificationSound::is_none")]
+    pub sound: NotificationSound,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum NotificationShowReason {
-    Shown,
-    Disabled,
+    Queued,
+    Suppressed,
     RateLimited,
     NoForegroundClient,
     Busy,
@@ -1993,6 +2080,12 @@ pub enum ResponseResult {
         shown: bool,
         reason: NotificationShowReason,
     },
+    NotificationPresenterRegistered {
+        registration_id: RegistrationId,
+    },
+    NotificationPresenterReceipt {
+        accepted: bool,
+    },
     ClientWindowTitle {
         changed: bool,
         reason: ClientWindowTitleReason,
@@ -2840,7 +2933,7 @@ mod tests {
         assert_eq!(params.title, "build failed");
         assert_eq!(params.body.as_deref(), Some("api workspace"));
         assert_eq!(params.position, Some(ToastPosition::TopLeft));
-        assert_eq!(params.sound, NotificationShowSound::Request);
+        assert_eq!(params.sound, NotificationSound::Request);
     }
 
     #[test]
@@ -2852,7 +2945,7 @@ mod tests {
             panic!("wrong method parsed");
         };
 
-        assert_eq!(params.sound, NotificationShowSound::None);
+        assert_eq!(params.sound, NotificationSound::None);
     }
 
     #[test]

@@ -24,6 +24,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 
 use crossterm::event::{
     DisableBracketedPaste, DisableFocusChange, DisableMouseCapture, EnableBracketedPaste,
@@ -34,11 +35,15 @@ use crossterm::execute;
 use crossterm::terminal::{DisableLineWrap, EnableLineWrap};
 use tracing::{debug, info, warn};
 
+use gardn_local_api::{
+    NotificationSound, NotificationVisual, PresentationOutcome, PresentationReceipt,
+    PresenterCapabilities, PresenterRegistration, RegistrationId,
+};
+
 use crate::protocol::render_ansi;
 use crate::protocol::{
-    self, ClientKeybindings, ClientLaunchMode, ClientMessage, NotifyKind, RenderEncoding,
-    ServerMessage, MAX_CLIPBOARD_IMAGE_PAYLOAD, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE,
-    PROTOCOL_VERSION,
+    self, ClientKeybindings, ClientLaunchMode, ClientMessage, RenderEncoding, ServerMessage,
+    MAX_CLIPBOARD_IMAGE_PAYLOAD, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE, PROTOCOL_VERSION,
 };
 use crate::server::socket_paths::client_socket_path;
 
@@ -70,6 +75,8 @@ struct ClientState {
     draw_host_cursor: bool,
     /// Local-client shortcut that sends a clipboard image to a remote session.
     remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
+    /// Registration assigned by the server for typed notification presentation.
+    registration_id: Option<RegistrationId>,
 }
 
 /// Inputs required to start the thin-client event loop.
@@ -664,6 +671,20 @@ fn client_launch_mode(
     }
 }
 
+fn presenter_registration() -> PresenterRegistration {
+    PresenterRegistration {
+        name: "gardn-client".to_owned(),
+        rendering_host_id: crate::platform::hostname()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or_else(|| "gardn-client".to_owned()),
+        capabilities: PresenterCapabilities {
+            terminal: true,
+            system: true,
+            sound: true,
+        },
+    }
+}
+
 /// Performs the client→server handshake.
 ///
 /// Sends Hello with the terminal size and protocol version, reads the Welcome
@@ -711,7 +732,7 @@ fn do_handshake(
         .set_recv_timeout(None)
         .map_err(ClientError::ConnectionFailed)?;
 
-    match welcome {
+    let encoding = match welcome {
         ServerMessage::Welcome {
             version,
             encoding,
@@ -721,12 +742,19 @@ fn do_handshake(
                 return Err(ClientError::HandshakeRejected { version, error });
             }
             info!(version, ?encoding, "handshake succeeded");
-            Ok(encoding)
+            encoding
         }
-        _ => Err(ClientError::Protocol(protocol::FramingError::Io(
-            io::Error::new(io::ErrorKind::InvalidData, "expected Welcome message"),
-        ))),
-    }
+        _ => {
+            return Err(ClientError::Protocol(protocol::FramingError::Io(
+                io::Error::new(io::ErrorKind::InvalidData, "expected Welcome message"),
+            )));
+        }
+    };
+
+    let registration = ClientMessage::RegisterPresenter(presenter_registration());
+    protocol::write_message(stream, &registration)
+        .map_err(|e| ClientError::ConnectionFailed(io::Error::other(e.to_string())))?;
+    Ok(encoding)
 }
 
 // ---------------------------------------------------------------------------
@@ -997,13 +1025,12 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
         redraw_on_focus_gained,
         remote_image_paste_key,
         repaint_pending: false,
+        registration_id: None,
     };
     debug!(?negotiated_encoding, "client render encoding active");
     let host_mouse_capture_active = Arc::new(AtomicBool::new(state.mouse_capture_active));
     let reported_cell_size = Arc::new(AtomicU64::new(0));
-
-    // Channel for events from the stdin, resize, and server reader threads.
-    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<ClientLoopEvent>(256);
+    let (event_tx, mut event_rx) = mpsc::channel(256);
 
     // Spawn the stdin reader thread.
     let will_query_host_terminal_theme =
@@ -1294,8 +1321,19 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
                 ServerMessage::ServerShutdown { reason } => {
                     return Err(ClientError::ServerShutdown { reason });
                 }
-                ServerMessage::Notify { kind, message } => {
-                    handle_notify(kind, &message, &state.sound_config);
+                ServerMessage::PresentationRequest(request) => {
+                    let outcome = present_notification(&request.notification, &state.sound_config);
+                    let receipt = ClientMessage::PresentationReceipt(PresentationReceipt {
+                        registration_id: request.registration_id,
+                        notification_id: request.notification.id,
+                        outcome,
+                    });
+                    if let Err(err) = write_to_server(&mut write_stream, &receipt) {
+                        return Err(ClientError::ConnectionLost(err));
+                    }
+                }
+                ServerMessage::PresenterRegistrationAck { registration_id } => {
+                    state.registration_id = Some(registration_id);
                 }
                 ServerMessage::Clipboard { data } => {
                     forward_clipboard(&data);
@@ -1416,7 +1454,6 @@ async fn run_client_loop(ctx: ClientLoopContext) -> Result<(), ClientError> {
                 }
                 ServerMessage::ClientEffectError { code, message } => {
                     warn!(?code, %message, "client effect rejected by coordinator");
-                    handle_notify(NotifyKind::Toast, &message, &state.sound_config);
                 }
                 ServerMessage::Welcome { .. } => {
                     debug!("received unexpected Welcome in main loop");
@@ -1557,68 +1594,47 @@ fn reload_local_client_config(
     }
 }
 
-fn handle_notify(kind: NotifyKind, message: &str, sound_config: &crate::config::SoundConfig) {
-    handle_notify_with_notifiers(
-        kind,
-        message,
-        sound_config,
-        crate::terminal_notify::show_notification,
-        crate::platform::show_desktop_notification,
-        crate::platform::menu_extra_is_running(),
-    );
-}
-
-fn handle_notify_with_notifiers(
-    kind: NotifyKind,
-    message: &str,
+fn present_notification(
+    notification: &gardn_local_api::StateNotification,
     sound_config: &crate::config::SoundConfig,
-    mut show_terminal_notification: impl FnMut(&str, Option<&str>) -> io::Result<bool>,
-    mut show_system_notification: impl FnMut(&str, Option<&str>) -> io::Result<bool>,
-    extra_running: bool,
-) {
-    match kind {
-        NotifyKind::Sound => {
-            let Some(sound) = sound_from_notify_message(message) else {
-                warn!(
-                    message = message,
-                    "received unknown sound notification from server"
-                );
-                return;
-            };
-            if sound_config.enabled {
-                crate::sound::play(sound, sound_config);
-            }
+) -> PresentationOutcome {
+    let sound_submitted = if sound_config.enabled {
+        let sound = match notification.sound {
+            NotificationSound::Done => Some(crate::sound::Sound::Done),
+            NotificationSound::Request => Some(crate::sound::Sound::Request),
+            NotificationSound::None => None,
+        };
+        if let Some(sound) = sound {
+            crate::sound::play(sound, sound_config);
+            true
+        } else {
+            false
         }
-        NotifyKind::Toast | NotifyKind::SystemToast if extra_running => {}
+    } else {
+        false
+    };
 
-        NotifyKind::Toast => {
-            debug!(
-                message = message,
-                "received terminal toast notification from server"
-            );
-            let (title, body) = crate::terminal_notify::split_message(message);
-            if let Err(err) = show_terminal_notification(title, body) {
-                warn!(err = %err, "failed to emit terminal notification");
-            }
+    let result = match notification.visual {
+        NotificationVisual::Terminal => crate::terminal_notify::show_notification(
+            &notification.title,
+            notification.body.as_deref(),
+        ),
+        NotificationVisual::System => crate::platform::show_desktop_notification(
+            &notification.title,
+            notification.body.as_deref(),
+        ),
+        NotificationVisual::None if sound_submitted => return PresentationOutcome::Submitted,
+        NotificationVisual::None | NotificationVisual::Gardn => {
+            return PresentationOutcome::Rejected("unsupported presentation".into())
         }
-        NotifyKind::SystemToast => {
-            debug!(
-                message = message,
-                "received system toast notification from server"
-            );
-            let (title, body) = crate::terminal_notify::split_message(message);
-            if let Err(err) = show_system_notification(title, body) {
-                warn!(err = %err, "failed to emit system notification");
-            }
-        }
-    }
-}
+    };
 
-fn sound_from_notify_message(message: &str) -> Option<crate::sound::Sound> {
-    match message {
-        "agent done" => Some(crate::sound::Sound::Done),
-        "agent attention" => Some(crate::sound::Sound::Request),
-        _ => None,
+    match result {
+        Ok(true) => PresentationOutcome::Submitted,
+        Ok(false) if sound_submitted => PresentationOutcome::Unknown,
+        Ok(false) => PresentationOutcome::Rejected("presentation unsupported".into()),
+        Err(_) if sound_submitted => PresentationOutcome::Unknown,
+        Err(err) => PresentationOutcome::Rejected(err.to_string()),
     }
 }
 
@@ -2608,27 +2624,6 @@ mod tests {
     }
 
     #[test]
-    fn sound_from_notify_message_maps_done() {
-        assert_eq!(
-            sound_from_notify_message("agent done"),
-            Some(crate::sound::Sound::Done)
-        );
-    }
-
-    #[test]
-    fn sound_from_notify_message_maps_attention() {
-        assert_eq!(
-            sound_from_notify_message("agent attention"),
-            Some(crate::sound::Sound::Request)
-        );
-    }
-
-    #[test]
-    fn sound_from_notify_message_rejects_unknown_payloads() {
-        assert_eq!(sound_from_notify_message("toast"), None);
-    }
-
-    #[test]
     fn reload_local_client_config_refreshes_redraw_on_focus_gained() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let path = std::env::temp_dir().join(format!(
@@ -2662,52 +2657,6 @@ mod tests {
     fn remote_handshake_allows_high_latency_connection_setup() {
         assert_eq!(handshake_read_timeout(false), Duration::from_secs(5));
         assert_eq!(handshake_read_timeout(true), Duration::from_secs(60));
-    }
-
-    #[test]
-    fn toast_notify_from_server_is_emitted_even_when_attach_config_was_off() {
-        let sound_config = crate::config::SoundConfig::default();
-        let mut emitted = None;
-
-        handle_notify_with_notifiers(
-            NotifyKind::Toast,
-            "pi finished: workspace 1",
-            &sound_config,
-            |title, body| {
-                emitted = Some((title.to_string(), body.map(str::to_string)));
-                Ok(true)
-            },
-            |_, _| Ok(false),
-            false,
-        );
-
-        assert_eq!(
-            emitted,
-            Some(("pi finished".to_string(), Some("workspace 1".to_string())))
-        );
-    }
-
-    #[test]
-    fn system_toast_notify_from_server_uses_system_notifier() {
-        let sound_config = crate::config::SoundConfig::default();
-        let mut emitted = None;
-
-        handle_notify_with_notifiers(
-            NotifyKind::SystemToast,
-            "pi finished: workspace 1",
-            &sound_config,
-            |_, _| Ok(false),
-            |title, body| {
-                emitted = Some((title.to_string(), body.map(str::to_string)));
-                Ok(true)
-            },
-            false,
-        );
-
-        assert_eq!(
-            emitted,
-            Some(("pi finished".to_string(), Some("workspace 1".to_string())))
-        );
     }
 
     #[test]

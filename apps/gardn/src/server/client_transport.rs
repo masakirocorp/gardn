@@ -17,6 +17,8 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
+use gardn_local_api::{PresentationReceipt, PresenterRegistration};
+
 use crate::protocol::{
     self, ClientKeybindings, ClientLaunchMode, ClientMessage, RenderEncoding, ServerMessage,
     MAX_CLIPBOARD_IMAGE_PAYLOAD, MAX_FRAME_SIZE, MAX_GRAPHICS_FRAME_SIZE, PROTOCOL_VERSION,
@@ -292,6 +294,16 @@ pub(crate) enum ServerEvent {
         direct_attach_requested: bool,
         direct_graphics: bool,
         writer: ClientWriter,
+    },
+    /// A client registered its notification presentation capabilities.
+    ClientPresenterRegistered {
+        client_id: u64,
+        registration: PresenterRegistration,
+    },
+    /// A client acknowledged a typed presentation request.
+    ClientPresentationReceipt {
+        client_id: u64,
+        receipt: PresentationReceipt,
     },
     /// A client sent an input message.
     ClientInput { client_id: u64, data: Vec<u8> },
@@ -752,6 +764,15 @@ fn client_read_loop(
             ClientMessage::Hello { .. } => {
                 // Duplicate Hello — ignore.
                 continue;
+            }
+            ClientMessage::RegisterPresenter(registration) => {
+                ServerEvent::ClientPresenterRegistered {
+                    client_id,
+                    registration,
+                }
+            }
+            ClientMessage::PresentationReceipt(receipt) => {
+                ServerEvent::ClientPresentationReceipt { client_id, receipt }
             }
             ClientMessage::GraphicsTransmissionResult { .. }
             | ClientMessage::GraphicsTransmissionStarted { .. }

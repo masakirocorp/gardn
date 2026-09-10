@@ -212,6 +212,22 @@ fn handle_connection_with_stop(
     crate::logging::api_request_started(&request_id, method, changes_ui);
 
     match request.method {
+        Method::NotificationPresenterRegister(params) => {
+            let result =
+                stream_notification_presenter(stream, request_id.clone(), params, api_tx, running);
+            match &result {
+                Ok(()) => crate::logging::api_request_completed(
+                    &request_id,
+                    method,
+                    "stream_closed",
+                    changes_ui,
+                ),
+                Err(err) => {
+                    crate::logging::api_request_failed(&request_id, method, &err.to_string())
+                }
+            }
+            result
+        }
         Method::PaneGraphicsStream(params) => {
             let result =
                 pane_graphics_stream::serve(stream, request_id.clone(), params, api_tx, running);
@@ -438,6 +454,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::ConnectionRetireStart(_) => "connection.retire.start",
         Method::ConnectionRetireStatus(_) => "connection.retire.status",
         Method::NotificationShow(_) => "notification.show",
+        Method::NotificationPresenterRegister(_) => "notification.presenter.register",
+        Method::NotificationPresenterReceipt(_) => "notification.presenter.receipt",
         Method::ClientWindowTitleSet(_) => "client.window_title.set",
         Method::ClientWindowTitleClear(_) => "client.window_title.clear",
         Method::SessionSnapshot(_) => "session.snapshot",
@@ -619,6 +637,89 @@ fn read_initial_request_line_with_limits(
         }
     };
     finish_timed_read(result, || set_local_stream_polling(stream, false))
+}
+
+struct PresenterStreamActivity(Arc<AtomicBool>);
+
+impl Drop for PresenterStreamActivity {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
+    }
+}
+
+fn stream_notification_presenter(
+    mut stream: LocalStream,
+    request_id: String,
+    params: crate::api::schema::PresenterRegistration,
+    api_tx: &ApiRequestSender,
+    running: &Arc<AtomicBool>,
+) -> std::io::Result<()> {
+    let stream_active = Arc::new(AtomicBool::new(true));
+    let _activity = PresenterStreamActivity(Arc::clone(&stream_active));
+    let (event_tx, event_rx) = std::sync::mpsc::channel();
+    let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+    let request = Request {
+        id: request_id.clone(),
+        method: Method::NotificationPresenterRegister(params),
+    };
+    if let Err(err) = api_tx.send(ApiRequestMessage {
+        request,
+        respond_to: event_tx,
+        response_written: Some(ack_rx),
+        stream_active: Some(stream_active),
+    }) {
+        write_json_line_allow_disconnect(
+            &mut stream,
+            &ErrorResponse {
+                id: request_id,
+                error: ErrorBody {
+                    code: "server_unavailable".into(),
+                    message: format!("failed to dispatch presenter registration: {err}"),
+                },
+            },
+        )?;
+        return Ok(());
+    }
+
+    let registration = match event_rx.recv_timeout(INITIAL_REQUEST_TIMEOUT) {
+        Ok(registration) => registration,
+        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+            write_json_line_allow_disconnect(
+                &mut stream,
+                &ErrorResponse {
+                    id: request_id,
+                    error: ErrorBody {
+                        code: "server_unavailable".into(),
+                        message: "timed out waiting for presenter registration".into(),
+                    },
+                },
+            )?;
+            return Ok(());
+        }
+        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+    };
+
+    match write_text_line(&mut stream, &registration) {
+        Ok(()) => {}
+        Err(err) if is_connection_closed_error(&err) => return Ok(()),
+        Err(err) => return Err(err),
+    }
+    let _ = ack_tx.send(());
+
+    loop {
+        if should_stop_connection(&mut stream, running)? {
+            return Ok(());
+        }
+        match event_rx.recv_timeout(CONNECTION_POLL_INTERVAL) {
+            Ok(event) => match write_text_line(&mut stream, &event) {
+                Ok(()) => {}
+                Err(err) if is_connection_closed_error(&err) => return Ok(()),
+                Err(err) => return Err(err),
+            },
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return Ok(()),
+        }
+    }
 }
 
 fn stream_subscriptions(

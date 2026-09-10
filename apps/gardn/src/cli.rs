@@ -8,7 +8,7 @@ use crate::api::schema::{
     AgentPromptParams, AgentReadParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams,
     AgentStatus, AgentTarget, ClientWindowTitleSetParams, EmptyParams, GroupCreateParams,
     GroupRenameParams, GroupTarget, IntegrationTarget, Method, NotificationShowParams,
-    NotificationShowSound, OutputMatch, PaneAgentState, PaneTarget, PaneWaitForOutputParams,
+    NotificationSound, OutputMatch, PaneAgentState, PaneTarget, PaneWaitForOutputParams,
     PingParams, ReadFormat, ReadSource, Request, ResourceLocationParams, ResponseResult,
     ServerLiveHandoffParams, SplitDirection, Subscription,
 };
@@ -563,7 +563,7 @@ fn notification_show(args: &[String]) -> std::io::Result<i32> {
 
     let mut body = None;
     let mut position = None;
-    let mut sound = NotificationShowSound::None;
+    let mut sound = NotificationSound::None;
     let mut idx = 1;
     while idx < args.len() {
         match args[idx].as_str() {
@@ -622,11 +622,11 @@ fn parse_gardn_toast_position(value: &str) -> std::io::Result<crate::api::schema
     }
 }
 
-fn parse_notification_sound(value: &str) -> std::io::Result<NotificationShowSound> {
+fn parse_notification_sound(value: &str) -> std::io::Result<NotificationSound> {
     match value {
-        "none" => Ok(NotificationShowSound::None),
-        "done" => Ok(NotificationShowSound::Done),
-        "request" => Ok(NotificationShowSound::Request),
+        "none" => Ok(NotificationSound::None),
+        "done" => Ok(NotificationSound::Done),
+        "request" => Ok(NotificationSound::Request),
         _ => Err(std::io::Error::other(
             "invalid notification sound: expected none, done, or request",
         )),

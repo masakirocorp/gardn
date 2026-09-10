@@ -6,6 +6,9 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 
+use gardn_local_api::{
+    PresentationReceipt, PresentationRequest, PresenterRegistration, RegistrationId,
+};
 use serde::{Deserialize, Serialize};
 
 // ---------------------------------------------------------------------------
@@ -17,7 +20,7 @@ use serde::{Deserialize, Serialize};
 /// Bump once per Gardn release cycle when source becomes incompatible with the
 /// latest Gardn release protocol; multiple unreleased incompatible changes share
 /// the same bump.
-pub const PROTOCOL_VERSION: u32 = 13;
+pub const PROTOCOL_VERSION: u32 = 14;
 
 /// Maximum allowed frame payload size (2 MB). Frames larger than this are
 /// rejected to prevent denial-of-service via oversized length prefixes.
@@ -450,6 +453,12 @@ pub enum ClientMessage {
 
     /// The direct command was written and flushed; terminal response timing starts now.
     GraphicsTransmissionStarted { transfer_id: u64, image_id: u32 },
+
+    /// Register this client as a notification presenter.
+    RegisterPresenter(PresenterRegistration),
+
+    /// Report the outcome of a typed presentation request.
+    PresentationReceipt(PresentationReceipt),
 }
 
 // ---------------------------------------------------------------------------
@@ -625,17 +634,6 @@ pub struct TerminalFrame {
     pub bytes: Vec<u8>,
 }
 
-/// Notification kind forwarded from server to client.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum NotifyKind {
-    /// Play a sound (bell/agent-done, etc.).
-    Sound,
-    /// Display a toast message through the outer terminal.
-    Toast,
-    /// Display a toast message through the host OS notification service.
-    SystemToast,
-}
-
 /// Error category for a client-host effect requested through the coordinator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientEffectErrorCode {
@@ -675,13 +673,8 @@ pub enum ServerMessage {
         reason: Option<String>,
     },
 
-    /// A notification event (sound/toast) to be rendered locally by the client.
-    Notify {
-        /// What kind of notification.
-        kind: NotifyKind,
-        /// Human-readable message.
-        message: String,
-    },
+    /// Request that the client present a typed notification.
+    PresentationRequest(PresentationRequest),
 
     /// OSC 52 clipboard data forwarded from a PTY through the server.
     Clipboard {
@@ -737,6 +730,9 @@ pub enum ServerMessage {
 
     /// Suppress a direct command that expired before terminal delivery.
     GraphicsTransmissionRetired { transfer_id: u64, image_id: u32 },
+
+    /// Acknowledge a client's notification presenter registration.
+    PresenterRegistrationAck { registration_id: RegistrationId },
 }
 
 // ---------------------------------------------------------------------------
@@ -1027,7 +1023,7 @@ mod tests {
             "error should expose found variant {found}: {msg}"
         );
         assert!(
-            msg.contains("expected variant index 0 <= i < 11"),
+            msg.contains("expected variant index 0 <= i < 13"),
             "error should expose allowed ClientMessage variant range: {msg}"
         );
     }
@@ -1048,7 +1044,7 @@ mod tests {
         };
         assert_bincode_bytes(
             &msg,
-            &[0x00, 0x0d, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00],
+            &[0x00, 0x0e, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00],
         );
     }
 
@@ -1144,10 +1140,98 @@ mod tests {
             }),
             10
         );
+        assert_eq!(
+            tag(&ClientMessage::RegisterPresenter(PresenterRegistration {
+                name: "p".into(),
+                rendering_host_id: "h".into(),
+                capabilities: gardn_local_api::PresenterCapabilities {
+                    terminal: true,
+                    system: false,
+                    sound: true,
+                },
+            })),
+            11
+        );
+        assert_eq!(
+            tag(&ClientMessage::PresentationReceipt(PresentationReceipt {
+                registration_id: RegistrationId {
+                    coordinator_epoch: "e".into(),
+                    sequence: 1,
+                },
+                notification_id: gardn_local_api::NotificationId {
+                    coordinator_epoch: "e".into(),
+                    sequence: 2,
+                },
+                outcome: gardn_local_api::PresentationOutcome::Submitted,
+            })),
+            12
+        );
     }
 
     #[test]
-    fn client_input_events_preserve_protocol_13_bytes() {
+    fn notification_messages_preserve_protocol_14_bytes() {
+        let registration = PresenterRegistration {
+            name: "p".into(),
+            rendering_host_id: "h".into(),
+            capabilities: gardn_local_api::PresenterCapabilities {
+                terminal: true,
+                system: false,
+                sound: true,
+            },
+        };
+        assert_bincode_bytes(
+            &ClientMessage::RegisterPresenter(registration),
+            &[0x0b, 0x01, b'p', 0x01, b'h', 0x01, 0x00, 0x01],
+        );
+
+        let registration_id = RegistrationId {
+            coordinator_epoch: "e".into(),
+            sequence: 1,
+        };
+        assert_bincode_bytes(
+            &ClientMessage::PresentationReceipt(PresentationReceipt {
+                registration_id: registration_id.clone(),
+                notification_id: gardn_local_api::NotificationId {
+                    coordinator_epoch: "e".into(),
+                    sequence: 2,
+                },
+                outcome: gardn_local_api::PresentationOutcome::Submitted,
+            }),
+            &[0x0c, 0x01, b'e', 0x01, 0x01, b'e', 0x02, 0x00],
+        );
+        assert_bincode_bytes(
+            &ServerMessage::PresenterRegistrationAck {
+                registration_id: registration_id.clone(),
+            },
+            &[0x10, 0x01, b'e', 0x01],
+        );
+        assert_bincode_bytes(
+            &ServerMessage::PresentationRequest(PresentationRequest {
+                registration_id,
+                notification: gardn_local_api::StateNotification {
+                    id: gardn_local_api::NotificationId {
+                        coordinator_epoch: "e".into(),
+                        sequence: 2,
+                    },
+                    source: gardn_local_api::NotificationSource::State,
+                    target: None,
+                    title: "t".into(),
+                    body: None,
+                    visual: gardn_local_api::NotificationVisual::System,
+                    sound: gardn_local_api::NotificationSound::Done,
+                    created_at_unix_ms: 3,
+                    expires_at_unix_ms: 4,
+                },
+            }),
+            &[
+                0x05, 0x01, b'e', 0x01, 0x01, b'e', 0x02, 0x00, 0x00, 0x01, b't', 0x00, 0x03, 0x01,
+                0x03, 0x04,
+            ],
+        );
+    }
+
+    #[test]
+    fn client_input_events_preserve_protocol_14_bytes() {
         let msg = ClientMessage::InputEvents {
             events: vec![
                 ClientInputEvent::Key {
@@ -1354,7 +1438,7 @@ mod tests {
             encoding: RenderEncoding::SemanticFrame,
             error: None,
         };
-        assert_bincode_bytes(&msg, &[0x00, 0x0d, 0x00, 0x00]);
+        assert_bincode_bytes(&msg, &[0x00, 0x0e, 0x00, 0x00]);
     }
 
     #[test]
@@ -1367,7 +1451,7 @@ mod tests {
         assert_bincode_bytes(
             &msg,
             &[
-                0x00, 0x0d, 0x00, 0x01, 0x14, b'i', b'n', b'c', b'o', b'm', b'p', b'a', b't', b'i',
+                0x00, 0x0e, 0x00, 0x01, 0x14, b'i', b'n', b'c', b'o', b'm', b'p', b'a', b't', b'i',
                 b'b', b'l', b'e', b' ', b'v', b'e', b'r', b's', b'i', b'o', b'n',
             ],
         );
@@ -1466,38 +1550,6 @@ mod tests {
                 0x04, 0x01, 0x08, b'u', b'p', b'd', b'a', b't', b'i', b'n', b'g',
             ],
         );
-    }
-
-    #[test]
-    fn server_notify_roundtrip() {
-        for (kind, expected_kind) in [
-            (NotifyKind::Sound, 0x00),
-            (NotifyKind::Toast, 0x01),
-            (NotifyKind::SystemToast, 0x02),
-        ] {
-            let msg = ServerMessage::Notify {
-                kind,
-                message: "agent done".to_owned(),
-            };
-            assert_bincode_bytes(
-                &msg,
-                &[
-                    0x05,
-                    expected_kind,
-                    0x0a,
-                    b'a',
-                    b'g',
-                    b'e',
-                    b'n',
-                    b't',
-                    b' ',
-                    b'd',
-                    b'o',
-                    b'n',
-                    b'e',
-                ],
-            );
-        }
     }
 
     #[test]
@@ -1669,7 +1721,7 @@ mod tests {
         write_message(&mut buf, &msg).unwrap();
         assert_eq!(
             buf.as_slice(),
-            &[0x09, 0x00, 0x00, 0x00, 0x00, 0x0d, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00]
+            &[0x09, 0x00, 0x00, 0x00, 0x00, 0x0e, 0x50, 0x18, 0x08, 0x10, 0x00, 0x00, 0x00]
         );
         let decoded: ClientMessage = read_message(&mut buf.as_slice(), MAX_FRAME_SIZE).unwrap();
         assert_eq!(msg, decoded);
@@ -1690,7 +1742,7 @@ mod tests {
         let expected = [
             0x09, 0x00, 0x00, 0x00, // payload length
             0x00, // ClientMessage::Hello
-            0x0d, // PROTOCOL_VERSION
+            0x0e, // PROTOCOL_VERSION
             0x50, // cols
             0x18, // rows
             0x08, // cell_width_px
@@ -1719,7 +1771,7 @@ mod tests {
         let expected = [
             0x04, 0x00, 0x00, 0x00, // payload length
             0x00, // ServerMessage::Welcome
-            0x0d, // PROTOCOL_VERSION
+            0x0e, // PROTOCOL_VERSION
             0x00, // RenderEncoding::SemanticFrame
             0x00, // error: None
         ];

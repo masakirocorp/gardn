@@ -113,7 +113,7 @@ fn agent_start_parses_target_first_options_and_preserves_native_argv() {
                     "result": {
                         "type": "pong",
                         "version": "0.2.19",
-                        "protocol": 13,
+                        "protocol": 14,
                         "capabilities": {"live_handoff": true}
                     }
                 })
