@@ -12,6 +12,12 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  required-ci:
+    uses: ./.github/workflows/ci.yml
+
+  agent-fixtures:
+    uses: ./.github/workflows/agent-tests.yml
+
   flake-check:
     runs-on: ubuntu-latest
     permissions:
@@ -271,7 +277,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [build, flake-check, macos-app]
+    needs: [build, flake-check, macos-app, required-ci, agent-fixtures]
     runs-on: ubuntu-latest
     permissions:
       contents: write
