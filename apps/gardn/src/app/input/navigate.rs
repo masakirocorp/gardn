@@ -562,6 +562,7 @@ impl App {
         );
         if preserve_navigate_mode {
             self.state.mode = Mode::Navigate;
+            self.default_client_view.mode = Mode::Navigate;
         }
     }
     fn pass_through_key_to_focused_pane(&mut self, key: TerminalKey) -> bool {
@@ -2798,8 +2799,13 @@ command = "echo literal"
         app.handle_key(TerminalKey::new(KeyCode::Char('h'), KeyModifiers::empty()))
             .await;
 
-        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(root));
-        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(
+            app.default_client_view
+                .focused_pane_for_workspace(&app.state, 0)
+                .map(|(_, pane_id)| pane_id),
+            Some(root)
+        );
+        assert_eq!(app.default_client_view.mode, Mode::Terminal);
     }
 
     #[tokio::test]
@@ -2828,12 +2834,20 @@ command = "echo literal"
             .layout
             .panes(ratatui::layout::Rect::new(0, 0, 80, 24));
         app.state.mode = Mode::Navigate;
+        app.default_client_view.reconcile(&app.state);
+        app.default_client_view.mode = Mode::Navigate;
 
         app.handle_key(TerminalKey::new(KeyCode::Char('k'), KeyModifiers::empty()))
             .await;
 
-        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(root));
+        assert_eq!(
+            app.default_client_view
+                .focused_pane_for_workspace(&app.state, 0)
+                .map(|(_, pane_id)| pane_id),
+            Some(root)
+        );
         assert_eq!(app.state.mode, Mode::Navigate);
+        assert_eq!(app.default_client_view.mode, Mode::Navigate);
     }
 
     #[tokio::test]

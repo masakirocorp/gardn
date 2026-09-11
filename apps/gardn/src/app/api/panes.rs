@@ -86,57 +86,37 @@ impl App {
         id: String,
         params: PaneSplitParams,
     ) -> crate::api::ApiRequestDisposition {
-        self.handle_pane_split_with(
-            super::invocation::ApiInvocationContext::ambient(),
-            id,
-            params,
-        )
+        self.with_default_client_view(move |app, view| {
+            app.handle_pane_split_with(
+                super::invocation::ApiInvocationContext::ambient(view),
+                id,
+                params,
+            )
+        })
     }
 
-    pub(super) fn handle_pane_split_disposition_for_view(
-        &mut self,
-        view: &mut ClientViewState,
-        id: String,
-        params: PaneSplitParams,
-    ) -> crate::api::ApiRequestDisposition {
-        self.handle_pane_split_with(
-            super::invocation::ApiInvocationContext::for_view(view),
-            id,
-            params,
-        )
-    }
-
-    fn handle_pane_split_with(
+    pub(super) fn handle_pane_split_with(
         &mut self,
         mut invocation: super::invocation::ApiInvocationContext<'_>,
         id: String,
         params: PaneSplitParams,
     ) -> crate::api::ApiRequestDisposition {
-        if let Some(view) = invocation.view_mut() {
-            view.reconcile(&self.state);
-        }
+        invocation.view_mut().reconcile(&self.state);
         let target = match params.target_pane_id.as_deref() {
             Some(target_pane_id) => self.parse_pane_id(target_pane_id),
             None => match params.workspace_id.as_deref() {
                 Some(workspace_id) => self.parse_workspace_id(workspace_id).and_then(|ws_idx| {
-                    if let Some(view) = invocation.view() {
-                        view.focused_pane_for_workspace(&self.state, ws_idx)
-                            .map(|(_, pane_id)| (ws_idx, pane_id))
-                    } else {
-                        let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
-                        Some((ws_idx, pane_id))
-                    }
+                    invocation
+                        .view()
+                        .focused_pane_for_workspace(&self.state, ws_idx)
+                        .map(|(_, pane_id)| (ws_idx, pane_id))
                 }),
-                None => {
-                    if let Some(view) = invocation.view() {
-                        view.active_workspace.and_then(|ws_idx| {
-                            view.focused_pane_for_workspace(&self.state, ws_idx)
-                                .map(|(_, pane_id)| (ws_idx, pane_id))
-                        })
-                    } else {
-                        self.resolve_optional_pane(None)
-                    }
-                }
+                None => invocation.view().active_workspace.and_then(|ws_idx| {
+                    invocation
+                        .view()
+                        .focused_pane_for_workspace(&self.state, ws_idx)
+                        .map(|(_, pane_id)| (ws_idx, pane_id))
+                }),
             },
         };
         let Some((ws_idx, target_pane_id)) = target else {
@@ -193,7 +173,7 @@ impl App {
             crate::api::schema::SplitDirection::Down => ratatui::layout::Direction::Vertical,
         };
         let client_local = invocation.is_client_local();
-        let begin_focus = params.focus && !client_local;
+        let begin_focus = false;
         if !location.is_local() {
             match self.begin_remote_split(
                 ws_idx,
@@ -208,28 +188,25 @@ impl App {
                 Ok(terminal_id) => {
                     let mut pending_focus = None;
                     if params.focus {
-                        if let Some(view) = invocation.view_mut() {
-                            if let Some(target) = self.pending_remote_creation_target(&terminal_id)
+                        if let Some(target) = self.pending_remote_creation_target(&terminal_id) {
+                            if let Some(tab_idx) =
+                                self.state.workspaces.get(ws_idx).and_then(|ws| {
+                                    ws.terminal_tabs()
+                                        .find(|(_, tab)| tab.number == target.tab_number)
+                                        .map(|(tab_idx, _)| tab_idx)
+                                })
                             {
-                                if let Some(tab_idx) =
-                                    self.state.workspaces.get(ws_idx).and_then(|ws| {
-                                        ws.terminal_tabs()
-                                            .find(|(_, tab)| tab.number == target.tab_number)
-                                            .map(|(tab_idx, _)| tab_idx)
-                                    })
-                                {
-                                    view.mark_pending_remote_split_focus(
-                                        &self.state,
-                                        ws_idx,
-                                        tab_idx,
-                                        target.pane_id,
-                                    );
-                                    pending_focus = Some(crate::api::PendingFocusMarker::Pane {
-                                        workspace_id: target.workspace_id,
-                                        tab_number: target.tab_number,
-                                        pane_id: target.pane_id,
-                                    });
-                                }
+                                invocation.view_mut().mark_pending_remote_split_focus(
+                                    &self.state,
+                                    ws_idx,
+                                    tab_idx,
+                                    target.pane_id,
+                                );
+                                pending_focus = Some(crate::api::PendingFocusMarker::Pane {
+                                    workspace_id: target.workspace_id,
+                                    tab_number: target.tab_number,
+                                    pane_id: target.pane_id,
+                                });
                             }
                         }
                     }
@@ -239,7 +216,7 @@ impl App {
                             request_id: id,
                             kind: crate::api::DeferredRemoteCreateKind::PaneSplit,
                             focus: params.focus,
-                            client_view_id: invocation.client_view_id(),
+                            client_view_id: Some(invocation.client_view_id()),
                             pending_focus,
                         },
                     );
@@ -310,24 +287,20 @@ impl App {
         self.state
             .terminals
             .insert(new_pane.terminal.id.clone(), new_pane.terminal);
-        if let Some(view) = invocation.view_mut() {
-            if params.focus {
-                view.focus_pane_in_workspace(&self.state, ws_idx, target_tab_idx, new_pane.pane_id);
-            } else {
-                view.reconcile(&self.state);
-            }
-        } else if params.focus {
-            self.state.switch_workspace(ws_idx);
-            self.state.switch_tab(target_tab_idx);
-            self.state.mode = Mode::Terminal;
+        if params.focus {
+            invocation.view_mut().focus_pane_in_workspace(
+                &self.state,
+                ws_idx,
+                target_tab_idx,
+                new_pane.pane_id,
+            );
+        } else {
+            invocation.view_mut().reconcile(&self.state);
         }
         self.schedule_session_save();
-        let pane = if let Some(view) = invocation.view() {
-            self.pane_info_for_view(view, ws_idx, new_pane.pane_id)
-                .unwrap()
-        } else {
-            self.pane_info(ws_idx, new_pane.pane_id).unwrap()
-        };
+        let pane = self
+            .pane_info_for_view(invocation.view(), ws_idx, new_pane.pane_id)
+            .expect("new pane should have API state");
         self.emit_event(EventEnvelope {
             event: EventKind::PaneCreated,
             data: EventData::PaneCreated { pane: pane.clone() },
@@ -764,7 +737,7 @@ impl App {
         else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
-        let area = self.state.view.terminal_area;
+        let area = self.default_client_view.computed.terminal_area;
         let Some(info) = tab
             .layout
             .panes(area)
@@ -823,7 +796,7 @@ impl App {
         else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
-        let area = normalized_terminal_area(self.state.view.terminal_area);
+        let area = normalized_terminal_area(view.computed.terminal_area);
         let Some(info) = tab
             .layout
             .panes(area)
@@ -996,7 +969,7 @@ impl App {
             .abs()
             .min(0.5);
         let direction: NavDirection = params.direction.into();
-        let area = normalized_terminal_area(self.state.view.terminal_area);
+        let area = normalized_terminal_area(self.default_client_view.computed.terminal_area);
         let changed = self
             .state
             .workspaces
@@ -1065,7 +1038,7 @@ impl App {
             .abs()
             .min(0.5);
         let direction: NavDirection = params.direction.into();
-        let area = normalized_terminal_area(self.state.view.terminal_area);
+        let area = normalized_terminal_area(view.computed.terminal_area);
         let changed = self
             .state
             .workspaces
@@ -2247,7 +2220,7 @@ impl App {
     ) -> Option<PaneLayoutSnapshot> {
         let ws = self.state.workspaces.get(ws_idx)?;
         let tab = ws.terminal_tab(tab_idx).ok()?;
-        let mut area = self.state.view.terminal_area;
+        let mut area = self.default_client_view.computed.terminal_area;
         if area.width == 0 || area.height == 0 {
             area = ratatui::layout::Rect::new(0, 0, 80, 24);
         }
@@ -2329,7 +2302,7 @@ impl App {
     ) -> Option<PaneLayoutSnapshot> {
         let ws = self.state.workspaces.get(ws_idx)?;
         let tab = ws.terminal_tab(tab_idx).ok()?;
-        let area = normalized_terminal_area(self.state.view.terminal_area);
+        let area = normalized_terminal_area(view.computed.terminal_area);
         let focused = view
             .focused_pane_for_tab(&ws.id, tab.number)
             .filter(|pane_id| tab.panes.contains_key(pane_id))
@@ -2413,9 +2386,9 @@ impl App {
             .get(ws_idx)?
             .terminal_tab(tab_idx)
             .ok()?;
-        let panes = tab
-            .layout
-            .panes(normalized_terminal_area(self.state.view.terminal_area));
+        let panes = tab.layout.panes(normalized_terminal_area(
+            self.default_client_view.computed.terminal_area,
+        ));
         let focused = panes.iter().find(|info| info.id == pane_id)?;
         find_in_direction(focused, direction.into(), &panes)
     }
@@ -2865,6 +2838,7 @@ fn pane_creation_location(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::api::invocation::{ApiInvocationContext, ApiInvocationOrigin};
     use std::collections::HashMap;
 
     use crate::{
@@ -3263,8 +3237,8 @@ mod tests {
         other.selected_workspace = 0;
         other.reconcile(&app.state);
 
-        let disposition = app.handle_pane_split_disposition_for_view(
-            &mut initiator,
+        let disposition = app.handle_pane_split_with(
+            ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut initiator),
             "pane-remote-focus".into(),
             PaneSplitParams {
                 target_pane_id: Some(public_pane_id),
@@ -3391,8 +3365,8 @@ mod tests {
         let initiator_focus_before = initiator.focused_pane_for_tab(&app.state.workspaces[0].id, 1);
         let other_focus_before = other.focused_pane_for_tab(&app.state.workspaces[0].id, 1);
 
-        let disposition = app.handle_pane_split_disposition_for_view(
-            &mut initiator,
+        let disposition = app.handle_pane_split_with(
+            ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut initiator),
             "pane-remote-nofocus".into(),
             PaneSplitParams {
                 target_pane_id: Some(public_pane_id),
@@ -3492,8 +3466,8 @@ mod tests {
             .pending_focused_panes
             .insert(other_key.clone(), root_pane);
 
-        let disposition = app.handle_pane_split_disposition_for_view(
-            &mut initiator,
+        let disposition = app.handle_pane_split_with(
+            ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut initiator),
             "pane-remote-fail".into(),
             PaneSplitParams {
                 target_pane_id: Some(public_pane_id),

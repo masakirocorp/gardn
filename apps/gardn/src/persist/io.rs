@@ -243,7 +243,6 @@ pub fn load_history() -> Option<SessionHistorySnapshot> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::AgentPanelScope;
     use crate::persist::snapshot::{
         PaneHistorySnapshot, TabHistorySnapshot, WorkspaceHistorySnapshot,
     };
@@ -282,19 +281,13 @@ mod tests {
                 default_agent_profile_id: None,
                 github_organization: None,
             }],
-            active_group: 0,
-            group_filter_enabled: true,
-            default_view: crate::persist::snapshot::SessionDefaultViewSnapshot::default(),
+            default_view: crate::persist::snapshot::SessionDefaultViewSnapshot {
+                sidebar_width: Some(26),
+                sidebar_section_split: Some(0.5),
+                right_sidebar_width: Some(28),
+                ..crate::persist::snapshot::SessionDefaultViewSnapshot::default()
+            },
             workspaces: vec![],
-            active: None,
-            selected: 0,
-            agent_panel_scope: AgentPanelScope::CurrentWorkspace,
-            sidebar_width: Some(26),
-            sidebar_collapsed: false,
-            sidebar_section_split: Some(0.5),
-            right_sidebar_width: Some(28),
-            right_sidebar_collapsed: false,
-            ui: crate::persist::snapshot::SessionUiSnapshot::default(),
             agent_follow_up: Vec::new(),
             pane_id_aliases: std::collections::HashMap::new(),
         }
@@ -404,8 +397,7 @@ mod tests {
         std::os::unix::fs::symlink(&target, &link).unwrap();
 
         let mut snap = empty_snapshot();
-        snap.selected = 7;
-        snap.default_view.selected = 7;
+        snap.default_view.selected_workspace_id = Some("selected".to_string());
         save_to_path(&link, &snap).unwrap();
 
         assert!(std::fs::symlink_metadata(&link)
@@ -413,7 +405,10 @@ mod tests {
             .file_type()
             .is_symlink());
         let parsed = parse_snapshot(&std::fs::read_to_string(&target).unwrap()).unwrap();
-        assert_eq!(parsed.selected, 7);
+        assert_eq!(
+            parsed.default_view.selected_workspace_id.as_deref(),
+            Some("selected")
+        );
     }
 
     #[cfg(unix)]

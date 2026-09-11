@@ -10,12 +10,9 @@ use crate::terminal::TerminalRuntimeRegistry;
 use crate::workspace::Workspace;
 
 /// Current snapshot format version.
-pub(crate) const SNAPSHOT_VERSION: u32 = 6;
+pub(crate) const SNAPSHOT_VERSION: u32 = 7;
 
 /// Serializable snapshot of the entire Gardn session.
-// Legacy mirror fields stay on the in-memory struct so old snapshots migrate
-// through one parser shape; new snapshots serialize `default_view` instead.
-#[allow(dead_code)]
 #[derive(Serialize, Deserialize)]
 pub struct SessionSnapshot {
     /// Format version — used to detect incompatible changes.
@@ -30,42 +27,30 @@ pub struct SessionSnapshot {
     #[serde(default = "default_groups")]
     pub groups: Vec<GroupSnapshot>,
     #[serde(default)]
-    pub active_group: usize,
-    #[serde(default = "default_true")]
-    pub group_filter_enabled: bool,
-    #[serde(default)]
     pub default_view: SessionDefaultViewSnapshot,
     pub workspaces: Vec<WorkspaceSnapshot>,
-    #[serde(default, skip_serializing)]
-    pub active: Option<usize>,
-    #[serde(default, skip_serializing)]
-    pub selected: usize,
-    #[serde(default, skip_serializing)]
-    pub agent_panel_scope: crate::app::state::AgentPanelScope,
-    #[serde(default, skip_serializing)]
-    pub sidebar_width: Option<u16>,
-    #[serde(default, skip_serializing)]
-    pub sidebar_collapsed: bool,
-    #[serde(default, skip_serializing)]
-    pub sidebar_section_split: Option<f32>,
-    #[serde(default, skip_serializing)]
-    pub right_sidebar_width: Option<u16>,
-    #[serde(default, skip_serializing)]
-    pub right_sidebar_collapsed: bool,
-    #[serde(default, skip_serializing)]
-    pub ui: SessionUiSnapshot,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_follow_up: Vec<crate::app::state::AgentFollowUpEntry>,
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub pane_id_aliases: std::collections::HashMap<u32, u32>,
 }
 
-#[derive(Clone, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SessionDefaultViewSnapshot {
     #[serde(default)]
-    pub active: Option<usize>,
-    #[serde(default)]
-    pub selected: usize,
+    pub active_group: usize,
+    #[serde(default = "default_true")]
+    pub group_filter_enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub active_tabs: HashMap<String, usize>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub focused_panes: Vec<SessionFocusedPaneSnapshot>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub zoomed_tabs: Vec<SessionTabViewSnapshot>,
     #[serde(default)]
     pub agent_panel_scope: crate::app::state::AgentPanelScope,
     #[serde(default)]
@@ -81,12 +66,45 @@ pub struct SessionDefaultViewSnapshot {
     #[serde(default)]
     pub ui: SessionUiSnapshot,
 }
+impl Default for SessionDefaultViewSnapshot {
+    fn default() -> Self {
+        Self {
+            active_group: 0,
+            group_filter_enabled: true,
+            active_workspace_id: None,
+            selected_workspace_id: None,
+            active_tabs: HashMap::new(),
+            focused_panes: Vec::new(),
+            zoomed_tabs: Vec::new(),
+            agent_panel_scope: crate::app::state::AgentPanelScope::default(),
+            sidebar_width: None,
+            sidebar_collapsed: false,
+            sidebar_section_split: None,
+            right_sidebar_width: None,
+            right_sidebar_collapsed: false,
+            ui: SessionUiSnapshot::default(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SessionTabViewSnapshot {
+    pub workspace_id: String,
+    pub tab_number: usize,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SessionFocusedPaneSnapshot {
+    pub workspace_id: String,
+    pub tab_number: usize,
+    pub pane_number: usize,
+}
 
 impl SessionDefaultViewSnapshot {
     fn from_legacy(raw: &RawSessionSnapshot) -> Self {
         Self {
-            active: raw.active,
-            selected: raw.selected,
+            active_group: raw.active_group,
+            group_filter_enabled: raw.group_filter_enabled,
             agent_panel_scope: raw.agent_panel_scope,
             sidebar_width: raw.sidebar_width,
             sidebar_collapsed: raw.sidebar_collapsed,
@@ -94,7 +112,28 @@ impl SessionDefaultViewSnapshot {
             right_sidebar_width: raw.right_sidebar_width,
             right_sidebar_collapsed: raw.right_sidebar_collapsed,
             ui: raw.ui.clone(),
+            ..Self::default()
         }
+    }
+
+    pub(crate) fn active_workspace_index(&self, workspaces: &[Workspace]) -> Option<usize> {
+        self.active_workspace_id.as_ref().and_then(|workspace_id| {
+            workspaces
+                .iter()
+                .position(|workspace| workspace.id == *workspace_id)
+        })
+    }
+
+    pub(crate) fn selected_workspace_index(&self, workspaces: &[Workspace]) -> usize {
+        self.selected_workspace_id
+            .as_ref()
+            .and_then(|workspace_id| {
+                workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == *workspace_id)
+            })
+            .or_else(|| self.active_workspace_index(workspaces))
+            .unwrap_or(0)
     }
 }
 
@@ -142,24 +181,6 @@ impl Default for SessionUiSnapshot {
     }
 }
 
-impl SessionUiSnapshot {
-    pub fn from_app_state(state: &crate::app::state::AppState) -> Self {
-        Self {
-            workspace_scroll: state.workspace_scroll,
-            agent_panel_scroll: state.agent_panel_scroll,
-            tab_scroll: state.tab_scroll,
-            mobile_switcher_scroll: state.mobile_switcher_scroll,
-            activity_agents_expanded: state.activity_agents_expanded,
-            activity_commands_expanded: state.activity_commands_expanded,
-            activity_ports_expanded: state.activity_ports_expanded,
-            collapsed_agent_sections: state.collapsed_agent_sections.clone(),
-            collapsed_command_groups: state.collapsed_command_groups.clone(),
-            collapsed_command_status_groups: state.collapsed_command_status_groups.clone(),
-            collapsed_workspace_groups: state.collapsed_workspace_groups.clone(),
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize)]
 pub struct SessionHistorySnapshot {
     /// Format version follows the matching session snapshot version.
@@ -199,8 +220,8 @@ pub struct WorkspaceSnapshot {
     #[serde(default)]
     pub next_public_tab_number: usize,
     pub tabs: Vec<TabSnapshot>,
-    #[serde(default)]
-    pub active_tab: usize,
+    #[serde(default, rename = "active_tab", skip_serializing)]
+    pub(crate) legacy_active_tab: usize,
 }
 
 #[derive(Serialize, Clone)]
@@ -410,9 +431,10 @@ pub struct TerminalTabSnapshot {
     pub custom_name: Option<String>,
     pub layout: LayoutSnapshot,
     pub panes: HashMap<u32, PaneSnapshot>,
-    pub zoomed: bool,
-    #[serde(default)]
-    pub focused: Option<u32>,
+    #[serde(default, rename = "zoomed", skip_serializing)]
+    pub(crate) legacy_zoomed: bool,
+    #[serde(default, rename = "focused", skip_serializing)]
+    pub(crate) legacy_focused: Option<u32>,
     #[serde(default)]
     pub root_pane: Option<u32>,
 }
@@ -502,8 +524,8 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
             custom_name: None,
             layout: snap.layout,
             panes: snap.panes,
-            zoomed: snap.zoomed,
-            focused: snap.focused,
+            legacy_zoomed: snap.zoomed,
+            legacy_focused: snap.focused,
             root_pane: snap.root_pane,
         });
 
@@ -522,7 +544,64 @@ impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
             public_tab_numbers: Vec::new(),
             next_public_tab_number: 0,
             tabs: vec![tab],
-            active_tab: 0,
+            legacy_active_tab: 0,
+        }
+    }
+}
+
+#[derive(Clone, Deserialize)]
+struct RawSessionDefaultViewSnapshot {
+    #[serde(default)]
+    active_group: usize,
+    #[serde(default = "default_true")]
+    group_filter_enabled: bool,
+    #[serde(default)]
+    active_workspace_id: Option<String>,
+    #[serde(default)]
+    selected_workspace_id: Option<String>,
+    #[serde(default)]
+    active_tabs: HashMap<String, usize>,
+    #[serde(default)]
+    focused_panes: Vec<SessionFocusedPaneSnapshot>,
+    #[serde(default)]
+    zoomed_tabs: Vec<SessionTabViewSnapshot>,
+    #[serde(default)]
+    agent_panel_scope: crate::app::state::AgentPanelScope,
+    #[serde(default)]
+    sidebar_width: Option<u16>,
+    #[serde(default)]
+    sidebar_collapsed: bool,
+    #[serde(default)]
+    sidebar_section_split: Option<f32>,
+    #[serde(default)]
+    right_sidebar_width: Option<u16>,
+    #[serde(default)]
+    right_sidebar_collapsed: bool,
+    #[serde(default)]
+    ui: SessionUiSnapshot,
+    #[serde(default)]
+    active: Option<usize>,
+    #[serde(default)]
+    selected: Option<usize>,
+}
+
+impl RawSessionDefaultViewSnapshot {
+    fn current(&self) -> SessionDefaultViewSnapshot {
+        SessionDefaultViewSnapshot {
+            active_group: self.active_group,
+            group_filter_enabled: self.group_filter_enabled,
+            active_workspace_id: self.active_workspace_id.clone(),
+            selected_workspace_id: self.selected_workspace_id.clone(),
+            active_tabs: self.active_tabs.clone(),
+            focused_panes: self.focused_panes.clone(),
+            zoomed_tabs: self.zoomed_tabs.clone(),
+            agent_panel_scope: self.agent_panel_scope,
+            sidebar_width: self.sidebar_width,
+            sidebar_collapsed: self.sidebar_collapsed,
+            sidebar_section_split: self.sidebar_section_split,
+            right_sidebar_width: self.right_sidebar_width,
+            right_sidebar_collapsed: self.right_sidebar_collapsed,
+            ui: self.ui.clone(),
         }
     }
 }
@@ -542,7 +621,7 @@ struct RawSessionSnapshot {
     #[serde(default = "default_true")]
     group_filter_enabled: bool,
     #[serde(default)]
-    default_view: Option<SessionDefaultViewSnapshot>,
+    default_view: Option<RawSessionDefaultViewSnapshot>,
     #[serde(default)]
     workspaces: Vec<serde_json::Value>,
     #[serde(default)]
@@ -570,12 +649,37 @@ struct RawSessionSnapshot {
 }
 
 fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> {
-    let default_view = raw
+    let legacy_format = raw.version < SNAPSHOT_VERSION || raw.default_view.is_none();
+    let legacy_active = raw
         .default_view
-        .clone()
+        .as_ref()
+        .and_then(|view| view.active)
+        .or(raw.active);
+    let legacy_selected = raw
+        .default_view
+        .as_ref()
+        .and_then(|view| view.selected)
+        .unwrap_or(raw.selected);
+    let mut default_view = raw
+        .default_view
+        .as_ref()
+        .map(RawSessionDefaultViewSnapshot::current)
         .unwrap_or_else(|| SessionDefaultViewSnapshot::from_legacy(&raw));
+    let mut workspaces = raw
+        .workspaces
+        .into_iter()
+        .map(migrate_workspace)
+        .collect::<Result<Vec<_>, _>>()?;
+    if legacy_format {
+        for workspace in &mut workspaces {
+            workspace.prepare_legacy_view_identity();
+        }
+        default_view.active_group = raw.active_group;
+        default_view.group_filter_enabled = raw.group_filter_enabled;
+        default_view.upgrade_legacy_navigation(&workspaces, legacy_active, legacy_selected);
+    }
     Ok(SessionSnapshot {
-        version: raw.version,
+        version: SNAPSHOT_VERSION,
         session_namespace_id: raw.session_namespace_id,
         remote_termination_tombstones: raw.remote_termination_tombstones,
         groups: if raw.groups.is_empty() {
@@ -583,26 +687,100 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         } else {
             raw.groups
         },
-        active_group: raw.active_group,
-        group_filter_enabled: raw.group_filter_enabled,
-        workspaces: raw
-            .workspaces
-            .into_iter()
-            .map(migrate_workspace)
-            .collect::<Result<Vec<_>, _>>()?,
-        active: default_view.active,
-        selected: default_view.selected,
-        agent_panel_scope: default_view.agent_panel_scope,
-        sidebar_width: default_view.sidebar_width,
-        sidebar_collapsed: default_view.sidebar_collapsed,
-        sidebar_section_split: default_view.sidebar_section_split,
-        right_sidebar_width: default_view.right_sidebar_width,
-        right_sidebar_collapsed: default_view.right_sidebar_collapsed,
-        ui: default_view.ui.clone(),
+        workspaces,
         default_view,
         agent_follow_up: raw.agent_follow_up,
         pane_id_aliases: raw.pane_id_aliases,
     })
+}
+
+impl SessionDefaultViewSnapshot {
+    fn upgrade_legacy_navigation(
+        &mut self,
+        workspaces: &[WorkspaceSnapshot],
+        legacy_active: Option<usize>,
+        legacy_selected: usize,
+    ) {
+        self.active_workspace_id = legacy_active
+            .and_then(|index| workspaces.get(index))
+            .and_then(|workspace| workspace.id.clone());
+        self.selected_workspace_id = workspaces
+            .get(legacy_selected)
+            .and_then(|workspace| workspace.id.clone());
+
+        for workspace in workspaces {
+            let Some(workspace_id) = workspace.id.as_ref() else {
+                continue;
+            };
+            let active_index = workspace
+                .legacy_active_tab
+                .min(workspace.tabs.len().saturating_sub(1));
+            if let Some(tab_number) = workspace.public_tab_numbers.get(active_index).copied() {
+                self.active_tabs.insert(workspace_id.clone(), tab_number);
+            }
+            for (tab_index, tab) in workspace.tabs.iter().enumerate() {
+                let TabSnapshot::Terminal(tab) = tab else {
+                    continue;
+                };
+                let tab_number = workspace
+                    .public_tab_numbers
+                    .get(tab_index)
+                    .copied()
+                    .unwrap_or(tab_index + 1);
+                if let Some(pane_number) = tab
+                    .legacy_focused
+                    .and_then(|pane_id| workspace.public_pane_numbers.get(&pane_id).copied())
+                {
+                    self.focused_panes.push(SessionFocusedPaneSnapshot {
+                        workspace_id: workspace_id.clone(),
+                        tab_number,
+                        pane_number,
+                    });
+                }
+                if tab.legacy_zoomed {
+                    self.zoomed_tabs.push(SessionTabViewSnapshot {
+                        workspace_id: workspace_id.clone(),
+                        tab_number,
+                    });
+                }
+            }
+        }
+    }
+}
+
+impl WorkspaceSnapshot {
+    fn prepare_legacy_view_identity(&mut self) {
+        self.id
+            .get_or_insert_with(crate::workspace::generate_workspace_id);
+        if self.public_tab_numbers.len() < self.tabs.len() {
+            self.public_tab_numbers = (1..=self.tabs.len()).collect();
+        }
+        if self.public_pane_numbers.is_empty() {
+            let mut next_number = 1;
+            for tab in &self.tabs {
+                let TabSnapshot::Terminal(tab) = tab else {
+                    continue;
+                };
+                let mut pane_ids = Vec::new();
+                collect_layout_pane_ids(&tab.layout, &mut pane_ids);
+                for pane_id in pane_ids {
+                    self.public_pane_numbers.insert(pane_id, next_number);
+                    next_number += 1;
+                }
+            }
+            self.next_public_pane_number = next_number;
+        }
+    }
+}
+
+fn collect_layout_pane_ids(layout: &LayoutSnapshot, pane_ids: &mut Vec<u32>) {
+    match layout {
+        LayoutSnapshot::Pane(pane_id) => pane_ids.push(*pane_id),
+        LayoutSnapshot::Split { first, second, .. } => {
+            collect_layout_pane_ids(first, pane_ids);
+            collect_layout_pane_ids(second, pane_ids);
+        }
+    }
 }
 
 fn migrate_workspace(mut raw: serde_json::Value) -> Result<WorkspaceSnapshot, String> {
@@ -710,12 +888,9 @@ fn first_pane_id_in_layout(layout: &LayoutSnapshot) -> Option<u32> {
     }
 }
 
-/// Capture the current app state into a serializable snapshot.
-#[allow(clippy::too_many_arguments)]
+/// Capture shared session structure with one durable default client view.
 pub fn capture(
     groups: &[crate::app::state::Group],
-    active_group: usize,
-    group_filter_enabled: bool,
     session_namespace_id: &SessionNamespaceId,
     remote_termination_tombstones: &[crate::app::state::RemoteTerminationTombstone],
     workspaces: &[Workspace],
@@ -724,33 +899,17 @@ pub fn capture(
         crate::terminal::TerminalState,
     >,
     terminal_runtimes: &TerminalRuntimeRegistry,
-    active: Option<usize>,
-    selected: usize,
-    agent_panel_scope: crate::app::state::AgentPanelScope,
-    sidebar_width: u16,
-    sidebar_collapsed: bool,
-    sidebar_section_split: f32,
-    right_sidebar_width: u16,
-    right_sidebar_collapsed: bool,
+    default_view: &crate::app::ClientViewState,
     agent_follow_up: &[crate::app::state::AgentFollowUpEntry],
 ) -> SessionSnapshot {
     capture_inner(
         groups,
-        active_group,
-        group_filter_enabled,
         session_namespace_id,
         remote_termination_tombstones,
         workspaces,
         terminals,
         terminal_runtimes,
-        active,
-        selected,
-        agent_panel_scope,
-        sidebar_width,
-        sidebar_collapsed,
-        sidebar_section_split,
-        right_sidebar_width,
-        right_sidebar_collapsed,
+        default_view,
         agent_follow_up,
         false,
     )
@@ -759,11 +918,8 @@ pub fn capture(
 /// Capture a handoff snapshot, including live terminal semantics that should
 /// survive a server replacement but should not be treated as durable session
 /// state after a cold restart.
-#[allow(clippy::too_many_arguments)]
 pub fn capture_handoff(
     groups: &[crate::app::state::Group],
-    active_group: usize,
-    group_filter_enabled: bool,
     session_namespace_id: &SessionNamespaceId,
     remote_termination_tombstones: &[crate::app::state::RemoteTerminationTombstone],
     workspaces: &[Workspace],
@@ -772,43 +928,24 @@ pub fn capture_handoff(
         crate::terminal::TerminalState,
     >,
     terminal_runtimes: &TerminalRuntimeRegistry,
-    active: Option<usize>,
-    selected: usize,
-    agent_panel_scope: crate::app::state::AgentPanelScope,
-    sidebar_width: u16,
-    sidebar_collapsed: bool,
-    sidebar_section_split: f32,
-    right_sidebar_width: u16,
-    right_sidebar_collapsed: bool,
+    default_view: &crate::app::ClientViewState,
     agent_follow_up: &[crate::app::state::AgentFollowUpEntry],
 ) -> SessionSnapshot {
     capture_inner(
         groups,
-        active_group,
-        group_filter_enabled,
         session_namespace_id,
         remote_termination_tombstones,
         workspaces,
         terminals,
         terminal_runtimes,
-        active,
-        selected,
-        agent_panel_scope,
-        sidebar_width,
-        sidebar_collapsed,
-        sidebar_section_split,
-        right_sidebar_width,
-        right_sidebar_collapsed,
+        default_view,
         agent_follow_up,
         true,
     )
 }
 
-#[allow(clippy::too_many_arguments)]
 fn capture_inner(
     groups: &[crate::app::state::Group],
-    active_group: usize,
-    group_filter_enabled: bool,
     session_namespace_id: &SessionNamespaceId,
     remote_termination_tombstones: &[crate::app::state::RemoteTerminationTombstone],
     workspaces: &[Workspace],
@@ -817,29 +954,10 @@ fn capture_inner(
         crate::terminal::TerminalState,
     >,
     terminal_runtimes: &TerminalRuntimeRegistry,
-    active: Option<usize>,
-    selected: usize,
-    agent_panel_scope: crate::app::state::AgentPanelScope,
-    sidebar_width: u16,
-    sidebar_collapsed: bool,
-    sidebar_section_split: f32,
-    right_sidebar_width: u16,
-    right_sidebar_collapsed: bool,
+    default_view: &crate::app::ClientViewState,
     agent_follow_up: &[crate::app::state::AgentFollowUpEntry],
     include_terminal_semantics: bool,
 ) -> SessionSnapshot {
-    let default_view = SessionDefaultViewSnapshot {
-        active,
-        selected,
-        agent_panel_scope,
-        sidebar_width: Some(sidebar_width),
-        sidebar_collapsed,
-        sidebar_section_split: Some(sidebar_section_split),
-        right_sidebar_width: Some(right_sidebar_width),
-        right_sidebar_collapsed,
-        ui: SessionUiSnapshot::default(),
-    };
-
     SessionSnapshot {
         version: SNAPSHOT_VERSION,
         session_namespace_id: session_namespace_id.as_str().to_string(),
@@ -852,9 +970,7 @@ fn capture_inner(
             })
             .collect(),
         groups: groups.iter().map(capture_group).collect(),
-        active_group,
-        group_filter_enabled,
-        default_view: default_view.clone(),
+        default_view: SessionDefaultViewSnapshot::capture(default_view, workspaces),
         workspaces: workspaces
             .iter()
             .map(|workspace| {
@@ -866,20 +982,97 @@ fn capture_inner(
                 )
             })
             .collect(),
-        active: default_view.active,
-        selected: default_view.selected,
-        ui: default_view.ui.clone(),
         pane_id_aliases: std::collections::HashMap::new(),
-        agent_panel_scope: default_view.agent_panel_scope,
-        sidebar_width: default_view.sidebar_width,
-        sidebar_collapsed: default_view.sidebar_collapsed,
-        sidebar_section_split: default_view.sidebar_section_split,
-        right_sidebar_width: default_view.right_sidebar_width,
-        right_sidebar_collapsed: default_view.right_sidebar_collapsed,
         agent_follow_up: crate::app::state::AppState::restored_agent_follow_up(
             workspaces,
             agent_follow_up.to_vec(),
         ),
+    }
+}
+
+impl SessionDefaultViewSnapshot {
+    fn capture(view: &crate::app::ClientViewState, workspaces: &[Workspace]) -> Self {
+        let active_workspace_id = view
+            .active_workspace
+            .and_then(|index| workspaces.get(index))
+            .map(|workspace| workspace.id.clone());
+        let selected_workspace_id = workspaces
+            .get(view.selected_workspace)
+            .map(|workspace| workspace.id.clone());
+        let active_tabs = view
+            .active_tabs
+            .iter()
+            .filter_map(|(workspace_id, tab_index)| {
+                let workspace = workspaces
+                    .iter()
+                    .find(|workspace| workspace.id == *workspace_id)?;
+                workspace
+                    .public_tab_number(*tab_index)
+                    .map(|tab_number| (workspace_id.clone(), tab_number))
+            })
+            .collect();
+        let mut focused_panes = view
+            .focused_panes
+            .iter()
+            .filter_map(|(key, pane_id)| {
+                let workspace = workspaces
+                    .iter()
+                    .find(|workspace| workspace.id == key.workspace_id)?;
+                workspace.public_pane_number(*pane_id).map(|pane_number| {
+                    SessionFocusedPaneSnapshot {
+                        workspace_id: key.workspace_id.clone(),
+                        tab_number: key.tab_number,
+                        pane_number,
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        focused_panes.sort_by(|left, right| {
+            (&left.workspace_id, left.tab_number, left.pane_number).cmp(&(
+                &right.workspace_id,
+                right.tab_number,
+                right.pane_number,
+            ))
+        });
+        let mut zoomed_tabs = view
+            .zoomed_tabs
+            .iter()
+            .map(|key| SessionTabViewSnapshot {
+                workspace_id: key.workspace_id.clone(),
+                tab_number: key.tab_number,
+            })
+            .collect::<Vec<_>>();
+        zoomed_tabs.sort_by(|left, right| {
+            (&left.workspace_id, left.tab_number).cmp(&(&right.workspace_id, right.tab_number))
+        });
+        Self {
+            active_group: view.active_group,
+            group_filter_enabled: view.group_filter_enabled,
+            active_workspace_id,
+            selected_workspace_id,
+            active_tabs,
+            focused_panes,
+            zoomed_tabs,
+            agent_panel_scope: view.agent_panel_scope,
+            sidebar_width: Some(view.sidebar_width),
+            sidebar_collapsed: view.sidebar_collapsed,
+            sidebar_section_split: Some(view.sidebar_section_split),
+            right_sidebar_width: Some(view.right_sidebar_width),
+            right_sidebar_collapsed: view.right_sidebar_collapsed,
+            ui: SessionUiSnapshot {
+                workspace_scroll: view.workspace_scroll,
+                agent_panel_scroll: view.agent_panel_scroll,
+                tab_scroll: view.tab_scroll,
+                mobile_switcher_scroll: view.mobile_switcher_scroll,
+                activity_agents_expanded: view.activity_agents_expanded,
+                activity_commands_expanded: view.activity_commands_expanded,
+                activity_ports_expanded: view.activity_ports_expanded,
+                collapsed_agent_sections: view.collapsed_agent_sections.clone(),
+                collapsed_command_groups: view.collapsed_command_groups.clone(),
+                collapsed_command_status_groups: view.collapsed_command_status_groups.clone(),
+                collapsed_workspace_groups: view.collapsed_workspace_groups.clone(),
+            },
+        }
     }
 }
 
@@ -936,7 +1129,7 @@ fn capture_workspace(
                 },
             })
             .collect(),
-        active_tab: ws.active_tab,
+        legacy_active_tab: 0,
     }
 }
 
@@ -1025,8 +1218,8 @@ fn capture_tab(
         custom_name: tab.custom_name.clone(),
         layout: capture_node(tab.layout.root()),
         panes,
-        zoomed: tab.zoomed,
-        focused: Some(tab.layout.focused().raw()),
+        legacy_zoomed: false,
+        legacy_focused: None,
         root_pane: Some(tab.root_pane.raw()),
     })
 }
@@ -1177,23 +1370,15 @@ mod tests {
         state: &AppState,
         terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> SessionSnapshot {
+        let default_view = crate::app::ClientViewState::from_default_client_state(state);
         capture(
             &state.groups,
-            state.active_group,
-            state.group_filter_enabled,
             &state.session_namespace_id,
             &state.remote_termination_tombstones,
             &state.workspaces,
             &state.terminals,
             terminal_runtimes,
-            state.active,
-            state.selected,
-            state.agent_panel_scope,
-            state.sidebar_width,
-            state.sidebar_collapsed,
-            state.sidebar_section_split,
-            state.right_sidebar_width,
-            state.right_sidebar_collapsed,
+            &default_view,
             &state.agent_follow_up,
         )
     }
@@ -1308,23 +1493,15 @@ mod tests {
 
         let durable = capture_from_state(&state);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
+        let default_view = crate::app::ClientViewState::from_default_client_state(&state);
         let handoff = capture_handoff(
             &state.groups,
-            state.active_group,
-            state.group_filter_enabled,
             &state.session_namespace_id,
             &state.remote_termination_tombstones,
             &state.workspaces,
             &state.terminals,
             &terminal_runtimes,
-            state.active,
-            state.selected,
-            state.agent_panel_scope,
-            state.sidebar_width,
-            state.sidebar_collapsed,
-            state.sidebar_section_split,
-            state.right_sidebar_width,
-            state.right_sidebar_collapsed,
+            &default_view,
             &state.agent_follow_up,
         );
         let durable_pane =
@@ -1473,41 +1650,26 @@ mod tests {
             session_namespace_id: "session-test".to_string(),
             remote_termination_tombstones: Vec::new(),
             groups: default_groups(),
-            active_group: 0,
-            group_filter_enabled: true,
             default_view: SessionDefaultViewSnapshot {
-                active: None,
-                selected: 0,
                 agent_panel_scope: AgentPanelScope::CurrentWorkspace,
                 sidebar_width: Some(26),
-                sidebar_collapsed: false,
                 sidebar_section_split: Some(0.5),
                 right_sidebar_width: Some(28),
-                right_sidebar_collapsed: false,
-                ui: SessionUiSnapshot::default(),
+                ..SessionDefaultViewSnapshot::default()
             },
             workspaces: vec![],
-            active: None,
-            selected: 0,
-            agent_panel_scope: AgentPanelScope::CurrentWorkspace,
-            sidebar_width: Some(26),
-            sidebar_collapsed: false,
-            sidebar_section_split: Some(0.5),
-            right_sidebar_width: Some(28),
-            right_sidebar_collapsed: false,
-            ui: SessionUiSnapshot::default(),
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
         let json = serde_json::to_string(&snap).unwrap();
         let restored = parse_snapshot(&json).unwrap();
         assert!(restored.workspaces.is_empty());
-        assert_eq!(restored.active, None);
-        assert_eq!(restored.sidebar_width, Some(26));
-        assert!(!restored.sidebar_collapsed);
-        assert_eq!(restored.sidebar_section_split, Some(0.5));
-        assert_eq!(restored.right_sidebar_width, Some(28));
-        assert!(!restored.right_sidebar_collapsed);
+        assert_eq!(restored.default_view.active_workspace_id, None);
+        assert_eq!(restored.default_view.sidebar_width, Some(26));
+        assert!(!restored.default_view.sidebar_collapsed);
+        assert_eq!(restored.default_view.sidebar_section_split, Some(0.5));
+        assert_eq!(restored.default_view.right_sidebar_width, Some(28));
+        assert!(!restored.default_view.right_sidebar_collapsed);
     }
 
     #[test]
@@ -1546,7 +1708,7 @@ mod tests {
                 .map(crate::app::state::GithubOrganization::as_str),
             Some("masakirocorp")
         );
-        assert!(!restored.group_filter_enabled);
+        assert!(!restored.default_view.group_filter_enabled);
         assert_eq!(restored.workspaces[1].group_id, group_id);
     }
 
@@ -1619,18 +1781,14 @@ mod tests {
             session_namespace_id: "session-test".to_string(),
             remote_termination_tombstones: Vec::new(),
             groups: default_groups(),
-            active_group: 0,
-            group_filter_enabled: true,
             default_view: SessionDefaultViewSnapshot {
-                active: Some(0),
-                selected: 0,
+                active_workspace_id: Some("wproj".to_string()),
+                selected_workspace_id: Some("wproj".to_string()),
                 agent_panel_scope: AgentPanelScope::CurrentWorkspace,
                 sidebar_width: Some(26),
-                sidebar_collapsed: false,
                 sidebar_section_split: Some(0.5),
                 right_sidebar_width: Some(28),
-                right_sidebar_collapsed: false,
-                ui: SessionUiSnapshot::default(),
+                ..SessionDefaultViewSnapshot::default()
             },
             workspaces: vec![WorkspaceSnapshot {
                 id: Some("wproj".to_string()),
@@ -1650,17 +1808,8 @@ mod tests {
                     custom_name: Some("api".to_string()),
                     legacy_pane_ids: vec![0, 1],
                 }],
-                active_tab: 0,
+                legacy_active_tab: 0,
             }],
-            active: Some(0),
-            selected: 0,
-            agent_panel_scope: AgentPanelScope::CurrentWorkspace,
-            sidebar_width: Some(26),
-            sidebar_collapsed: false,
-            sidebar_section_split: Some(0.5),
-            right_sidebar_width: Some(28),
-            right_sidebar_collapsed: false,
-            ui: SessionUiSnapshot::default(),
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         };
@@ -1683,28 +1832,34 @@ mod tests {
             } if name == "api"
         ));
         assert_eq!(
-            restored.agent_panel_scope,
+            restored.default_view.agent_panel_scope,
             AgentPanelScope::CurrentWorkspace
         );
-        assert_eq!(restored.sidebar_width, Some(26));
-        assert_eq!(restored.sidebar_section_split, Some(0.5));
-        assert_eq!(restored.right_sidebar_width, Some(28));
+        assert_eq!(restored.default_view.sidebar_width, Some(26));
+        assert_eq!(restored.default_view.sidebar_section_split, Some(0.5));
+        assert_eq!(restored.default_view.right_sidebar_width, Some(28));
     }
 
     #[test]
     fn current_session_fixture_parses() {
         let snap = parse_snapshot(session_fixture("current-gardn")).unwrap();
 
-        assert_eq!(snap.version, 3);
+        assert_eq!(snap.version, SNAPSHOT_VERSION);
         assert_eq!(snap.workspaces.len(), 2);
-        assert_eq!(snap.active, Some(0));
-        assert_eq!(snap.selected, 0);
-        assert_eq!(snap.agent_panel_scope, AgentPanelScope::CurrentWorkspace);
-        assert_eq!(snap.sidebar_width, None);
-        assert!(!snap.sidebar_collapsed);
-        assert_eq!(snap.sidebar_section_split, None);
-        assert_eq!(snap.right_sidebar_width, None);
-        assert!(!snap.right_sidebar_collapsed);
+        assert_eq!(snap.default_view.active_workspace_id, snap.workspaces[0].id);
+        assert_eq!(
+            snap.default_view.selected_workspace_id,
+            snap.workspaces[0].id
+        );
+        assert_eq!(
+            snap.default_view.agent_panel_scope,
+            AgentPanelScope::CurrentWorkspace
+        );
+        assert_eq!(snap.default_view.sidebar_width, None);
+        assert!(!snap.default_view.sidebar_collapsed);
+        assert_eq!(snap.default_view.sidebar_section_split, None);
+        assert_eq!(snap.default_view.right_sidebar_width, None);
+        assert!(!snap.default_view.right_sidebar_collapsed);
         assert_eq!(snap.workspaces[0].tabs.len(), 2);
         assert_eq!(
             snap.workspaces[1].identity_cwd,
@@ -1716,11 +1871,18 @@ mod tests {
     fn current_dev_session_fixture_parses_additive_fields() {
         let snap = parse_snapshot(session_fixture("current-gardn-dev")).unwrap();
 
-        assert_eq!(snap.version, 3);
+        assert_eq!(snap.version, SNAPSHOT_VERSION);
         assert_eq!(snap.workspaces.len(), 2);
-        assert_eq!(snap.agent_panel_scope, AgentPanelScope::CurrentWorkspace);
-        assert_eq!(snap.sidebar_section_split, Some(0.4));
-        assert_eq!(snap.workspaces[0].active_tab, 1);
+        assert_eq!(
+            snap.default_view.agent_panel_scope,
+            AgentPanelScope::CurrentWorkspace
+        );
+        assert_eq!(snap.default_view.sidebar_section_split, Some(0.4));
+        let workspace_id = snap.workspaces[0].id.as_ref().unwrap();
+        assert_eq!(
+            snap.default_view.active_tabs.get(workspace_id),
+            snap.workspaces[0].public_tab_numbers.get(1)
+        );
         let TabSnapshot::Terminal(tab) = &snap.workspaces[1].tabs[0] else {
             panic!("fixture terminal should retain terminal payload");
         };
@@ -1740,14 +1902,14 @@ mod tests {
         let restored = parse_snapshot(&json).unwrap();
 
         assert_eq!(
-            restored.agent_panel_scope,
+            restored.default_view.agent_panel_scope,
             AgentPanelScope::CurrentWorkspace
         );
-        assert_eq!(restored.sidebar_width, None);
-        assert!(!restored.sidebar_collapsed);
-        assert_eq!(restored.sidebar_section_split, None);
-        assert_eq!(restored.right_sidebar_width, None);
-        assert!(!restored.right_sidebar_collapsed);
+        assert_eq!(restored.default_view.sidebar_width, None);
+        assert!(!restored.default_view.sidebar_collapsed);
+        assert_eq!(restored.default_view.sidebar_section_split, None);
+        assert_eq!(restored.default_view.right_sidebar_width, None);
+        assert!(!restored.default_view.right_sidebar_collapsed);
     }
 
     #[test]
@@ -1791,16 +1953,16 @@ mod tests {
         let snap = parse_snapshot(session_fixture("legacy-pre-tabs-v2")).unwrap();
         let ws = &snap.workspaces[0];
 
-        assert_eq!(snap.version, 2);
+        assert_eq!(snap.version, SNAPSHOT_VERSION);
         assert_eq!(snap.workspaces.len(), 1);
         assert_eq!(ws.custom_name.as_deref(), Some("legacy"));
         assert_eq!(ws.identity_cwd, PathBuf::from("/tmp/pion"));
-        assert_eq!(ws.active_tab, 0);
+        assert_eq!(ws.legacy_active_tab, 0);
         assert_eq!(ws.tabs.len(), 1);
         let TabSnapshot::Terminal(tab) = &ws.tabs[0] else {
             panic!("legacy workspace should restore a terminal tab");
         };
-        assert_eq!(tab.focused, Some(1));
+        assert_eq!(tab.legacy_focused, Some(1));
         assert_eq!(tab.root_pane, Some(0));
         assert_eq!(tab.panes[&0].cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(tab.panes[&1].cwd, PathBuf::from("/tmp/gardn"));
@@ -1826,8 +1988,20 @@ mod tests {
             .filter_map(|workspace| workspace.id.clone())
             .collect();
         assert_eq!(captured_ids, ids);
-        assert_eq!(snapshot.active, state.active);
-        assert_eq!(snapshot.selected, state.selected);
+        assert_eq!(
+            snapshot.default_view.active_workspace_id.as_deref(),
+            state
+                .active
+                .and_then(|index| state.workspaces.get(index))
+                .map(|workspace| workspace.id.as_str())
+        );
+        assert_eq!(
+            snapshot.default_view.selected_workspace_id.as_deref(),
+            state
+                .workspaces
+                .get(state.selected)
+                .map(|workspace| workspace.id.as_str())
+        );
     }
 
     #[test]
@@ -1844,7 +2018,14 @@ mod tests {
         let snapshot = capture_from_state(&state);
         let workspace = &snapshot.workspaces[0];
         assert_eq!(workspace.custom_name.as_deref(), Some("renamed-workspace"));
-        assert_eq!(workspace.active_tab, second_tab);
+        let workspace_id = state.workspaces[0].id.as_str();
+        let active_tab_number = state.workspaces[0]
+            .public_tab_number(second_tab)
+            .expect("active tab should have a public number");
+        assert_eq!(
+            snapshot.default_view.active_tabs.get(workspace_id),
+            Some(&active_tab_number)
+        );
         assert!(matches!(
             &workspace.tabs[0],
             TabSnapshot::Terminal(tab) if tab.custom_name.as_deref() == Some("main")
@@ -1866,8 +2047,15 @@ mod tests {
         let snapshot = capture_from_state(&state);
         assert_eq!(snapshot.workspaces.len(), 1);
         assert_eq!(snapshot.workspaces[0].custom_name.as_deref(), Some("one"));
-        assert_eq!(snapshot.active, Some(0));
-        assert_eq!(snapshot.selected, 0);
+        let remaining_id = state.workspaces[0].id.as_str();
+        assert_eq!(
+            snapshot.default_view.active_workspace_id.as_deref(),
+            Some(remaining_id)
+        );
+        assert_eq!(
+            snapshot.default_view.selected_workspace_id.as_deref(),
+            Some(remaining_id)
+        );
     }
 
     #[test]
@@ -1881,12 +2069,15 @@ mod tests {
         state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
 
         let snapshot = capture_from_state(&state);
-        assert_eq!(snapshot.sidebar_width, Some(31));
-        assert!(snapshot.sidebar_collapsed);
-        assert_eq!(snapshot.sidebar_section_split, Some(0.4));
-        assert_eq!(snapshot.right_sidebar_width, Some(34));
-        assert!(snapshot.right_sidebar_collapsed);
-        assert_eq!(snapshot.agent_panel_scope, AgentPanelScope::AllWorkspaces);
+        assert_eq!(snapshot.default_view.sidebar_width, Some(31));
+        assert!(snapshot.default_view.sidebar_collapsed);
+        assert_eq!(snapshot.default_view.sidebar_section_split, Some(0.4));
+        assert_eq!(snapshot.default_view.right_sidebar_width, Some(34));
+        assert!(snapshot.default_view.right_sidebar_collapsed);
+        assert_eq!(
+            snapshot.default_view.agent_panel_scope,
+            AgentPanelScope::AllWorkspaces
+        );
     }
 
     #[test]
@@ -1906,27 +2097,40 @@ mod tests {
             panic!("terminal capture should retain terminal payload");
         };
         assert!(matches!(tab.layout, LayoutSnapshot::Split { .. }));
-        assert_eq!(tab.focused, Some(second.raw()));
         assert_eq!(tab.root_pane, Some(root.raw()));
-        assert!(tab.zoomed);
         assert_eq!(tab.panes.len(), 2);
+        let workspace = &state.workspaces[0];
+        let workspace_id = workspace.id.as_str();
+        let tab_number = workspace.public_tab_number(0).unwrap();
+        let pane_number = workspace.public_pane_number(second).unwrap();
+        assert!(snapshot.default_view.focused_panes.iter().any(|focused| {
+            focused.workspace_id == workspace_id
+                && focused.tab_number == tab_number
+                && focused.pane_number == pane_number
+        }));
+        assert!(snapshot.default_view.zoomed_tabs.iter().any(|zoomed| {
+            zoomed.workspace_id == workspace_id && zoomed.tab_number == tab_number
+        }));
     }
 
     #[test]
     fn capture_contract_tracks_focus_navigation() {
         let mut state = state_with_workspaces(&["one"]);
-        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let _root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let second = state.workspaces[0].test_split(Direction::Horizontal);
         crate::ui::compute_view(&mut state, Rect::new(0, 0, 106, 20));
 
         state.navigate_pane(NavDirection::Right);
 
         let snapshot = capture_from_state(&state);
-        let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
-            panic!("terminal capture should retain terminal payload");
-        };
-        assert_eq!(tab.focused, Some(second.raw()));
-        assert_ne!(tab.focused, Some(root.raw()));
+        let workspace = &state.workspaces[0];
+        let tab_number = workspace.public_tab_number(0).unwrap();
+        let pane_number = workspace.public_pane_number(second).unwrap();
+        assert!(snapshot.default_view.focused_panes.iter().any(|focused| {
+            focused.workspace_id == workspace.id
+                && focused.tab_number == tab_number
+                && focused.pane_number == pane_number
+        }));
     }
 
     #[test]
@@ -1953,8 +2157,14 @@ mod tests {
         let snapshot = capture_from_state(&state);
         let workspace = &snapshot.workspaces[0];
         assert!(workspace.tabs.is_empty());
-        assert_eq!(workspace.active_tab, 0);
-        assert_eq!(snapshot.active, Some(0));
+        assert_eq!(
+            snapshot.default_view.active_workspace_id.as_deref(),
+            Some(state.workspaces[0].id.as_str())
+        );
+        assert!(!snapshot
+            .default_view
+            .active_tabs
+            .contains_key(&state.workspaces[0].id));
     }
 
     #[test]
@@ -1968,7 +2178,14 @@ mod tests {
         let snapshot = capture_from_state(&state);
         let workspace = &snapshot.workspaces[0];
         assert_eq!(workspace.tabs.len(), 1);
-        assert_eq!(workspace.active_tab, 0);
+        let active_tab_number = state.workspaces[0].public_tab_number(0).unwrap();
+        assert_eq!(
+            snapshot
+                .default_view
+                .active_tabs
+                .get(&state.workspaces[0].id),
+            Some(&active_tab_number)
+        );
         assert!(matches!(
             &workspace.tabs[0],
             TabSnapshot::Terminal(tab) if tab.custom_name.is_none()
@@ -1987,7 +2204,7 @@ mod tests {
         };
         assert_eq!(tab.panes.len(), 1);
         assert!(matches!(tab.layout, LayoutSnapshot::Pane(_)));
-        assert!(!tab.zoomed);
+        assert!(snapshot.default_view.zoomed_tabs.is_empty());
     }
 
     #[test]
@@ -2167,10 +2384,10 @@ mod tests {
     }
 
     #[test]
-    fn old_unversioned_snapshot_loads_as_version_0() {
+    fn old_unversioned_snapshot_migrates_to_current_version() {
         let json = r#"{"workspaces":[],"active":null,"selected":0}"#;
         let snap = parse_snapshot(json).unwrap();
-        assert_eq!(snap.version, 0);
+        assert_eq!(snap.version, SNAPSHOT_VERSION);
     }
 
     #[test]
@@ -2190,7 +2407,7 @@ mod tests {
     fn active_tab_default_is_zero() {
         let json = r#"{"custom_name":"test","identity_cwd":"/tmp","default_location":{"execution_host_id":"local","path":"/tmp"},"tabs":[]}"#;
         let ws: WorkspaceSnapshot = serde_json::from_str(json).unwrap();
-        assert_eq!(ws.active_tab, 0);
+        assert_eq!(ws.legacy_active_tab, 0);
     }
 
     #[test]

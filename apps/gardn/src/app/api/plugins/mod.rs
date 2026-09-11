@@ -3761,7 +3761,7 @@ command = []
             },
         );
         let public_id = app.popup_public_pane_id(pane_id);
-        let mut other = crate::app::ClientViewState::for_new_client(&app.state);
+        let mut other = app.default_client_view.fork_for_attached_client(&app.state);
 
         let focused = app.focus_plugin_popup_pane_for_view(
             &mut owner,

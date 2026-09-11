@@ -1509,23 +1509,15 @@ fn numbered_lines_bytes(count: usize) -> Vec<u8> {
 #[cfg(test)]
 fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
     let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+    let default_view = crate::app::ClientViewState::from_default_client_state(state);
     crate::persist::capture(
         &state.groups,
-        state.active_group,
-        state.group_filter_enabled,
         &state.session_namespace_id,
         &state.remote_termination_tombstones,
         &state.workspaces,
         &state.terminals,
         &terminal_runtimes,
-        state.active,
-        state.selected,
-        state.agent_panel_scope,
-        state.sidebar_width,
-        state.sidebar_collapsed,
-        state.sidebar_section_split,
-        state.right_sidebar_width,
-        state.right_sidebar_collapsed,
+        &default_view,
         &state.agent_follow_up,
     )
 }

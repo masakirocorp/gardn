@@ -848,15 +848,10 @@ impl HeadlessServer {
         self.app.state.outer_terminal_focus = outer_terminal_focus;
         apply_keybindings(&mut self.app, &keybindings);
         self.sync_visible_server_config_diagnostic(uses_local_keybindings);
-        if let Some(view_state) = view_state {
-            self.app.default_client_view = view_state.clone_reconciled(&self.app.state);
-        }
         if outer_terminal_focus != Some(false) {
-            let view = self
-                .app
-                .default_client_view
-                .clone_reconciled(&self.app.state);
-            self.app.state.mark_active_tab_seen_for_view(&view);
+            if let Some(view) = view_state.as_ref() {
+                self.app.state.mark_active_tab_seen_for_view(view);
+            }
         }
         if !host_terminal_theme.is_empty() {
             self.app.set_host_terminal_theme(host_terminal_theme);
@@ -921,27 +916,20 @@ impl HeadlessServer {
             }
         }
 
+        let default_view = self
+            .app
+            .default_client_view
+            .clone_reconciled(&self.app.state);
         let mut snapshot = crate::persist::capture_handoff(
             &self.app.state.groups,
-            self.app.state.active_group,
-            self.app.state.group_filter_enabled,
             &self.app.state.session_namespace_id,
             &self.app.state.remote_termination_tombstones,
             &self.app.state.workspaces,
             &self.app.state.terminals,
             &self.app.terminal_runtimes,
-            self.app.state.active,
-            self.app.state.selected,
-            self.app.state.agent_panel_scope,
-            self.app.state.sidebar_width,
-            self.app.state.sidebar_collapsed,
-            self.app.state.sidebar_section_split,
-            self.app.state.right_sidebar_width,
-            self.app.state.right_sidebar_collapsed,
+            &default_view,
             &self.app.state.agent_follow_up,
         );
-        snapshot.ui = crate::persist::SessionUiSnapshot::from_app_state(&self.app.state);
-        snapshot.default_view.ui = snapshot.ui.clone();
         snapshot.pane_id_aliases = self
             .app
             .state
@@ -2844,11 +2832,10 @@ impl HeadlessServer {
                     Some(writer),
                 );
                 if !direct_attach_requested {
-                    let mut view_state =
-                        crate::app::ClientViewState::for_new_client(&self.app.state);
-                    if !self.app.state.workspaces.is_empty() {
-                        view_state.mode = crate::app::Mode::Terminal;
-                    }
+                    let view_state = self
+                        .app
+                        .default_client_view
+                        .fork_for_attached_client(&self.app.state);
                     client.view_state = Some(view_state);
                 }
                 self.clients.insert(client_id, client);
@@ -3655,40 +3642,8 @@ impl HeadlessServer {
                     .unwrap_or_else(|_| "{}".to_string())
                 }),
             )
-        } else if let Some(client_id) = self.foreground_client_id {
-            if let Some(mut view_state) = self
-                .clients
-                .get_mut(&client_id)
-                .and_then(|client| client.view_state.take())
-            {
-                let disposition = self
-                    .app
-                    .handle_api_request_disposition_for_view(&mut view_state, msg.request);
-                if let Some(client) = self.clients.get_mut(&client_id) {
-                    client.view_state = Some(view_state);
-                }
-                disposition
-            } else {
-                let mut view_state = self
-                    .app
-                    .default_client_view
-                    .clone_reconciled(&self.app.state);
-                let disposition = self
-                    .app
-                    .handle_api_request_disposition_for_view(&mut view_state, msg.request);
-                self.app.default_client_view = view_state;
-                disposition
-            }
         } else {
-            let mut view_state = self
-                .app
-                .default_client_view
-                .clone_reconciled(&self.app.state);
-            let disposition = self
-                .app
-                .handle_api_request_disposition_for_view(&mut view_state, msg.request);
-            self.app.default_client_view = view_state;
-            disposition
+            self.app.handle_api_request_disposition(msg.request)
         };
         match disposition {
             api::ApiRequestDisposition::Respond(mut response) => {

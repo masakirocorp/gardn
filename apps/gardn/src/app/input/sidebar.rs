@@ -2424,13 +2424,22 @@ mod tests {
         );
         assert_eq!(app.state.mode, Mode::Terminal);
         let snapshot = capture_snapshot(&app.state);
-        assert_eq!(snapshot.workspaces[0].active_tab, first_tab);
+        let workspace = &app.state.workspaces[0];
+        let tab_number = workspace
+            .public_tab_number(first_tab)
+            .expect("tab should have a public number");
+        let pane_number = workspace
+            .public_pane_number(second_pane)
+            .expect("pane should have a public number");
         assert_eq!(
-            snapshot.workspaces[0].tabs[first_tab]
-                .as_terminal()
-                .and_then(|tab| tab.focused),
-            Some(second_pane.raw())
+            snapshot.default_view.active_tabs.get(&workspace.id),
+            Some(&tab_number)
         );
+        assert!(snapshot.default_view.focused_panes.iter().any(|focused| {
+            focused.workspace_id == workspace.id
+                && focused.tab_number == tab_number
+                && focused.pane_number == pane_number
+        }));
     }
 
     #[test]
@@ -3002,7 +3011,10 @@ mod tests {
         assert_eq!(app.state.agent_panel_scope, AgentPanelScope::AllWorkspaces);
         assert_eq!(app.state.agent_panel_scroll, 0);
         let snapshot = capture_snapshot(&app.state);
-        assert_eq!(snapshot.agent_panel_scope, AgentPanelScope::AllWorkspaces);
+        assert_eq!(
+            snapshot.default_view.agent_panel_scope,
+            AgentPanelScope::AllWorkspaces
+        );
     }
 
     #[test]
@@ -3671,8 +3683,15 @@ mod tests {
         assert_eq!(app.state.selected, 1);
         assert!(app.state.workspace_press.is_none());
         let snapshot = capture_snapshot(&app.state);
-        assert_eq!(snapshot.active, Some(1));
-        assert_eq!(snapshot.selected, 1);
+        let active_id = app.state.workspaces[1].id.as_str();
+        assert_eq!(
+            snapshot.default_view.active_workspace_id.as_deref(),
+            Some(active_id)
+        );
+        assert_eq!(
+            snapshot.default_view.selected_workspace_id.as_deref(),
+            Some(active_id)
+        );
     }
 
     #[test]
@@ -4182,7 +4201,7 @@ mod tests {
 
         assert_eq!(app.state.sidebar_width, 31);
         let snapshot = capture_snapshot(&app.state);
-        assert_eq!(snapshot.sidebar_width, Some(31));
+        assert_eq!(snapshot.default_view.sidebar_width, Some(31));
     }
 
     #[test]
@@ -4229,7 +4248,7 @@ mod tests {
         assert!(app.state.sidebar_section_split > 0.5);
         let snapshot = capture_snapshot(&app.state);
         assert_eq!(
-            snapshot.sidebar_section_split,
+            snapshot.default_view.sidebar_section_split,
             Some(app.state.sidebar_section_split)
         );
     }
@@ -4247,7 +4266,7 @@ mod tests {
         assert_eq!(app.state.sidebar_width, 26);
         assert!(app.state.drag.is_none());
         let snapshot = capture_snapshot(&app.state);
-        assert_eq!(snapshot.sidebar_width, Some(26));
+        assert_eq!(snapshot.default_view.sidebar_width, Some(26));
     }
 
     #[test]

@@ -575,21 +575,170 @@ impl ClientViewState {
         self.tab_canvas_origins.insert(key, viewport.origin);
         self.tab_canvas_view = Some(viewport);
     }
-    pub(crate) fn for_new_client(state: &AppState) -> Self {
-        let mut view = Self::from_default_client_state(state);
-        let sidebar_collapsed = matches!(
-            state.sidebar_config.initial_state,
-            crate::config::SidebarInitialStateConfig::Collapsed
-        );
-        view.group_filter_enabled = false;
-        view.agent_panel_scope =
-            super::agent_panel_scope_from_config(state.sidebar_config.initial_agent_scope);
+    pub(crate) fn fork_for_attached_client(&self, state: &AppState) -> Self {
+        let mut view = self.clone_reconciled(state);
+        view.id = NEXT_CLIENT_VIEW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        view.tab_control = ClientTabControl::Unavailable;
+        view.tab_control_request = None;
+        view.tab_canvas_size = None;
+        view.tab_canvas_origins.clear();
+        view.tab_canvas_view = None;
         view.connection_scope = crate::app::connection_scope::ConnectionScope::All;
-        view.sidebar_collapsed = sidebar_collapsed;
-        view.right_sidebar_collapsed = sidebar_collapsed;
-        view.agent_panel_scroll = 0;
+        view.agent_view_override = None;
+        view.pending_active_workspace = None;
+        view.pending_active_tabs.clear();
+        view.pending_focused_panes.clear();
+        view.pending_popup_pane = None;
+        view.popup_pane = None;
+        view.overlay_return_states.clear();
+        view.input_leases.clear();
+        view.github = None;
+        view.github_host = None;
+        view.context_menu = None;
+        view.selection = None;
+        view.selection_autoscroll = None;
+        view.last_pane_click = None;
+        view.pending_url_click = false;
+        view.selection_highlight_clear_deadline = None;
+        view.copy_mode = None;
+        view.drag = None;
+        view.workspace_press = None;
+        view.group_press = None;
+        view.tab_press = None;
+        view.agent_press = None;
+        view.previous_pane_focus = None;
+        view.right_click_passthrough = None;
+        view.authentication_prompt = None;
+        view.mode = if view.active_workspace.is_some() {
+            Mode::Terminal
+        } else {
+            Mode::Navigate
+        };
         view.reconcile(state);
         view
+    }
+
+    pub(crate) fn restore_persisted(
+        &mut self,
+        state: &AppState,
+        snapshot: &crate::persist::SessionDefaultViewSnapshot,
+    ) {
+        self.active_group = snapshot
+            .active_group
+            .min(state.groups.len().saturating_sub(1));
+        self.group_filter_enabled = snapshot.group_filter_enabled;
+        self.active_workspace = snapshot
+            .active_workspace_id
+            .as_ref()
+            .and_then(|workspace_id| {
+                state
+                    .workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == *workspace_id)
+            });
+        self.selected_workspace = snapshot
+            .selected_workspace_id
+            .as_ref()
+            .and_then(|workspace_id| {
+                state
+                    .workspaces
+                    .iter()
+                    .position(|workspace| workspace.id == *workspace_id)
+            })
+            .or(self.active_workspace)
+            .unwrap_or(0);
+        self.active_tabs = snapshot
+            .active_tabs
+            .iter()
+            .filter_map(|(workspace_id, tab_number)| {
+                let workspace = state
+                    .workspaces
+                    .iter()
+                    .find(|workspace| workspace.id == *workspace_id)?;
+                workspace
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.number() == *tab_number)
+                    .map(|tab_index| (workspace_id.clone(), tab_index))
+            })
+            .collect();
+        self.focused_panes =
+            snapshot
+                .focused_panes
+                .iter()
+                .filter_map(|focused| {
+                    let workspace = state
+                        .workspaces
+                        .iter()
+                        .find(|workspace| workspace.id == focused.workspace_id)?;
+                    let pane_id = workspace.public_pane_numbers.iter().find_map(
+                        |(pane_id, pane_number)| {
+                            (*pane_number == focused.pane_number).then_some(*pane_id)
+                        },
+                    )?;
+                    let tab = workspace
+                        .terminal_tabs()
+                        .find(|(_, tab)| tab.number == focused.tab_number)?
+                        .1;
+                    tab.panes.contains_key(&pane_id).then(|| {
+                        (
+                            ClientTabViewKey::new(&workspace.id, focused.tab_number),
+                            pane_id,
+                        )
+                    })
+                })
+                .collect();
+        self.zoomed_tabs = snapshot
+            .zoomed_tabs
+            .iter()
+            .filter_map(|zoomed| {
+                let workspace = state
+                    .workspaces
+                    .iter()
+                    .find(|workspace| workspace.id == zoomed.workspace_id)?;
+                if !workspace
+                    .tabs
+                    .iter()
+                    .any(|tab| tab.number() == zoomed.tab_number)
+                {
+                    return None;
+                }
+                Some(ClientTabViewKey::new(
+                    &zoomed.workspace_id,
+                    zoomed.tab_number,
+                ))
+            })
+            .collect();
+        self.agent_panel_scope = snapshot.agent_panel_scope;
+        if let Some(width) = snapshot.sidebar_width {
+            self.sidebar_width = width;
+            self.sidebar_width_source = crate::app::state::SidebarWidthSource::Persisted;
+        }
+        self.sidebar_collapsed = snapshot.sidebar_collapsed;
+        if let Some(split) = snapshot.sidebar_section_split {
+            self.sidebar_section_split = split;
+        }
+        if let Some(width) = snapshot.right_sidebar_width {
+            self.right_sidebar_width = width;
+        }
+        self.right_sidebar_collapsed = snapshot.right_sidebar_collapsed;
+        self.workspace_scroll = snapshot.ui.workspace_scroll;
+        self.agent_panel_scroll = snapshot.ui.agent_panel_scroll;
+        self.tab_scroll = snapshot.ui.tab_scroll;
+        self.mobile_switcher_scroll = snapshot.ui.mobile_switcher_scroll;
+        self.activity_agents_expanded = snapshot.ui.activity_agents_expanded;
+        self.activity_commands_expanded = snapshot.ui.activity_commands_expanded;
+        self.activity_ports_expanded = snapshot.ui.activity_ports_expanded;
+        self.collapsed_agent_sections = snapshot.ui.collapsed_agent_sections.clone();
+        self.collapsed_command_groups = snapshot.ui.collapsed_command_groups.clone();
+        self.collapsed_command_status_groups = snapshot.ui.collapsed_command_status_groups.clone();
+        self.collapsed_workspace_groups = snapshot.ui.collapsed_workspace_groups.clone();
+        self.mode = if self.active_workspace.is_some() {
+            Mode::Terminal
+        } else {
+            Mode::Navigate
+        };
+        self.reconcile(state);
     }
 
     pub(crate) fn reconcile(&mut self, state: &AppState) {
@@ -957,7 +1106,6 @@ impl ClientViewState {
                         .entry(tab_key.clone())
                         .or_insert_with(|| tab.layout.focused());
                 }
-
                 if tab.zoomed {
                     self.zoomed_tabs.insert(tab_key);
                 }
@@ -1019,7 +1167,6 @@ impl ClientViewState {
         self.active_tab_for_workspace(&workspace.id)
             .filter(|idx| *idx < workspace.tabs.len())
     }
-
     pub(crate) fn current_tab_key(&self, state: &AppState) -> Option<ClientTabViewKey> {
         let ws_idx = self.active_workspace?;
         let workspace = state.workspaces.get(ws_idx)?;
@@ -1280,7 +1427,7 @@ impl ClientViewState {
             .focused_panes
             .get(&tab_key)
             .copied()
-            .unwrap_or_else(|| tab.layout.focused());
+            .unwrap_or(tab.root_pane);
         if !tab.panes.contains_key(&focused_pane) {
             return false;
         }

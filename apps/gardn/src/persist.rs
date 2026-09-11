@@ -20,13 +20,11 @@ pub use self::restore::restore;
 pub use self::restore::{handoff_pane_aliases, restore_handoff};
 #[cfg(unix)]
 pub use self::snapshot::capture_handoff;
-pub use self::snapshot::SessionUiSnapshot;
 pub use self::snapshot::{
-    capture, capture_history, DirectionSnapshot, LayoutSnapshot, SessionHistorySnapshot,
-    SessionSnapshot, TabSnapshot, WorkspaceSnapshot,
+    capture, capture_history, DirectionSnapshot, LayoutSnapshot, SessionDefaultViewSnapshot,
+    SessionHistorySnapshot, SessionSnapshot, TabSnapshot, WorkspaceSnapshot,
 };
 #[cfg(test)]
 pub use self::snapshot::{
-    GroupSnapshot, PaneSnapshot, RemoteTerminationTombstoneSnapshot, SessionDefaultViewSnapshot,
-    TerminalTabSnapshot,
+    GroupSnapshot, PaneSnapshot, RemoteTerminationTombstoneSnapshot, TerminalTabSnapshot,
 };

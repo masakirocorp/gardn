@@ -1016,14 +1016,43 @@ impl App {
         &mut self,
         request: crate::api::schema::Request,
     ) -> crate::api::ApiRequestDisposition {
-        self.drain_internal_events();
-        self.handle_api_request_disposition_after_internal_events_drained(request)
+        match request.method {
+            crate::api::schema::Method::ConnectionRetireStart(params) => {
+                crate::api::ApiRequestDisposition::Respond(
+                    self.handle_connection_retire_start(request.id, params),
+                )
+            }
+            method => self.with_default_client_view(|app, view| {
+                app.handle_api_request_disposition_with_origin(
+                    view,
+                    crate::api::schema::Request {
+                        id: request.id,
+                        method,
+                    },
+                    invocation::ApiInvocationOrigin::Ambient,
+                )
+            }),
+        }
     }
 
+    #[cfg(test)]
     pub(crate) fn handle_api_request_disposition_for_view(
         &mut self,
         client_view: &mut ClientViewState,
         request: crate::api::schema::Request,
+    ) -> crate::api::ApiRequestDisposition {
+        self.handle_api_request_disposition_with_origin(
+            client_view,
+            request,
+            invocation::ApiInvocationOrigin::ClientLocal,
+        )
+    }
+
+    fn handle_api_request_disposition_with_origin(
+        &mut self,
+        client_view: &mut ClientViewState,
+        request: crate::api::schema::Request,
+        origin: invocation::ApiInvocationOrigin,
     ) -> crate::api::ApiRequestDisposition {
         let method_for_cleanup = request.method.clone();
         match request.method {
@@ -1054,8 +1083,8 @@ impl App {
             }
             crate::api::schema::Method::WorkspaceCreate(params) => {
                 self.drain_internal_events();
-                let disposition = self.handle_workspace_create_disposition_for_view(
-                    client_view,
+                let disposition = self.handle_workspace_create_with(
+                    invocation::ApiInvocationContext::with_origin(origin, client_view),
                     request.id,
                     params,
                 );
@@ -1108,8 +1137,11 @@ impl App {
             crate::api::schema::Method::TabCreate(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                let disposition =
-                    self.handle_tab_create_disposition_for_view(client_view, request.id, params);
+                let disposition = self.handle_tab_create_with(
+                    invocation::ApiInvocationContext::with_origin(origin, client_view),
+                    request.id,
+                    params,
+                );
                 client_view.reconcile(&self.state);
                 disposition
             }
@@ -1152,8 +1184,11 @@ impl App {
             crate::api::schema::Method::PaneSplit(params) => {
                 self.drain_internal_events();
                 client_view.reconcile(&self.state);
-                let disposition =
-                    self.handle_pane_split_disposition_for_view(client_view, request.id, params);
+                let disposition = self.handle_pane_split_with(
+                    invocation::ApiInvocationContext::with_origin(origin, client_view),
+                    request.id,
+                    params,
+                );
                 client_view.reconcile(&self.state);
                 disposition
             }
@@ -1305,11 +1340,13 @@ impl App {
                 crate::api::ApiRequestDisposition::Respond(response)
             }
             method => {
-                let disposition =
-                    self.handle_api_request_disposition(crate::api::schema::Request {
-                        id: request.id,
-                        method,
-                    });
+                let disposition = self
+                    .handle_api_request_disposition_after_internal_events_drained(
+                        crate::api::schema::Request {
+                            id: request.id,
+                            method,
+                        },
+                    );
                 let plugin_id = match &method_for_cleanup {
                     crate::api::schema::Method::PluginUnlink(params) => Some(&params.plugin_id),
                     crate::api::schema::Method::PluginDisable(params) => Some(&params.plugin_id),

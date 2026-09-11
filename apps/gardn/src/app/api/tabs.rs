@@ -2,7 +2,7 @@ use crate::api::schema::{
     EventData, EventEnvelope, EventKind, ResponseResult, TabCreateParams, TabInfo, TabListParams,
     TabRenameParams, TabTarget,
 };
-use crate::app::{view_state::ClientViewState, App, Mode};
+use crate::app::{view_state::ClientViewState, App};
 
 use super::super::api_helpers::{pane_agent_status, tab_attention_priority};
 
@@ -98,27 +98,16 @@ impl App {
         id: String,
         params: TabCreateParams,
     ) -> crate::api::ApiRequestDisposition {
-        self.handle_tab_create_with(
-            super::invocation::ApiInvocationContext::ambient(),
-            id,
-            params,
-        )
+        self.with_default_client_view(move |app, view| {
+            app.handle_tab_create_with(
+                super::invocation::ApiInvocationContext::ambient(view),
+                id,
+                params,
+            )
+        })
     }
 
-    pub(super) fn handle_tab_create_disposition_for_view(
-        &mut self,
-        view: &mut ClientViewState,
-        id: String,
-        params: TabCreateParams,
-    ) -> crate::api::ApiRequestDisposition {
-        self.handle_tab_create_with(
-            super::invocation::ApiInvocationContext::for_view(view),
-            id,
-            params,
-        )
-    }
-
-    fn handle_tab_create_with(
+    pub(super) fn handle_tab_create_with(
         &mut self,
         mut invocation: super::invocation::ApiInvocationContext<'_>,
         id: String,
@@ -132,9 +121,7 @@ impl App {
             label,
             env,
         } = params;
-        if let Some(view) = invocation.view_mut() {
-            view.reconcile(&self.state);
-        }
+        invocation.view_mut().reconcile(&self.state);
         let ws_idx = if let Some(workspace_id) = workspace_id {
             let Some(ws_idx) = self.parse_workspace_id(&workspace_id) else {
                 return crate::api::ApiRequestDisposition::Respond(workspace_not_found(
@@ -143,11 +130,7 @@ impl App {
                 ));
             };
             ws_idx
-        } else if let Some(active) = invocation
-            .view()
-            .and_then(|view| view.active_workspace)
-            .or(self.state.active)
-        {
+        } else if let Some(active) = invocation.view().active_workspace {
             active
         } else {
             return crate::api::ApiRequestDisposition::Respond(encode_error(
@@ -163,15 +146,10 @@ impl App {
                 "cwd and location cannot be used together".to_string(),
             ));
         }
-        let focused_pane = if let Some(view) = invocation.view() {
-            view.focused_pane_for_workspace(&self.state, ws_idx)
-                .map(|(_, pane_id)| pane_id)
-        } else {
-            self.state
-                .workspaces
-                .get(ws_idx)
-                .and_then(|workspace| workspace.focused_pane_id())
-        };
+        let focused_pane = invocation
+            .view()
+            .focused_pane_for_workspace(&self.state, ws_idx)
+            .map(|(_, pane_id)| pane_id);
         let location =
             match tab_creation_location(&self.state, ws_idx, focused_pane, cwd.clone(), location) {
                 Ok(location) => location,
@@ -198,26 +176,22 @@ impl App {
                 return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
             }
         };
-        let client_local = invocation.is_client_local();
-        let begin_focus = focus && !client_local;
+        let begin_focus = false;
         if !location.is_local() {
             match self.begin_remote_tab(ws_idx, location, begin_focus, None, extra_env) {
                 Ok(terminal_id) => {
                     let mut pending_focus = None;
-                    if focus {
-                        if let Some(view) = invocation.view_mut() {
-                            if self.pending_remote_creation_target(&terminal_id).is_some() {
-                                let workspace_id = self.state.workspaces[ws_idx].id.clone();
-                                // Prefer tab index once committed; pending_active_tabs holds future index.
-                                let pending_tab_idx = self.state.workspaces[ws_idx].tabs.len();
-                                view.pending_active_tabs
-                                    .insert(workspace_id.clone(), pending_tab_idx);
-                                pending_focus = Some(crate::api::PendingFocusMarker::Tab {
-                                    workspace_id,
-                                    tab_idx: pending_tab_idx,
-                                });
-                            }
-                        }
+                    if focus && self.pending_remote_creation_target(&terminal_id).is_some() {
+                        let workspace_id = self.state.workspaces[ws_idx].id.clone();
+                        let pending_tab_idx = self.state.workspaces[ws_idx].tabs.len();
+                        invocation
+                            .view_mut()
+                            .pending_active_tabs
+                            .insert(workspace_id.clone(), pending_tab_idx);
+                        pending_focus = Some(crate::api::PendingFocusMarker::Tab {
+                            workspace_id,
+                            tab_idx: pending_tab_idx,
+                        });
                     }
                     return crate::api::ApiRequestDisposition::Deferred(
                         crate::api::DeferredRemoteCreate {
@@ -225,7 +199,7 @@ impl App {
                             request_id: id,
                             kind: crate::api::DeferredRemoteCreateKind::TabCreate { label },
                             focus,
-                            client_view_id: invocation.client_view_id(),
+                            client_view_id: Some(invocation.client_view_id()),
                             pending_focus,
                         },
                     );
@@ -283,39 +257,30 @@ impl App {
                         crate::logging::tab_renamed(&workspace_id, &tab_id);
                     }
                 }
-                if let Some(view) = invocation.view_mut() {
-                    if focus {
-                        let root_pane = self.state.workspaces[ws_idx]
-                            .terminal_tab(tab_idx)
-                            .expect("new tab should be terminal")
-                            .root_pane;
-                        view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, root_pane);
-                    } else {
-                        view.reconcile(&self.state);
-                    }
-                } else if focus {
-                    self.state.switch_workspace(ws_idx);
-                    self.state.switch_tab(tab_idx);
-                    self.state.mode = Mode::Terminal;
+                if focus {
+                    let root_pane = self.state.workspaces[ws_idx]
+                        .terminal_tab(tab_idx)
+                        .expect("new tab should be terminal")
+                        .root_pane;
+                    invocation.view_mut().focus_pane_in_workspace(
+                        &self.state,
+                        ws_idx,
+                        tab_idx,
+                        root_pane,
+                    );
+                } else {
+                    invocation.view_mut().reconcile(&self.state);
                 }
                 self.schedule_session_save();
-                let (tab, root_pane, created) = if let Some(view) = invocation.view() {
-                    (
-                        self.tab_info_for_view(view, ws_idx, tab_idx).unwrap(),
-                        self.root_pane_info_for_view(view, ws_idx, tab_idx)
-                            .expect("new tab should have a root pane"),
-                        self.tab_created_result_for_view(view, ws_idx, tab_idx)
-                            .expect("new tab should produce a complete create response"),
-                    )
-                } else {
-                    (
-                        self.tab_info(ws_idx, tab_idx).unwrap(),
-                        self.root_pane_info(ws_idx, tab_idx)
-                            .expect("new tab should have a root pane"),
-                        self.tab_created_result(ws_idx, tab_idx)
-                            .expect("new tab should produce a complete create response"),
-                    )
-                };
+                let tab = self
+                    .tab_info_for_view(invocation.view(), ws_idx, tab_idx)
+                    .expect("new tab should have API state");
+                let root_pane = self
+                    .root_pane_info_for_view(invocation.view(), ws_idx, tab_idx)
+                    .expect("new tab should have a root pane");
+                let created = self
+                    .tab_created_result_for_view(invocation.view(), ws_idx, tab_idx)
+                    .expect("new tab should produce a complete create response");
                 self.emit_event(EventEnvelope {
                     event: EventKind::TabCreated,
                     data: EventData::TabCreated { tab: tab.clone() },
@@ -629,6 +594,7 @@ fn tab_creation_location(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::api::invocation::{ApiInvocationContext, ApiInvocationOrigin};
     use crate::{config::Config, workspace::Workspace};
 
     fn app_with_workspace() -> App {
@@ -643,7 +609,7 @@ mod tests {
         app.state.workspaces = vec![Workspace::test_new("tab-focus")];
         app.state.active = Some(0);
         app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
+        app.state.mode = crate::app::Mode::Terminal;
         app.state.ensure_test_terminals();
         app
     }
@@ -664,8 +630,8 @@ mod tests {
         other.active_workspace = Some(0);
         other.pending_active_tabs.insert(workspace_id.clone(), 99);
 
-        let disposition = app.handle_tab_create_disposition_for_view(
-            &mut initiator,
+        let disposition = app.handle_tab_create_with(
+            ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut initiator),
             "tab-remote-fail".into(),
             TabCreateParams {
                 workspace_id: Some(workspace_id.clone()),

@@ -1052,8 +1052,12 @@ mod tests {
 
         app.handle_command_palette_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
 
-        assert_eq!(app.state.workspaces[0].active_tab_index(), 1);
-        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(
+            app.default_client_view
+                .active_tab_index_for_workspace(&app.state, 0),
+            Some(1)
+        );
+        assert_eq!(app.default_client_view.mode, Mode::Terminal);
     }
 
     #[test]

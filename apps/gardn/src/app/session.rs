@@ -49,41 +49,16 @@ impl App {
         {
             SessionSaveJob::Clear
         } else {
-            let mut snapshot = crate::persist::capture(
+            let snapshot = crate::persist::capture(
                 &self.state.groups,
-                default_view.active_group,
-                default_view.group_filter_enabled,
                 &self.state.session_namespace_id,
                 &self.state.remote_termination_tombstones,
                 &self.state.workspaces,
                 &self.state.terminals,
                 &self.terminal_runtimes,
-                default_view.active_workspace,
-                default_view.selected_workspace,
-                default_view.agent_panel_scope,
-                self.state.sidebar_width,
-                default_view.sidebar_collapsed,
-                self.state.sidebar_section_split,
-                self.state.right_sidebar_width,
-                default_view.right_sidebar_collapsed,
+                &default_view,
                 &self.state.agent_follow_up,
             );
-            snapshot.default_view.ui = crate::persist::SessionUiSnapshot {
-                workspace_scroll: default_view.workspace_scroll,
-                agent_panel_scroll: default_view.agent_panel_scroll,
-                tab_scroll: default_view.tab_scroll,
-                mobile_switcher_scroll: default_view.mobile_switcher_scroll,
-                activity_agents_expanded: default_view.activity_agents_expanded,
-                activity_commands_expanded: default_view.activity_commands_expanded,
-                activity_ports_expanded: default_view.activity_ports_expanded,
-                collapsed_agent_sections: default_view.collapsed_agent_sections.clone(),
-                collapsed_command_groups: default_view.collapsed_command_groups.clone(),
-                collapsed_command_status_groups: default_view
-                    .collapsed_command_status_groups
-                    .clone(),
-                collapsed_workspace_groups: default_view.collapsed_workspace_groups.clone(),
-            };
-            snapshot.ui = snapshot.default_view.ui.clone();
             let history = self.persist_pane_history.then(|| {
                 crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)
             });

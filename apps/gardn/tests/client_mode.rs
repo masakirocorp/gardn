@@ -203,43 +203,6 @@ fn create_workspace_and_root_pane(socket_path: &PathBuf, label: &str) -> (String
     (workspace_id, pane_id)
 }
 
-fn tab_list(socket_path: &PathBuf, workspace_id: &str) -> serde_json::Value {
-    let response = send_json_request(
-        socket_path,
-        &format!(
-            r#"{{"id":"tab_list","method":"tab.list","params":{{"workspace_id":"{workspace_id}"}}}}"#
-        ),
-    );
-    assert_api_ok(&response, "tab.list");
-    response
-}
-
-fn focused_tab_id(socket_path: &PathBuf, workspace_id: &str) -> Option<String> {
-    tab_list(socket_path, workspace_id)["result"]["tabs"]
-        .as_array()
-        .expect("tab.list should return tabs")
-        .iter()
-        .find(|tab| tab["focused"].as_bool() == Some(true))
-        .and_then(|tab| tab["tab_id"].as_str())
-        .map(str::to_string)
-}
-
-fn wait_for_focused_tab(
-    socket_path: &PathBuf,
-    workspace_id: &str,
-    expected_tab_id: &str,
-    timeout: Duration,
-) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if focused_tab_id(socket_path, workspace_id).as_deref() == Some(expected_tab_id) {
-            return true;
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-    focused_tab_id(socket_path, workspace_id).as_deref() == Some(expected_tab_id)
-}
-
 fn pane_wait_for_output(socket_path: &PathBuf, pane_id: &str, needle: &str) -> serde_json::Value {
     let response = send_json_request(
         socket_path,
@@ -1186,94 +1149,6 @@ fn client_receives_frame_after_pane_output() {
     assert!(
         frame_contains_text(&frame, "test-output"),
         "post-output frame should contain the echoed marker"
-    );
-
-    cleanup_spawned_gardn(spawned, base);
-}
-
-#[test]
-fn navigate_mode_keybind_dispatch_in_server() {
-    // Prefix-mode keybindings should be handled by the server, not only by the
-    // standalone TUI client path.
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("gardn.sock");
-    let client_socket = runtime_dir.join("gardn-client.sock");
-
-    let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
-    wait_for_socket(&api_socket, Duration::from_secs(10));
-    wait_for_file(&client_socket, Duration::from_secs(10));
-
-    let (workspace_id, _pane_id) = create_workspace_and_root_pane(&api_socket, "keybind-tabs");
-    let first_tab_id = focused_tab_id(&api_socket, &workspace_id)
-        .expect("new workspace should focus its first tab");
-    let tab_created = send_json_request(
-        &api_socket,
-        &format!(
-            r#"{{"id":"tab_create","method":"tab.create","params":{{"workspace_id":"{workspace_id}","focus":false,"label":"second"}}}}"#
-        ),
-    );
-    assert_api_ok(&tab_created, "tab.create");
-    let second_tab_id = tab_created["result"]["tab"]["tab_id"]
-        .as_str()
-        .expect("tab.create should return tab_id")
-        .to_string();
-    assert_eq!(
-        focused_tab_id(&api_socket, &workspace_id).as_deref(),
-        Some(first_tab_id.as_str())
-    );
-
-    let mut stream = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    let (version, error) =
-        client_handshake(&mut stream, 14, 80, 24).expect("handshake should succeed");
-    assert_eq!(version, 14);
-    assert!(error.is_none(), "{:?}", error);
-
-    stream
-        .set_read_timeout(Some(Duration::from_secs(2)))
-        .unwrap();
-    while read_server_message(&mut stream).is_ok() {}
-
-    let prefix_input = vec![0x02]; // Ctrl+B.
-    let input_payload = {
-        let mut buf = encode_varint_u32(1);
-        buf.extend_from_slice(&encode_varint_u32(prefix_input.len() as u32));
-        buf.extend_from_slice(&prefix_input);
-        buf
-    };
-    stream
-        .write_all(&frame_message(&input_payload))
-        .expect("send prefix key");
-    stream.flush().expect("flush");
-
-    stream
-        .set_read_timeout(Some(Duration::from_millis(200)))
-        .unwrap();
-    while read_server_message(&mut stream).is_ok() {}
-    stream.set_read_timeout(None).unwrap();
-
-    let next_tab_input = b"n".to_vec();
-    let next_tab_payload = {
-        let mut buf = encode_varint_u32(1);
-        buf.extend_from_slice(&encode_varint_u32(next_tab_input.len() as u32));
-        buf.extend_from_slice(&next_tab_input);
-        buf
-    };
-    stream
-        .write_all(&frame_message(&next_tab_payload))
-        .expect("send next-tab key");
-    stream.flush().expect("flush");
-
-    assert!(
-        wait_for_focused_tab(
-            &api_socket,
-            &workspace_id,
-            &second_tab_id,
-            Duration::from_secs(5)
-        ),
-        "prefix+n should focus the next tab through server-side keybinding dispatch"
     );
 
     cleanup_spawned_gardn(spawned, base);

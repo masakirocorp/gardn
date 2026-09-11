@@ -631,10 +631,10 @@ mod tests {
     use crate::persist::{
         try_load_snapshot_at, try_save_snapshot_at, GroupSnapshot, LayoutSnapshot, PaneSnapshot,
         RemoteTerminationTombstoneSnapshot, SessionDefaultViewSnapshot, SessionSnapshot,
-        SessionUiSnapshot, TabSnapshot, TerminalTabSnapshot, WorkspaceSnapshot,
+        TabSnapshot, TerminalTabSnapshot, WorkspaceSnapshot,
     };
 
-    const TEST_SNAPSHOT_VERSION: u32 = 6;
+    const TEST_SNAPSHOT_VERSION: u32 = 7;
     use std::collections::HashMap;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -666,19 +666,14 @@ mod tests {
                 default_agent_profile_id: None,
                 github_organization: None,
             }],
-            active_group: 0,
-            group_filter_enabled: true,
-            default_view: SessionDefaultViewSnapshot::default(),
+            default_view: SessionDefaultViewSnapshot {
+                agent_panel_scope: AgentPanelScope::CurrentWorkspace,
+                sidebar_width: Some(26),
+                sidebar_section_split: Some(0.5),
+                right_sidebar_width: Some(28),
+                ..SessionDefaultViewSnapshot::default()
+            },
             workspaces: Vec::new(),
-            active: None,
-            selected: 0,
-            agent_panel_scope: AgentPanelScope::CurrentWorkspace,
-            sidebar_width: Some(26),
-            sidebar_collapsed: false,
-            sidebar_section_split: Some(0.5),
-            right_sidebar_width: Some(28),
-            right_sidebar_collapsed: false,
-            ui: SessionUiSnapshot::default(),
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         }
@@ -718,11 +713,11 @@ mod tests {
                         terminal_semantics: None,
                     },
                 )]),
-                zoomed: false,
-                focused: Some(0),
+                legacy_zoomed: false,
+                legacy_focused: Some(0),
                 root_pane: Some(0),
             })],
-            active_tab: 0,
+            legacy_active_tab: 0,
         }
     }
 
@@ -956,8 +951,8 @@ mod tests {
         };
         tab.panes.get_mut(&0).unwrap().location = Some(location(&retiring, "/srv/pane"));
         tab.panes.get_mut(&0).unwrap().label = Some("must-stay-remote".to_string());
-        snap.default_view.selected = 9;
-        snap.ui.workspace_scroll = 3;
+        snap.default_view.selected_workspace_id = Some("preserve-selected".to_string());
+        snap.default_view.ui.workspace_scroll = 3;
 
         let summary = rewrite_snapshot_placements(&mut snap, &retiring);
         assert_eq!(summary.groups_unset, 1);
@@ -1006,8 +1001,11 @@ mod tests {
                 .as_deref(),
             Some("must-stay-remote")
         );
-        assert_eq!(snap.default_view.selected, 9);
-        assert_eq!(snap.ui.workspace_scroll, 3);
+        assert_eq!(
+            snap.default_view.selected_workspace_id.as_deref(),
+            Some("preserve-selected")
+        );
+        assert_eq!(snap.default_view.ui.workspace_scroll, 3);
     }
 
     #[test]
@@ -1098,7 +1096,7 @@ mod tests {
 
         let mut snap = empty_snapshot();
         snap.session_namespace_id = "ns-preserve".to_string();
-        snap.default_view.selected = 4;
+        snap.default_view.selected_workspace_id = Some("preserve-selected".to_string());
         snap.default_view.ui.tab_scroll = 2;
         snap.groups[0].default_location = Some(location(&retiring, "/srv/group"));
         snap.groups[0].favorite_agent_profile_ids = vec!["keep-profile".to_string()];
@@ -1145,8 +1143,10 @@ mod tests {
             Some("unrelated-name")
         );
         assert_eq!(after.session_namespace_id, "ns-preserve");
-        // Durable view lives on default_view; top-level ui/selected are legacy mirrors.
-        assert_eq!(after.default_view.selected, 4);
+        assert_eq!(
+            after.default_view.selected_workspace_id.as_deref(),
+            Some("preserve-selected")
+        );
         assert_eq!(after.default_view.ui.tab_scroll, 2);
 
         let second = apply_dormant_session_retirement(&retiring, &plan.sessions[0]).unwrap();

@@ -77,35 +77,22 @@ impl App {
         id: String,
         params: WorkspaceCreateParams,
     ) -> crate::api::ApiRequestDisposition {
-        self.handle_workspace_create_with(
-            super::invocation::ApiInvocationContext::ambient(),
-            id,
-            params,
-        )
+        self.with_default_client_view(move |app, view| {
+            app.handle_workspace_create_with(
+                super::invocation::ApiInvocationContext::ambient(view),
+                id,
+                params,
+            )
+        })
     }
 
-    pub(super) fn handle_workspace_create_disposition_for_view(
-        &mut self,
-        view: &mut ClientViewState,
-        id: String,
-        params: WorkspaceCreateParams,
-    ) -> crate::api::ApiRequestDisposition {
-        self.handle_workspace_create_with(
-            super::invocation::ApiInvocationContext::for_view(view),
-            id,
-            params,
-        )
-    }
-
-    fn handle_workspace_create_with(
+    pub(super) fn handle_workspace_create_with(
         &mut self,
         mut invocation: super::invocation::ApiInvocationContext<'_>,
         id: String,
         params: WorkspaceCreateParams,
     ) -> crate::api::ApiRequestDisposition {
-        if let Some(view) = invocation.view_mut() {
-            view.reconcile(&self.state);
-        }
+        invocation.view_mut().reconcile(&self.state);
         if params.cwd.is_some() && params.location.is_some() {
             return crate::api::ApiRequestDisposition::Respond(encode_error(
                 id,
@@ -123,15 +110,12 @@ impl App {
                 ))
             }
         };
-        let group_id = if let Some(view) = invocation.view() {
-            self.state
-                .groups
-                .get(view.active_group)
-                .map(|group| group.id.clone())
-                .unwrap_or_else(|| self.state.active_group_id().to_string())
-        } else {
-            self.state.active_group_id().to_string()
-        };
+        let group_id = self
+            .state
+            .groups
+            .get(invocation.view().active_group)
+            .map(|group| group.id.clone())
+            .unwrap_or_else(|| self.state.active_group_id().to_string());
         let group_default = self.group_default_location(&group_id);
         let local_fallback = match crate::execution_host::ResourceLocation::local(
             self.resolve_new_terminal_cwd(None),
@@ -156,31 +140,19 @@ impl App {
                 return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
             }
         };
-        let client_local = invocation.is_client_local();
-        let should_focus = if let Some(view) = invocation.view() {
-            params.focus || view.active_workspace.is_none()
-        } else {
-            params.focus || self.state.active.is_none()
-        };
+        let should_focus = params.focus || invocation.view().active_workspace.is_none();
         let label = params.label;
-        let ambient_focus = client_local.then(|| AmbientWorkspaceFocus::capture(self));
-        // Client-local creates must not move shared ambient focus; ambient applies focus directly.
-        let begin_focus = should_focus && !client_local;
+        let begin_focus = false;
         if !location.is_local() {
             match self.begin_remote_workspace(location, begin_focus, group_id, None, extra_env) {
                 Ok(terminal_id) => {
-                    let _ = ambient_focus;
                     let mut pending_focus = None;
                     if should_focus {
-                        if let Some(view) = invocation.view_mut() {
-                            if let Some(workspace_id) =
-                                self.pending_remote_workspace_id(&terminal_id)
-                            {
-                                view.pending_active_workspace = Some(workspace_id.clone());
-                                pending_focus = Some(crate::api::PendingFocusMarker::Workspace {
-                                    workspace_id,
-                                });
-                            }
+                        if let Some(workspace_id) = self.pending_remote_workspace_id(&terminal_id) {
+                            invocation.view_mut().pending_active_workspace =
+                                Some(workspace_id.clone());
+                            pending_focus =
+                                Some(crate::api::PendingFocusMarker::Workspace { workspace_id });
                         }
                     }
                     return crate::api::ApiRequestDisposition::Deferred(
@@ -189,15 +161,12 @@ impl App {
                             request_id: id,
                             kind: crate::api::DeferredRemoteCreateKind::WorkspaceCreate { label },
                             focus: should_focus,
-                            client_view_id: invocation.client_view_id(),
+                            client_view_id: Some(invocation.client_view_id()),
                             pending_focus,
                         },
                     );
                 }
                 Err(err) => {
-                    if let Some(ambient_focus) = ambient_focus {
-                        ambient_focus.restore_if_valid(self);
-                    }
                     return crate::api::ApiRequestDisposition::Respond(encode_error(
                         id,
                         "workspace_create_failed",
@@ -216,15 +185,10 @@ impl App {
             .map_err(|error| error.to_string());
         match result {
             Ok(index) => {
-                if let Some(ambient_focus) = ambient_focus {
-                    ambient_focus.restore_if_valid(self);
-                }
-                if let Some(view) = invocation.view_mut() {
-                    if should_focus {
-                        focus_workspace_in_view(&self.state, view, index);
-                    } else {
-                        view.reconcile(&self.state);
-                    }
+                if should_focus {
+                    focus_workspace_in_view(&self.state, invocation.view_mut(), index);
+                } else {
+                    invocation.view_mut().reconcile(&self.state);
                 }
                 if let Some(label) = label {
                     if let Some(workspace) = self.state.workspaces.get_mut(index) {
@@ -232,30 +196,20 @@ impl App {
                         crate::logging::workspace_renamed(&workspace.id);
                     }
                 }
-                let (workspace, tab, root_pane) = if let Some(view) = invocation.view() {
-                    (
-                        self.workspace_info_for_view(view, index),
-                        self.tab_info(index, 0)
-                            .expect("new workspace should have an initial tab"),
-                        self.pane_info_for_view(
-                            view,
-                            index,
-                            self.state.workspaces[index]
-                                .terminal_tab(0)
-                                .expect("new workspace should have an initial terminal tab")
-                                .root_pane,
-                        )
-                        .expect("new workspace should have an initial root pane"),
+                let workspace = self.workspace_info_for_view(invocation.view(), index);
+                let tab = self
+                    .tab_info_for_view(invocation.view(), index, 0)
+                    .expect("new workspace should have an initial tab");
+                let root_pane = self
+                    .pane_info_for_view(
+                        invocation.view(),
+                        index,
+                        self.state.workspaces[index]
+                            .terminal_tab(0)
+                            .expect("new workspace should have an initial terminal tab")
+                            .root_pane,
                     )
-                } else {
-                    (
-                        self.workspace_info(index),
-                        self.tab_info(index, 0)
-                            .expect("new workspace should have an initial tab"),
-                        self.root_pane_info(index, 0)
-                            .expect("new workspace should have an initial root pane"),
-                    )
-                };
+                    .expect("new workspace should have an initial root pane");
                 self.emit_event(EventEnvelope {
                     event: EventKind::WorkspaceCreated,
                     data: EventData::WorkspaceCreated {
@@ -281,16 +235,11 @@ impl App {
                     },
                 ))
             }
-            Err(err) => {
-                if let Some(ambient_focus) = ambient_focus {
-                    ambient_focus.restore_if_valid(self);
-                }
-                crate::api::ApiRequestDisposition::Respond(encode_error(
-                    id,
-                    "workspace_create_failed",
-                    err,
-                ))
-            }
+            Err(err) => crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "workspace_create_failed",
+                err,
+            )),
         }
     }
 
@@ -617,6 +566,7 @@ fn explicit_workspace_location(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::api::invocation::{ApiInvocationContext, ApiInvocationOrigin};
     use crate::{api::schema::SuccessResponse, config::Config, workspace::Workspace};
 
     fn app_with_workspace() -> App {
@@ -744,7 +694,8 @@ mod tests {
             crate::app::state::DEFAULT_GROUP_ICON.into(),
             Some(group_default.clone()),
         );
-        app.state.switch_group(group_idx);
+        app.default_client_view.active_group = group_idx;
+        app.default_client_view.group_filter_enabled = true;
         let group_id = app.state.groups[group_idx].id.clone();
         let workspaces_before = app.state.workspaces.len();
 
@@ -792,7 +743,8 @@ mod tests {
                 Some(group_default.clone()),
             );
             app.state.workspaces[0].group_id = app.state.groups[group_idx].id.clone();
-            app.state.switch_group(group_idx);
+            app.default_client_view.active_group = group_idx;
+            app.default_client_view.group_filter_enabled = true;
         }
 
         let params = WorkspaceCreateParams {
@@ -808,10 +760,11 @@ mod tests {
             crate::api::ApiRequestDisposition::Respond(response) => response,
             other => panic!("expected ambient respond, got {other:?}"),
         };
-        let mut view = ClientViewState::from_default_client_state(&view_app.state);
-        view.active_group = view_app.state.active_group;
-        let for_view = match view_app.handle_workspace_create_disposition_for_view(
-            &mut view,
+        let mut view = view_app
+            .default_client_view
+            .fork_for_attached_client(&view_app.state);
+        let for_view = match view_app.handle_workspace_create_with(
+            ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut view),
             "for-view".into(),
             params,
         ) {
@@ -892,8 +845,8 @@ mod tests {
         other.reconcile(&app.state);
 
         let ambient_active = app.state.active;
-        let disposition = app.handle_workspace_create_disposition_for_view(
-            &mut initiator,
+        let disposition = app.handle_workspace_create_with(
+            ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut initiator),
             "ws-remote-focus".into(),
             WorkspaceCreateParams {
                 cwd: None,
@@ -975,8 +928,8 @@ mod tests {
         initiator.active_workspace = Some(0);
         other.active_workspace = Some(0);
 
-        let disposition = app.handle_workspace_create_disposition_for_view(
-            &mut initiator,
+        let disposition = app.handle_workspace_create_with(
+            ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut initiator),
             "ws-remote-nofocus".into(),
             WorkspaceCreateParams {
                 cwd: None,
@@ -1047,8 +1000,8 @@ mod tests {
         // Simulate another client's independent pending focus on a different workspace id.
         other.pending_active_workspace = Some("other-client-marker".into());
 
-        let disposition = app.handle_workspace_create_disposition_for_view(
-            &mut initiator,
+        let disposition = app.handle_workspace_create_with(
+            ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut initiator),
             "ws-remote-fail".into(),
             WorkspaceCreateParams {
                 cwd: None,

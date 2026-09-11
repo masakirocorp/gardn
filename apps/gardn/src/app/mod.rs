@@ -347,6 +347,21 @@ pub struct App {
     pub(crate) host_terminal_theme_query_count: std::cell::Cell<usize>,
 }
 
+impl App {
+    pub(crate) fn with_default_client_view<R>(
+        &mut self,
+        action: impl FnOnce(&mut Self, &mut ClientViewState) -> R,
+    ) -> R {
+        let replacement = ClientViewState::from_default_client_state(&self.state);
+        let mut view = std::mem::replace(&mut self.default_client_view, replacement);
+        view.reconcile(&self.state);
+        let result = action(self, &mut view);
+        view.reconcile(&self.state);
+        self.default_client_view = view;
+        result
+    }
+}
+
 /// Deferred API responder for a remote create awaiting worker ACK/failure.
 pub(crate) struct PendingRemoteApiResponse {
     pub request_id: String,
@@ -629,6 +644,7 @@ impl App {
         let mut session_namespace_healed = false;
         let mut restored_remote_termination_tombstones = Vec::new();
         let mut restored_agent_follow_up = Vec::new();
+        let mut restored_default_view = None;
         let (
             groups,
             active_group,
@@ -701,12 +717,13 @@ impl App {
                 &ws,
                 snap.agent_follow_up.clone(),
             );
+            restored_default_view = Some(snap.default_view.clone());
             if ws.is_empty() {
                 crate::logging::session_restored(0, "empty");
                 (
                     groups_from_snapshot(&snap),
-                    snap.active_group,
-                    snap.group_filter_enabled,
+                    snap.default_view.active_group,
+                    snap.default_view.group_filter_enabled,
                     Vec::new(),
                     None,
                     0,
@@ -726,12 +743,12 @@ impl App {
                 )
             } else {
                 crate::logging::session_restored(ws.len(), "ok");
-                let active = snap.default_view.active.filter(|&i| i < ws.len());
-                let selected = snap.default_view.selected.min(ws.len().saturating_sub(1));
+                let active = snap.default_view.active_workspace_index(&ws);
+                let selected = snap.default_view.selected_workspace_index(&ws);
                 (
                     groups_from_snapshot(&snap),
-                    snap.active_group,
-                    snap.group_filter_enabled,
+                    snap.default_view.active_group,
+                    snap.default_view.group_filter_enabled,
                     ws,
                     active,
                     selected,
@@ -1201,7 +1218,10 @@ impl App {
                 .and_then(|ws| ws.focused_pane_id().map(|pane_id| (idx, pane_id)))
         });
 
-        let default_client_view = ClientViewState::from_default_client_state(&state);
+        let mut default_client_view = ClientViewState::from_default_client_state(&state);
+        if let Some(snapshot) = restored_default_view.as_ref() {
+            default_client_view.restore_persisted(&state, snapshot);
+        }
         let toast_deadline = state
             .toast
             .as_ref()
@@ -1417,6 +1437,7 @@ impl App {
 
         let groups = groups_from_snapshot(snapshot);
         app.no_session = false;
+        app.state.detach_exits = false;
         app.state.installed_plugins = load_plugin_registry(app.no_session);
         let now = Instant::now();
         if background_update_check_enabled(app.no_session, app.update_version_check_enabled) {
@@ -1429,14 +1450,12 @@ impl App {
         if background_update_check_enabled(app.no_session, app.update_manifest_check_enabled) {
             app.next_agent_manifest_update_check = Some(now + AUTO_UPDATE_CHECK_INTERVAL);
         }
-        app.state.detach_exits = false;
-        app.state.pane_id_aliases = pane_id_aliases;
-        app.state.public_pane_id_aliases.clear();
         app.state.groups = groups;
         app.state.active_group = snapshot
+            .default_view
             .active_group
             .min(app.state.groups.len().saturating_sub(1));
-        app.state.group_filter_enabled = snapshot.group_filter_enabled;
+        app.state.group_filter_enabled = snapshot.default_view.group_filter_enabled;
         let restored_namespace = crate::persist::installation::session_namespace_from_snapshot(
             &snapshot.session_namespace_id,
         );
@@ -1476,6 +1495,12 @@ impl App {
         };
         app.state.workspaces = workspaces;
         app.state.terminals = terminals;
+        app.terminal_runtimes = runtimes.into();
+        app.state.pane_id_aliases = pane_id_aliases;
+        app.state.agent_follow_up = AppState::restored_agent_follow_up(
+            &app.state.workspaces,
+            snapshot.agent_follow_up.clone(),
+        );
         app.state.remote_termination_tombstones = snapshot
             .remote_termination_tombstones
             .iter()
@@ -1485,19 +1510,12 @@ impl App {
                 remote_runtime_identity: tombstone.remote_runtime_identity.clone(),
             })
             .collect();
-        app.state.agent_follow_up = state::AppState::restored_agent_follow_up(
-            &app.state.workspaces,
-            snapshot.agent_follow_up.clone(),
-        );
-        app.terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::from(runtimes);
         app.state.active = snapshot
             .default_view
-            .active
-            .filter(|&idx| idx < app.state.workspaces.len());
+            .active_workspace_index(&app.state.workspaces);
         app.state.selected = snapshot
             .default_view
-            .selected
-            .min(app.state.workspaces.len().saturating_sub(1));
+            .selected_workspace_index(&app.state.workspaces);
         app.state.agent_panel_scope = snapshot.default_view.agent_panel_scope;
         if let Some(width) = snapshot.default_view.sidebar_width {
             app.state.sidebar_width = width;
@@ -1544,6 +1562,8 @@ impl App {
             state::Mode::Navigate
         };
         app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+        app.default_client_view
+            .restore_persisted(&app.state, &snapshot.default_view);
         app.last_focus = app.state.active.and_then(|idx| {
             app.state
                 .workspaces
@@ -13956,19 +13976,8 @@ mod tests {
             session_namespace_id: "session-test".to_string(),
             remote_termination_tombstones: Vec::new(),
             groups,
-            active_group: 0,
-            group_filter_enabled: true,
             default_view: crate::persist::SessionDefaultViewSnapshot::default(),
             workspaces,
-            active: None,
-            selected: 0,
-            agent_panel_scope: state::AgentPanelScope::CurrentWorkspace,
-            sidebar_width: None,
-            sidebar_collapsed: false,
-            sidebar_section_split: None,
-            right_sidebar_width: None,
-            right_sidebar_collapsed: false,
-            ui: crate::persist::SessionUiSnapshot::default(),
             agent_follow_up: Vec::new(),
             pane_id_aliases: std::collections::HashMap::new(),
         }
@@ -14000,7 +14009,7 @@ mod tests {
             public_tab_numbers: Vec::new(),
             next_public_tab_number: 0,
             tabs: Vec::new(),
-            active_tab: 0,
+            legacy_active_tab: 0,
         }
     }
 
@@ -14032,13 +14041,8 @@ mod tests {
             ],
             Vec::new(),
         );
-        snap.active_group = 1;
-        snap.group_filter_enabled = false;
-        snap.sidebar_width = Some(32);
-        snap.sidebar_collapsed = true;
-        snap.sidebar_section_split = Some(0.25);
-        snap.right_sidebar_width = Some(41);
-        snap.right_sidebar_collapsed = true;
+        snap.default_view.active_group = 1;
+        snap.default_view.group_filter_enabled = false;
         snap.default_view.sidebar_width = Some(32);
         snap.default_view.sidebar_collapsed = true;
         snap.default_view.sidebar_section_split = Some(0.25);
@@ -14067,6 +14071,7 @@ mod tests {
         assert!(app.state.sidebar_collapsed);
         assert_eq!(app.state.right_sidebar_width, 41);
         assert!(app.state.right_sidebar_collapsed);
+        assert!(!app.state.detach_exits);
     }
 
     #[cfg(unix)]
@@ -14143,7 +14148,7 @@ mod tests {
         state.collapsed_command_status_groups = vec!["running".to_string()];
         state.collapsed_workspace_groups = vec!["g1".to_string()];
 
-        seed_handoff_agent(
+        let first_pane = seed_handoff_agent(
             &mut state,
             0,
             AgentState::Working,
@@ -14152,6 +14157,7 @@ mod tests {
             Some("thinking"),
             Some("busy"),
         );
+        assert!(state.insert_agent_follow_up(0, first_pane));
         let _second_pane = seed_handoff_agent(
             &mut state,
             1,
@@ -14163,27 +14169,17 @@ mod tests {
         );
 
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
-        let mut snap = crate::persist::capture_handoff(
+        let default_view = ClientViewState::from_default_client_state(&state);
+        let snap = crate::persist::capture_handoff(
             &state.groups,
-            state.active_group,
-            state.group_filter_enabled,
             &state.session_namespace_id,
             &state.remote_termination_tombstones,
             &state.workspaces,
             &state.terminals,
             &terminal_runtimes,
-            state.active,
-            state.selected,
-            state.agent_panel_scope,
-            state.sidebar_width,
-            state.sidebar_collapsed,
-            state.sidebar_section_split,
-            state.right_sidebar_width,
-            state.right_sidebar_collapsed,
+            &default_view,
             &state.agent_follow_up,
         );
-        snap.ui = crate::persist::SessionUiSnapshot::from_app_state(&state);
-        snap.default_view.ui = snap.ui.clone();
 
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut imports = std::collections::HashMap::new();
@@ -14224,6 +14220,7 @@ mod tests {
         assert_eq!(app.state.collapsed_workspace_groups, vec!["g1"]);
 
         let restored_first_pane = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        assert!(app.state.is_agent_follow_up(0, restored_first_pane));
         app.handle_internal_event(AppEvent::HookStateReported {
             pane_id: restored_first_pane,
             source: "gardn:omp".to_string(),
@@ -14548,11 +14545,11 @@ mod tests {
             app.default_client_view.agent_panel_scope,
             state::AgentPanelScope::AllWorkspaces
         );
-        let next_client = ClientViewState::for_new_client(&app.state);
-        assert!(next_client.sidebar_collapsed);
+        let next_client = app.default_client_view.fork_for_attached_client(&app.state);
+        assert!(!next_client.sidebar_collapsed);
         assert_eq!(
             next_client.agent_panel_scope,
-            state::AgentPanelScope::CurrentWorkspace
+            state::AgentPanelScope::AllWorkspaces
         );
         assert!(!app.state.redraw_on_focus_gained);
         assert_eq!(
@@ -16323,8 +16320,12 @@ mod tests {
         assert_eq!(response["result"]["type"], "pane_info");
         assert_eq!(response["result"]["pane"]["tab_id"], target_tab_id);
         assert_eq!(response["result"]["pane"]["focused"], true);
-        assert_eq!(app.state.active, Some(0));
-        assert_eq!(app.state.workspaces[0].active_tab, background_tab);
+        assert_eq!(app.default_client_view.active_workspace, Some(0));
+        assert_eq!(
+            app.default_client_view
+                .active_tab_index_for_workspace(&app.state, 0),
+            Some(background_tab)
+        );
 
         let runtimes: Vec<_> = app.terminal_runtimes.drain().collect();
         for (_terminal_id, runtime) in runtimes {

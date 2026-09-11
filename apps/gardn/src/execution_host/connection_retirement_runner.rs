@@ -694,8 +694,8 @@ mod tests {
     use crate::execution_host::{ExecutionHostId, HostPath, ResourceLocation};
     use crate::persist::{
         try_load_snapshot_at, try_save_snapshot_at, GroupSnapshot, LayoutSnapshot, PaneSnapshot,
-        SessionDefaultViewSnapshot, SessionSnapshot, SessionUiSnapshot, TabSnapshot,
-        TerminalTabSnapshot, WorkspaceSnapshot,
+        SessionDefaultViewSnapshot, SessionSnapshot, TabSnapshot, TerminalTabSnapshot,
+        WorkspaceSnapshot,
     };
     use std::collections::{HashMap, VecDeque};
     use std::path::PathBuf;
@@ -851,7 +851,7 @@ mod tests {
 
     fn empty_snapshot() -> SessionSnapshot {
         SessionSnapshot {
-            version: 6,
+            version: 7,
             session_namespace_id: "session-test".to_string(),
             remote_termination_tombstones: Vec::new(),
             groups: vec![GroupSnapshot {
@@ -864,19 +864,14 @@ mod tests {
                 default_agent_profile_id: None,
                 github_organization: None,
             }],
-            active_group: 0,
-            group_filter_enabled: true,
-            default_view: SessionDefaultViewSnapshot::default(),
+            default_view: SessionDefaultViewSnapshot {
+                agent_panel_scope: AgentPanelScope::CurrentWorkspace,
+                sidebar_width: Some(26),
+                sidebar_section_split: Some(0.5),
+                right_sidebar_width: Some(28),
+                ..SessionDefaultViewSnapshot::default()
+            },
             workspaces: Vec::new(),
-            active: None,
-            selected: 0,
-            agent_panel_scope: AgentPanelScope::CurrentWorkspace,
-            sidebar_width: Some(26),
-            sidebar_collapsed: false,
-            sidebar_section_split: Some(0.5),
-            right_sidebar_width: Some(28),
-            right_sidebar_collapsed: false,
-            ui: SessionUiSnapshot::default(),
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
         }
@@ -916,11 +911,11 @@ mod tests {
                         terminal_semantics: None,
                     },
                 )]),
-                zoomed: false,
-                focused: Some(0),
+                legacy_zoomed: false,
+                legacy_focused: Some(0),
                 root_pane: Some(0),
             })],
-            active_tab: 0,
+            legacy_active_tab: 0,
         }
     }
 
