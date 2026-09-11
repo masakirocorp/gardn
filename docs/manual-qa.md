@@ -1,109 +1,103 @@
 # Manual QA matrix
 
-Use this guide to select and run the manual checks that Gardn's automated suite cannot prove reliably. It complements `pnpm check`; it does not repeat state, protocol, socket, PTY, or render behavior already covered by automated tests.
+Use this guide to identify the release claim owner and run checks that require a real terminal, provider, remote host, or published artifact. Do not repeat deterministic checks when the required workflows passed for the candidate commit.
 
-Run M01-M08 before tagging a release, then run M09 against the published artifacts. Run affected P1 cases when changing their surface, and run the full P1 set for broad platform, terminal, or lifecycle changes.
+Run the applicable residual M01, M02, M04, M05, and M07 checks before tagging. Run M08 before tagging and M09 after publication. Run M10 through M12 when the release changes those areas.
 
-## Test record
+## Release record
 
-Record this environment before each run:
+Record these facts for each candidate:
 
-- commit SHA and Gardn version
-- binary source and checksum
-- OS and architecture
-- terminal application and version
-- shell
-- session and config namespace
+- the commit SHA and Gardn version
+- the successful CI and Agent Fixture Tests run URLs whose `head_sha` equals the candidate SHA
+- the successful trusted Live Agent Tests run URL whose `head_sha` equals the candidate SHA
+- each selected manual check, its environment, and its `PASS`, `FAIL`, or `BLOCKED` result
+- each artifact filename and checksum
+- each linked defect
 
-Record each selected case as `PASS`, `FAIL`, or `BLOCKED`. For failures, preserve the relevant Gardn logs, exact reproduction steps, and a screenshot or short recording when presentation matters. Track each defect separately and link it from the run record.
+For a presentation failure, keep a screenshot or short recording. For another failure, keep the relevant Gardn logs and exact reproduction steps.
 
-## Matrix
+## M01 through M07 claim ownership
 
-| ID | Priority | Surface | Required environment | Manual risk |
-| --- | --- | --- | --- | --- |
-| M01 | P0 | First launch and core TUI | macOS arm64, Ghostty, and one non-Kitty terminal | Visible layout, focus, hit targets, onboarding |
-| M02 | P0 | Terminal input and output | Real terminal, IME, mouse-reporting app | Unicode width, paste, keyboard protocol, selection, graphics |
-| M03 | P0 | Detach, reattach, named sessions | Two terminal windows | Process continuity and session isolation |
-| M04 | P0 | Two live app clients | Wide desktop and narrow/mobile terminals with different dimensions | Per-tab control, size mismatch, watcher isolation, explicit takeover |
-| M05 | P0 | Restore and persistence | Rich saved session | Layout, cwd, history, and session identity after restart |
-| M06 | P0 | Live handoff and update | Long-running PTY and TCP listener | Process loss, duplicate ownership, stale sockets |
-| M07 | P0 | Real agent lifecycle | Grok Build and one established integration | Authentication, lifecycle reporting, parent state, restore |
-| M08 | P0 | Remote attach and bootstrap | Reachable Linux SSH host | Transport, bootstrap, compatibility prompt, reconnect |
-| M09 | P0 | Release artifacts | macOS arm64, Linux x86_64, Windows x86_64 | Interactive behavior of downloaded binaries |
-| M10 | P1 | Host bridges | macOS and Linux where available | Clipboard, URL, toast, notification, and sound helpers |
-| M11 | P1 | Mouse, responsive UI, external tools | Wide and narrow terminals | Drag geometry, compact layout, commands, ports |
-| M12 | P1 | Sleep, wake, and recovery | macOS laptop and abrupt client loss | Recovery under real OS lifecycle events |
+Each row is a `ReleaseQaClaim` with four fields. `milestone` is M01 through M07. `claim` is one user-visible behavior. `owner` is exactly `required-ci`, `trusted-canary`, or `manual-gui`. `evidence` names the exact workflow job and test selector, canary target, or manual procedure.
 
-## M01: First launch and core TUI
+| milestone | claim | owner | evidence |
+| --- | --- | --- | --- |
+| M01 | **M01-CI.** Supported layouts, menus, dialogs, focus states, and hit targets remain usable at tested terminal sizes. | required-ci | `CI / check (ubuntu-latest, macos-26)` via `pnpm turbo run ci:test --filter=gardn`; `ui::mobile::tests::mobile_group_dropdown_uses_compact_rows_counts_and_visible_separator`, `ui::command_palette::tests::command_palette_renders_one_close_affordance_and_run_action`, `ui::dialogs::tests::confirm_close_overlay_renders_empty_workspace`, and `ui::git_repo_picker::tests::git_repo_picker_hit_test_uses_rendered_repo_row` |
+| M01 | **M01-GUI.** First launch, focus, hover, and live resizing render correctly in real terminals. | manual-gui | [M01-GUI procedure](#m01-gui-first-launch-and-core-tui) |
+| M02 | **M02-CI.** Keyboard and mouse protocol input preserves literal keys, modifiers, event types, text, buttons, and coordinates. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `input::model::tests::keyboard_enhancement_flags_stay_ime_compatible`, `input::parse::tests::parse_kitty_sequence_with_associated_emoji_text`, `input::encode::tests::kitty_ctrl_slash_and_ctrl_underscore_remain_distinct`, and `input::encode::tests::sgr_mouse_scroll_encodes_wheel_button_and_coordinates` |
+| M02 | **M02-CI.** CJK text and Kitty graphics state preserve their deterministic cell and image data. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `ui::tabs::tests::tab_bar_renders_trailing_cjk_character`, `ghostty::tests::kitty_image_fingerprint_covers_full_payload`, and `ghostty::tests::kitty_image_fingerprint_refreshes_on_retransmission` |
+| M02 | **M02-GUI-INPUT.** macOS IME composition, CJK, emoji, and combining text align in a real terminal. | manual-gui | [M02-GUI input procedure](#m02-gui-terminal-input-and-output) |
+| M02 | **M02-GUI-OUTPUT.** A real mouse-reporting app, an OSC 8 link, and a Kitty image present and clear correctly. | manual-gui | [M02-GUI output procedure](#m02-gui-terminal-input-and-output) |
+| M03 | **M03-CI.** Detach, abrupt client loss, reattach, workload continuity, and named-session isolation work through public process and socket boundaries. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `detach_reattach::processes_survive_during_and_after_detach`, `detach_reattach::output_accumulated_while_detached_visible_on_reattach`, `server_headless::server_persists_after_client_disconnect`, and `cli_wrapper::named_sessions_use_separate_servers_and_workspace_state` |
+| M04 | **M04-CI.** Watchers cannot send pane input or resize until explicit takeover transfers input authority and PTY geometry. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `multi_client::multi_client_explicit_takeover_transfers_geometry_and_input_authority` |
+| M04 | **M04-CI.** Watcher focus, scrolling, search, and copy-mode state remain local to the invoking client. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `app::tests::watcher_focus_navigation_reveals_an_offscreen_canonical_pane`, `app::tests::route_client_events_for_view_mouse_wheel_scrolls_sidebar_and_terminal_client_locally`, `app::tests::route_client_events_for_view_pastes_navigator_search_only_into_invoking_client_view`, and `app::tests::eng57_client_copy_mode_escape_exits_client_opened_copy_mode` |
+| M04 | **M04-CI.** A controller disconnect leaves the watcher unpromoted, direct terminal attach rejects a second owner without takeover, and explicit takeover replaces the owner. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `multi_client::multi_client_controller_disconnect_leaves_watcher_free_without_promotion` and `server::headless::tests::terminal_attach_requires_explicit_takeover` |
+| M04 | **M04-CI.** Local API focus uses explicit tab identity and does not expose a transient takeover state on the foreground client. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `server::headless::tests::api_tab_focus_does_not_paint_take_control_on_the_foreground_client` |
+| M04 | **M04-GUI.** Different terminal windows crop or pad the controller canvas without a visual layout shift, and both app layouts expose the persistent **Take control** action. | manual-gui | [M04-GUI procedure](#m04-gui-two-live-app-clients) |
+| M05 | **M05-CI.** A clean cold restart restores labels, active targets, pane layout, zoom, cwd, history, and one persisted agent identity without automatic agent resume. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `cli_wrapper::server_stop_then_restart_restores_rich_session` |
+| M05 | **M05-CI.** Session snapshots preserve group name, icon, accent, membership, and filter state. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `persist::snapshot::tests::round_trip_groups_and_workspace_membership` |
+| M05 | **M05-GUI.** Restored focus is visually coherent when the release changes restore presentation. | manual-gui | [M05-GUI procedure](#m05-gui-restore-focus) |
+| M06 | **M06-CI.** Live handoff preserves one PTY master per pane, process input and output, HTTP listeners, named sockets, client handshake, and rollback. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `live_handoff::live_server_holds_one_pty_master_fd_per_pane`, `live_handoff::live_handoff_preserves_pane_process_io`, `live_handoff::live_handoff_preserves_python_http_server`, and `live_handoff::live_handoff_bad_expected_protocol_rolls_back_old_server` |
+| M07 | **M07-CI.** Installed Grok hooks map parent lifecycle events and suppress child idle and release events. | required-ci | `CI / check (ubuntu-latest, macos-26)`; `integration::tests::install_and_uninstall_grok_manage_lifecycle_hooks` and `integration::tests::grok_hook_reports_parent_lifecycle_and_ignores_child_completion` |
+| M07 | **M07-FIXTURES.** The pinned agent cohort and deterministic provider fixtures report the expected lifecycle states without provider credentials. | required-ci | `Agent Fixture Tests / checks`; `node --test ci/agent-tests/deterministic-provider.test.mjs` and both `ci/agent-tests/pi-omp-plugin-status-test.mjs` targets in `.github/workflows/agent-tests.yml` |
+| M07 | **M07-CANARY.** One established direct integration completes a real provider turn and exercises its installed blocked-state hook seam at the candidate SHA. | trusted-canary | A successful `Live Agent Tests` run for target `claude` or `codex`, linked in the release record with `head_sha` equal to the candidate SHA |
+| M07 | **M07-GROK.** The candidate integration works with an authenticated real Grok Build installation. | manual-gui | [M07-GROK procedure](#m07-grok-real-agent-lifecycle) |
 
-1. Use an isolated `gardn-dev` configuration or disposable OS user and a named QA session.
-2. Launch with no server, complete onboarding, and confirm the first shell is usable.
-3. Create two workspaces, a group, three tabs, and a three-pane layout.
-4. Navigate the sidebar, tabs, global menu, navigator, command palette, Settings, help, and confirmation dialogs once by keyboard and once by mouse.
+M03 and M06 have no manual residual. Their deterministic claims are complete when the required workflow evidence passes at the candidate SHA.
+
+## M01-GUI: First launch and core TUI
+
+1. Use an isolated `gardn-dev` configuration or a disposable OS user.
+2. Launch in Ghostty with no server. Complete onboarding and confirm that the first shell is usable.
+3. Open the sidebar, global menu, command palette, Settings, help, and one destructive confirmation dialog.
+4. Check keyboard focus, mouse hover, and visible hit targets.
 5. Resize from wide to approximately `60x20`, then return to wide.
+6. Repeat the presentation check in one non-Kitty terminal.
 
-Pass when no control becomes inaccessible or misleading, no stale hover or focus remains, the layout stays coherent, and destructive dialogs identify the correct target.
+Pass when no control becomes inaccessible or misleading, no stale hover or focus remains, and the layout stays coherent.
 
-## M02: Terminal input and output
+## M02-GUI: Terminal input and output
 
-1. Type and paste ASCII, multiline text, CJK, emoji, combining characters, and an IME-composed phrase into a shell and editor.
-2. Exercise arrows, modifiers, function keys, Kitty CSI-u input, and legacy application key modes in an editor or TUI.
-3. Produce long scrollback; scroll, search, enter copy mode, drag-select, double-click-select, and paste the copied result.
-4. Run a mouse-reporting application and test normal mouse handling plus configured right-click passthrough.
-5. Display an OSC 8 hyperlink and a Kitty image where supported.
+1. On macOS, compose a phrase with an IME in a shell and an editor.
+2. Type CJK, emoji, and combining characters. Confirm that the cursor and neighboring cells remain aligned.
+3. Run a mouse-reporting application. Check normal mouse handling and configured right-click passthrough.
+4. Open an OSC 8 hyperlink with the terminal's real pointer interaction.
+5. Display and clear a Kitty image in a compatible terminal.
 
-Pass when input has no dropped or duplicated bytes, character widths remain aligned, modifiers do not stick, selections and scroll position remain stable, and supported links and images render and clear correctly.
+Pass when composition loses no text, visual cell alignment remains correct, mouse input reaches the intended target, the link opens, and the image paints and clears.
 
-## M03: Detach, reattach, and named sessions
+## M04-GUI: Two live app clients
 
-1. Start a visible counter and a local HTTP listener in separate panes.
-2. Detach, wait for additional counter output, and reattach.
-3. Open a second named session and verify its workspaces and processes are isolated.
-4. Close one client abruptly, reconnect, and verify both workloads remain alive.
+1. Attach a wide desktop terminal and a materially narrower terminal to the same tab.
+2. Keep one client as the watcher. Confirm that its viewport crops or pads the controller-sized canvas without moving the layout.
+3. Confirm that both desktop and mobile layouts show the persistent **Take control** action.
+4. Use **Take control** from the watcher. Confirm that the transition is visible and the canvas changes to the new controller's dimensions.
 
-Pass when output advances while detached, pane targets remain usable, the server survives client loss, and no state crosses named-session boundaries.
+Pass when the watcher presentation remains stable before takeover and only explicit takeover changes the controller presentation.
 
-## M04: Two live app clients
+## M05-GUI: Restore focus
 
-1. Attach two real app clients with materially different dimensions, including a wide desktop viewport and a narrow/mobile viewport. Create or identify one stable tab.
-2. Have client A claim the free tab, then attach client B to that same tab. Confirm A is the controller and B is a view-only watcher. Switch B to another free tab and confirm it may claim that tab, then return to the tab controlled by A.
-3. In B, navigate and focus panes, scroll, search, and use copy mode. Resize B and send focus, mouse, and keyboard input while it watches A's tab. Confirm those actions remain client-local and do not change the controller's PTY size or terminal content; the watcher viewport crops or pads the controller-sized canvas without a layout shift.
-4. From the watcher, use `prefix+t` to take control and confirm that B becomes the controller and the canonical PTY resizes to B's dimensions. Repeat takeover from the persistent desktop/mobile **Take control** action and confirm the same explicit transition.
-5. Have the controller navigate to another tab. Confirm control is released and the remaining watcher is not auto-promoted; it must explicitly take control before resizing or sending tab input.
-6. Disconnect the controller while a watcher remains connected. Confirm the tab is unowned, the watcher remains view-only, and explicit takeover is required.
-7. Directly attach to the tab's terminal from another client and confirm terminal-level exclusivity remains in force; only the direct attach takeover flow can replace its attach owner. Exercise a Local API request and a system-automation request with explicit tab/pane ids while the tab is interactively occupied, and confirm both succeed without claiming or changing the interactive controller.
-8. Detach each app client independently.
+Run this check only when the release changes restore presentation or focus rendering.
 
-Pass when the first-client/free-tab and explicit-takeover rules are visible, watcher navigation/scroll/copy/search and differing dimensions stay local, no layout shifts occur before takeover, takeover alone changes canonical PTY size, navigation/disconnect release without auto-promotion, direct attach remains terminal-exclusive, and Local API/system automation bypasses interactive Tab Control.
+1. Stop a session with a non-default active tab and pane.
+2. Restart the session.
+3. Confirm that the visible active tab, pane border, and cursor focus agree.
 
-## M05: Restore and persistence
+Pass when Gardn shows one unambiguous restored focus target.
 
-1. Build a session containing groups, custom accents or icons, several workspaces and tabs, split layouts, zoom, cwd changes, labels, scrollback, and a resumable agent session.
-2. Record the visible state, stop the server cleanly, and relaunch the same session.
-3. Verify layout, active targets, cwd, labels, history, and agent identity.
-4. Resume the agent and verify conversation continuity without replayed pane-history noise.
+## M07-GROK: Real agent lifecycle
 
-Pass when no workspace is lost, active tabs and panes remain correct, cwd and labels persist, focus remains coherent, and the agent session is neither lost nor duplicated.
+The pinned agent fixture image does not install Grok from a mutable network installer. Use an existing authenticated Grok Build installation.
 
-## M06: Live handoff and update
+1. Install the candidate Grok integration through Settings and confirm that its status is current.
+2. Submit a prompt, run a tool, trigger a permission or elicitation block, compact, run a subagent, reach idle, and end the session.
+3. Confirm that Gardn shows the parent as working, blocked, idle, and released at the matching times.
+4. Confirm that child completion never idles or releases the parent.
+5. Restart or restore Gardn and confirm that the native Grok session identity remains available.
+6. Uninstall the integration and confirm that Gardn removes only its own hook files.
 
-1. Run a counter, an interactive shell, and a TCP listener with a recognizable response.
-2. Perform the supported handoff or update from the current binary to the candidate binary.
-3. During and after handoff, probe the listener, type into the shell, and confirm counter continuity.
-4. Reattach a fresh client and inspect status and logs.
-
-Pass when PTYs and the listener survive, every pane has one owner, input remains live, output is not duplicated, and no stale socket or surprise restart appears.
-
-## M07: Real agent lifecycle
-
-1. Install the candidate Grok Build integration through Settings and confirm its status is current.
-2. Launch real Grok Build and exercise prompt submission, a tool call, a permission or elicitation block, compaction, a subagent, stop or idle, and session end.
-3. Verify Gardn's working, blocked, idle, and release transitions. Verify child completion never idles or releases the parent and the pane is never labeled as another agent.
-4. Restart or restore and verify native Grok session continuity.
-5. Repeat the core working, blocked, and idle path with an established direct integration such as Claude Code or Codex.
-6. Uninstall Grok and verify manifest detection remains a usable fallback and missing-integration guidance is accurate.
-
-Pass when state matches the visible agent, identity remains stable, restore works, and install or uninstall changes only Gardn-owned integration files.
+Pass when state follows the visible parent agent, identity remains stable, restore works, and install or uninstall changes only Gardn-owned files.
 
 ## M08: Remote attach and managed worker lifecycle
 
@@ -121,7 +115,7 @@ Pass when prompts are accurate, transport loss and coordinator restart do not lo
 
 ## M09: Downloaded release artifacts
 
-Use downloaded release artifacts rather than local Cargo builds.
+Use downloaded release artifacts, not local Cargo builds.
 
 1. On macOS arm64, Linux x86_64, and Windows x86_64, verify the filename and checksum, executable launch, `--version`, status, first server start, and interactive shell input.
 2. Exercise create, split, detach, and reattach once on each platform.
@@ -161,12 +155,17 @@ Pass when the server and workloads survive, sockets recover, no stuck mouse or i
 
 ## Release gate
 
-A release is manually cleared when:
+Before tagging, require all of the following evidence against the exact candidate SHA:
 
-- M01-M08 pass against the release candidate, including the M08 attach, worker update, and retirement paths against a real Linux SSH host
-- M09 passes against the published macOS arm64, Linux x86_64, and Windows x86_64 artifacts
-- the published macOS x86_64 and Linux aarch64 artifacts launch and report the correct version on native hardware or supported emulation
-- no unresolved failure risks data or process loss, wrong input targeting, unsafe destructive action, unusable rendering, broken restore, or release artifact startup
-- every P1 failure has a linked issue and an explicit ship or no-ship decision
+- successful CI and Agent Fixture Tests workflow runs
+- a linked successful trusted canary run
+- every applicable `manual-gui` claim
+- M08 against a real Linux SSH host
+- each selected M10 through M12 check
+- no unresolved failure that risks data, process continuity, input targeting, destructive actions, restore, or release startup
+
+The tag-triggered Release workflow reruns CI and Agent Fixture Tests as local reusable workflows at the tag SHA. The publication job waits for both. The Release workflow does not run or enforce the trusted canary.
+
+After publication, run M09 against the downloaded artifacts. Record the artifact checksums and M09 results before clearing the release.
 
 After preserving evidence, remove QA sessions, integrations, and remote test state.

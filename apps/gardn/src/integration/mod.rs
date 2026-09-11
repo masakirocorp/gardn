@@ -7133,37 +7133,53 @@ model: auto
             fs::read_to_string(&installed.hook_path).unwrap(),
             GROK_HOOK_ASSET
         );
-        for event in [
-            "SessionStart",
-            "UserPromptSubmit",
-            "SubagentStart",
-            "PreCompact",
-            "PostCompact",
-            "PreToolUse",
-            "PostToolUse",
-            "PostToolUseFailure",
-            "PermissionDenied",
-            "Notification",
-            "Stop",
-            "StopFailure",
-            "SessionEnd",
+        fn command_action(hook: &Value) -> Option<&str> {
+            hook["command"].as_str()?.split_whitespace().last()
+        }
+
+        let expected_hooks: &[(&str, &[&str])] = &[
+            ("SessionStart", &["session", "idle"]),
+            ("UserPromptSubmit", &["working"]),
+            ("SubagentStart", &["working"]),
+            ("PreCompact", &["working"]),
+            ("PostCompact", &["working"]),
+            ("PreToolUse", &["working"]),
+            ("PostToolUse", &["working"]),
+            ("PostToolUseFailure", &["working"]),
+            ("PermissionDenied", &["working"]),
+            ("Stop", &["idle"]),
+            ("StopFailure", &["idle"]),
+            ("SessionEnd", &["release"]),
+        ];
+        for (event, expected_actions) in expected_hooks {
+            let groups = config["hooks"][event]
+                .as_array()
+                .unwrap_or_else(|| panic!("missing {event} hooks"));
+            let actions: Vec<_> = groups
+                .iter()
+                .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
+                .map(|hook| command_action(hook).expect("hook command action"))
+                .collect();
+            assert_eq!(actions, *expected_actions, "unexpected {event} actions");
+        }
+        let notifications = config["hooks"]["Notification"].as_array().unwrap();
+        assert_eq!(notifications.len(), 2);
+        for (index, matcher, action) in [
+            (0, "permission_prompt|elicitation_dialog", "blocked"),
+            (1, "idle_prompt", "idle"),
         ] {
-            assert!(config["hooks"].get(event).is_some(), "missing {event}");
+            assert_eq!(
+                notifications[index]["matcher"], matcher,
+                "unexpected Notification matcher"
+            );
+            assert_eq!(
+                command_action(&notifications[index]["hooks"][0]),
+                Some(action),
+                "unexpected Notification action"
+            );
         }
         assert_eq!(
-            config["hooks"]["SessionStart"][0]["hooks"][0]["command"]
-                .as_str()
-                .unwrap()
-                .split_whitespace()
-                .last(),
-            Some("session")
-        );
-        assert_eq!(
-            config["hooks"]["SessionEnd"][0]["hooks"][0]["command"]
-                .as_str()
-                .unwrap()
-                .split_whitespace()
-                .last(),
+            command_action(&config["hooks"]["SessionEnd"][0]["hooks"][0]),
             Some("release")
         );
 
@@ -7180,7 +7196,7 @@ model: auto
 
     #[cfg(unix)]
     #[test]
-    fn grok_hook_reports_parent_lifecycle_and_ignores_subagent_stop() {
+    fn grok_hook_reports_parent_lifecycle_and_ignores_child_completion() {
         use std::io::{BufRead, BufReader, Write};
         use std::os::unix::net::UnixListener;
         use std::process::{Command, Stdio};
@@ -7218,6 +7234,44 @@ model: auto
             request
         }
 
+        fn assert_hook_does_not_connect(
+            hook_path: &Path,
+            case_name: &str,
+            action: &str,
+            payload: &str,
+        ) {
+            let socket_path = std::env::temp_dir()
+                .join(format!("gardn-grok-{}-ignored.sock", std::process::id()));
+            let _ = fs::remove_file(&socket_path);
+            let listener = UnixListener::bind(&socket_path).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let mut child = Command::new("sh")
+                .arg(hook_path)
+                .arg(action)
+                .env("GARDN_ENV", "1")
+                .env("GARDN_PANE_ID", "pane-7")
+                .env("GARDN_SOCKET_PATH", &socket_path)
+                .stdin(Stdio::piped())
+                .spawn()
+                .unwrap();
+            child
+                .stdin
+                .take()
+                .unwrap()
+                .write_all(payload.as_bytes())
+                .unwrap();
+            assert!(child.wait().unwrap().success(), "{case_name}");
+            assert!(
+                matches!(
+                    listener.accept(),
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock
+                ),
+                "{case_name} unexpectedly connected to Gardn"
+            );
+            drop(listener);
+            let _ = fs::remove_file(socket_path);
+        }
+
         let _lock = integration_env_lock();
         let _path_env = clear_integration_path_env();
         let base = unique_base();
@@ -7236,50 +7290,91 @@ model: auto
         assert_eq!(session["params"]["agent"], "grok");
         assert_eq!(session["params"]["agent_session_id"], "grok-session");
 
-        for (action, expected_method, expected_state) in [
-            ("working", "pane.report_agent", Some("working")),
-            ("blocked", "pane.report_agent", Some("blocked")),
-            ("idle", "pane.report_agent", Some("idle")),
-            ("release", "pane.release_agent", None),
+        for (case_name, action, expected_method, expected_state) in [
+            (
+                "working state",
+                "working",
+                "pane.report_agent",
+                Some("working"),
+            ),
+            (
+                "blocked state",
+                "blocked",
+                "pane.report_agent",
+                Some("blocked"),
+            ),
+            ("idle state", "idle", "pane.report_agent", Some("idle")),
+            ("release", "release", "pane.release_agent", None),
         ] {
             let request = run_hook(
                 &installed.hook_path,
                 action,
                 r#"{"hookEventName":"Stop","sessionId":"grok-session"}"#,
             );
-            assert_eq!(request["method"], expected_method);
-            assert_eq!(request["params"]["state"].as_str(), expected_state);
+            assert_eq!(request["method"], expected_method, "{case_name}");
+            assert_eq!(
+                request["params"]["state"].as_str(),
+                expected_state,
+                "{case_name}"
+            );
         }
 
-        let ignored_socket_path =
-            std::env::temp_dir().join(format!("gardn-grok-{}-ignored.sock", std::process::id()));
-        let _ = fs::remove_file(&ignored_socket_path);
-        let ignored_listener = UnixListener::bind(&ignored_socket_path).unwrap();
-        ignored_listener.set_nonblocking(true).unwrap();
-        let mut ignored = Command::new("sh")
-            .arg(&installed.hook_path)
-            .arg("idle")
-            .env("GARDN_ENV", "1")
-            .env("GARDN_PANE_ID", "pane-7")
-            .env("GARDN_SOCKET_PATH", &ignored_socket_path)
-            .stdin(Stdio::piped())
-            .spawn()
-            .unwrap();
-        ignored
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(
-                br#"{"hookEventName":"SubagentStop","agentId":"child","sessionId":"grok-session"}"#,
-            )
-            .unwrap();
-        assert!(ignored.wait().unwrap().success());
-        assert!(matches!(
-            ignored_listener.accept(),
-            Err(error) if error.kind() == io::ErrorKind::WouldBlock
-        ));
-        drop(ignored_listener);
-        let _ = fs::remove_file(ignored_socket_path);
+        for event in ["PreCompact", "PostCompact"] {
+            let payload = format!(r#"{{"hookEventName":"{event}","sessionId":"grok-session"}}"#);
+            let request = run_hook(&installed.hook_path, "working", &payload);
+            assert_eq!(request["method"], "pane.report_agent", "{event}");
+            assert_eq!(request["params"]["state"], "working", "{event}");
+        }
+
+        for notification_type in ["permission_prompt", "elicitation_dialog"] {
+            let payload = format!(
+                r#"{{"hookEventName":"Notification","notificationType":"{notification_type}","sessionId":"grok-session"}}"#
+            );
+            let request = run_hook(&installed.hook_path, "blocked", &payload);
+            assert_eq!(
+                request["method"], "pane.report_agent",
+                "{notification_type}"
+            );
+            assert_eq!(request["params"]["state"], "blocked", "{notification_type}");
+        }
+        let idle_notification = run_hook(
+            &installed.hook_path,
+            "idle",
+            r#"{"hookEventName":"Notification","notificationType":"idle_prompt","sessionId":"grok-session"}"#,
+        );
+        assert_eq!(idle_notification["method"], "pane.report_agent");
+        assert_eq!(idle_notification["params"]["state"], "idle");
+
+        for (case_name, action, payload) in [
+            (
+                "subagent-stop",
+                "idle",
+                r#"{"hookEventName":"SubagentStop","agentId":"child","sessionId":"grok-session"}"#,
+            ),
+            (
+                "child-idle",
+                "idle",
+                r#"{"hookEventName":"Stop","agentId":"child","sessionId":"grok-session"}"#,
+            ),
+            (
+                "child-release",
+                "release",
+                r#"{"hookEventName":"SessionEnd","agentId":"child","sessionId":"grok-session"}"#,
+            ),
+            (
+                "unrelated-blocked-notification",
+                "blocked",
+                r#"{"hookEventName":"Notification","notificationType":"progress","sessionId":"grok-session"}"#,
+            ),
+            (
+                "unrelated-idle-notification",
+                "idle",
+                r#"{"hookEventName":"Notification","notificationType":"progress","sessionId":"grok-session"}"#,
+            ),
+        ] {
+            assert_hook_does_not_connect(&installed.hook_path, case_name, action, payload);
+        }
+
         let _ = fs::remove_dir_all(base);
     }
 

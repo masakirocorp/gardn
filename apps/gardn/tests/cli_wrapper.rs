@@ -116,7 +116,7 @@ fn spawn_gardn(config_home: &Path, runtime_dir: &Path, socket_path: &Path) -> Sp
     )
 }
 
-fn spawn_gardn_with_pane_history(
+fn spawn_gardn_for_rich_session_restore(
     config_home: &Path,
     runtime_dir: &Path,
     socket_path: &Path,
@@ -126,7 +126,7 @@ fn spawn_gardn_with_pane_history(
         runtime_dir,
         socket_path,
         None,
-        "onboarding = false\n[experimental]\npane_history = true\n",
+        "onboarding = false\n[session]\nresume_agents_on_restore = false\n[experimental]\npane_history = true\n",
     )
 }
 
@@ -1710,36 +1710,114 @@ fn server_stop_command_shuts_down_running_server() {
 }
 
 #[test]
-fn server_stop_then_restart_restores_pane_history() {
+fn server_stop_then_restart_restores_rich_session() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
     let socket_path = runtime_dir.join("gardn.sock");
     let client_socket = runtime_dir.join("gardn-client.sock");
-    let marker = "PERSISTED_HISTORY_AFTER_STOP";
+    let persisted_cwd = base.join("persisted-cwd");
+    let workspace_label = "rich-restart";
+    let tab_label = "durable-second-tab";
+    let pane_label = "durable-split-pane";
+    let agent_session_id = "grok-rich-restart-session";
+    let history_marker = "PERSISTED_HISTORY_AFTER_STOP";
+    fs::create_dir_all(&persisted_cwd).unwrap();
 
-    let mut gardn = spawn_gardn_with_pane_history(&config_home, &runtime_dir, &socket_path);
+    let mut gardn = spawn_gardn_for_rich_session_restore(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
-    let created = run_cli_json(
+    let persisted_cwd = persisted_cwd
+        .to_str()
+        .expect("test path should be utf-8")
+        .to_string();
+    let created_workspace = run_cli_json(
         &socket_path,
         &[
             "workspace",
             "create",
             "--cwd",
-            base.to_str().expect("test path should be utf-8"),
+            &persisted_cwd,
             "--label",
-            "history-restart",
+            workspace_label,
+            "--focus",
         ],
     );
-    let pane_id = created["result"]["root_pane"]["pane_id"]
+    let workspace_id = created_workspace["result"]["workspace"]["workspace_id"]
         .as_str()
-        .expect("workspace create should return root pane id")
+        .expect("workspace create should return workspace id")
         .to_string();
+    let created_tab = run_cli_json(
+        &socket_path,
+        &[
+            "tab",
+            "create",
+            "--workspace",
+            &workspace_id,
+            "--cwd",
+            &persisted_cwd,
+            "--label",
+            tab_label,
+            "--focus",
+        ],
+    );
+    let second_root_pane_id = created_tab["result"]["root_pane"]["pane_id"]
+        .as_str()
+        .expect("tab create should return root pane id")
+        .to_string();
+    let split = run_cli_json(
+        &socket_path,
+        &[
+            "pane",
+            "split",
+            &second_root_pane_id,
+            "--direction",
+            "right",
+            "--ratio",
+            "0.35",
+            "--cwd",
+            &persisted_cwd,
+            "--focus",
+        ],
+    );
+    let split_pane_id = split["result"]["pane"]["pane_id"]
+        .as_str()
+        .expect("pane split should return pane id")
+        .to_string();
+    run_cli_json(
+        &socket_path,
+        &["pane", "rename", &split_pane_id, pane_label],
+    );
+    let zoomed = run_cli_json(&socket_path, &["pane", "zoom", &split_pane_id, "--on"]);
+    assert_eq!(zoomed["result"]["zoom"]["zoomed"], true);
+    let reported_session = run_cli(
+        &socket_path,
+        &[
+            "pane",
+            "report-agent-session",
+            &split_pane_id,
+            "--source",
+            "gardn:grok",
+            "--agent",
+            "grok",
+            "--agent-session-id",
+            agent_session_id,
+        ],
+    );
+    assert!(
+        reported_session.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&reported_session.stderr)
+    );
     let sent = run_cli(
         &socket_path,
-        &["pane", "send-text", &pane_id, &format!("echo {marker}\n")],
+        &[
+            "pane",
+            "send-text",
+            &split_pane_id,
+            "printf 'PERSISTED_%s_AFTER_STOP\\n' HISTORY\n",
+        ],
     );
     assert!(
         sent.status.success(),
@@ -1748,9 +1826,9 @@ fn server_stop_then_restart_restores_pane_history() {
     );
     assert!(
         wait_until(Duration::from_secs(3), Duration::from_millis(25), || {
-            pane_read_recent_contains(&socket_path, &pane_id, marker)
+            pane_read_recent_contains(&socket_path, &split_pane_id, history_marker)
         }),
-        "pane should contain marker before server stop"
+        "pane should contain literal history marker before server stop"
     );
 
     let stopped = run_cli(&socket_path, &["server", "stop"]);
@@ -1766,36 +1844,118 @@ fn server_stop_then_restart_restores_pane_history() {
     assert!(exit_status.success(), "server stop should exit cleanly");
     drop(gardn);
 
-    let restarted = spawn_gardn_with_pane_history(&config_home, &runtime_dir, &socket_path);
+    let restarted = spawn_gardn_for_rich_session_restore(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
     let workspaces = run_cli_json(&socket_path, &["workspace", "list"]);
-    let workspace_id = workspaces["result"]["workspaces"]
+    let restored_workspaces = workspaces["result"]["workspaces"]
         .as_array()
-        .expect("workspace.list should return workspaces")
+        .expect("workspace list should return workspaces");
+    assert_eq!(
+        restored_workspaces.len(),
+        1,
+        "cold restart should restore one workspace: {restored_workspaces:?}"
+    );
+    let restored_workspace = &restored_workspaces[0];
+    assert_eq!(restored_workspace["label"], workspace_label);
+    assert_eq!(restored_workspace["tab_count"], 2);
+    assert_eq!(restored_workspace["pane_count"], 3);
+    let restored_workspace_id = restored_workspace["workspace_id"]
+        .as_str()
+        .expect("restored workspace should have an id");
+
+    let tabs = run_cli_json(
+        &socket_path,
+        &["tab", "list", "--workspace", restored_workspace_id],
+    );
+    let restored_tabs = tabs["result"]["tabs"]
+        .as_array()
+        .expect("tab list should return tabs");
+    assert_eq!(
+        restored_tabs.len(),
+        2,
+        "cold restart should restore two tabs: {restored_tabs:?}"
+    );
+    let matching_tabs: Vec<_> = restored_tabs
         .iter()
-        .find(|workspace| workspace["label"] == "history-restart")
-        .and_then(|workspace| workspace["workspace_id"].as_str())
-        .expect("restored workspace should exist")
-        .to_string();
+        .filter(|tab| tab["label"] == tab_label)
+        .collect();
+    assert_eq!(
+        matching_tabs.len(),
+        1,
+        "cold restart should restore one labeled second tab: {restored_tabs:?}"
+    );
+    let restored_second_tab = matching_tabs[0];
+    assert_eq!(restored_second_tab["pane_count"], 2);
+    assert_eq!(
+        restored_workspace["active_tab_id"],
+        restored_second_tab["tab_id"]
+    );
+
     let panes = run_cli_json(
         &socket_path,
-        &["pane", "list", "--workspace", &workspace_id],
+        &["pane", "list", "--workspace", restored_workspace_id],
     );
-    let restored_pane_id = panes["result"]["panes"]
+    let restored_panes = panes["result"]["panes"]
         .as_array()
-        .expect("pane.list should return panes")
-        .first()
-        .and_then(|pane| pane["pane_id"].as_str())
-        .expect("restored pane should exist")
-        .to_string();
+        .expect("pane list should return panes");
+    assert_eq!(
+        restored_panes.len(),
+        3,
+        "cold restart should restore three panes: {restored_panes:?}"
+    );
+    let matching_panes: Vec<_> = restored_panes
+        .iter()
+        .filter(|pane| pane["label"] == pane_label)
+        .collect();
+    assert_eq!(
+        matching_panes.len(),
+        1,
+        "cold restart should restore one labeled split pane: {restored_panes:?}"
+    );
+    let restored_split_pane = matching_panes[0];
+    let restored_split_pane_id = restored_split_pane["pane_id"]
+        .as_str()
+        .expect("restored split pane should have an id");
+    assert_eq!(restored_split_pane["tab_id"], restored_second_tab["tab_id"]);
+    assert_eq!(restored_split_pane["cwd"], persisted_cwd);
+
+    let layout = run_cli_json(
+        &socket_path,
+        &["pane", "layout", "--pane", restored_split_pane_id],
+    );
+    let restored_layout = &layout["result"]["layout"];
+    assert_eq!(restored_layout["workspace_id"], restored_workspace_id);
+    assert_eq!(restored_layout["tab_id"], restored_second_tab["tab_id"]);
+    assert_eq!(restored_layout["panes"].as_array().unwrap().len(), 2);
+    assert_eq!(restored_layout["splits"].as_array().unwrap().len(), 1);
+    assert_eq!(restored_layout["splits"][0]["direction"], "right");
+    assert_eq!(restored_layout["splits"][0]["ratio"], 0.35);
+    assert_eq!(restored_layout["zoomed"], true);
+    assert_eq!(restored_layout["focused_pane_id"], restored_split_pane_id);
+
+    let matching_sessions: Vec<_> = restored_panes
+        .iter()
+        .filter(|pane| {
+            pane["agent_session"]["source"] == "gardn:grok"
+                && pane["agent_session"]["agent"] == "grok"
+                && pane["agent_session"]["kind"] == "id"
+                && pane["agent_session"]["value"] == agent_session_id
+        })
+        .collect();
+    assert_eq!(
+        matching_sessions.len(),
+        1,
+        "cold restart should restore exactly one Grok session identity: {restored_panes:?}"
+    );
+    assert_eq!(matching_sessions[0]["pane_id"], restored_split_pane_id);
 
     assert!(
         wait_until(Duration::from_secs(3), Duration::from_millis(25), || {
-            pane_read_recent_contains(&socket_path, &restored_pane_id, marker)
+            pane_read_recent_contains(&socket_path, restored_split_pane_id, history_marker)
         }),
-        "restarted server should restore saved pane history"
+        "cold restart should restore literal pane history"
     );
 
     cleanup_spawned_gardn(restarted, base);

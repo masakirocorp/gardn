@@ -805,6 +805,110 @@ fn multi_client_smaller_watcher_join_does_not_resize_controller_canvas() {
 }
 
 #[test]
+fn multi_client_explicit_takeover_transfers_geometry_and_input_authority() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let api_socket = runtime_dir.join("gardn.sock");
+    let client_socket = runtime_dir.join("gardn-client.sock");
+
+    let server = spawn_server(&config_home, &runtime_dir, &api_socket);
+    wait_for_socket(&api_socket, Duration::from_secs(10));
+    wait_for_file(&client_socket, Duration::from_secs(10));
+
+    let (_workspace_id, pane_id) = create_workspace_and_root_pane(&api_socket, "explicit-takeover");
+
+    let mut controller = connect_raw_client(&client_socket, 120, 40);
+    assert!(wait_for_frame(&mut controller, Duration::from_secs(2)));
+    let controller_size = read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5));
+
+    let mut watcher = connect_raw_client(&client_socket, 80, 24);
+    assert!(wait_for_frame(&mut watcher, Duration::from_secs(2)));
+    drain_server_messages(&mut watcher, Duration::from_millis(300));
+
+    send_client_input(&mut watcher, b"printf 'WATCHER_%s\\n' INPUT_REJECTED\n");
+    send_client_resize(&mut watcher, 80, 24);
+    send_client_input(&mut watcher, b"\x02");
+
+    assert!(
+        wait_for_frame_matching(&mut watcher, Duration::from_secs(5), |frame| {
+            frame_contains_text(frame, "Prefix")
+        })
+        .expect("prefix frame decoding should succeed"),
+        "watcher should enter the configured prefix mode"
+    );
+    assert_eq!(
+        read_pane_tty_size(&api_socket, &pane_id, Duration::from_secs(5)),
+        controller_size,
+        "watcher input and resize must not change the controller-owned canonical PTY"
+    );
+
+    send_client_input(&mut watcher, b"t");
+
+    let expected_watcher_size = (22, 53);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut watcher_size = None;
+    while Instant::now() < deadline {
+        watcher_size = try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(400));
+        if watcher_size == Some(expected_watcher_size) {
+            break;
+        }
+        thread::sleep(Duration::from_millis(60));
+    }
+    assert_eq!(
+        watcher_size,
+        Some(expected_watcher_size),
+        "takeover should publish the 80x24 watcher's canonical PTY geometry"
+    );
+
+    send_client_input(&mut watcher, b"printf 'WATCHER_%s\\n' INPUT_ACCEPTED\n");
+    assert!(
+        pane_read_recent_contains(
+            &api_socket,
+            &pane_id,
+            "WATCHER_INPUT_ACCEPTED",
+            Duration::from_secs(5),
+        ),
+        "the new controller's input should reach the pane"
+    );
+    assert!(
+        !pane_read_recent(&api_socket, &pane_id, 200).contains("WATCHER_INPUT_REJECTED"),
+        "watcher input must not reach the pane before takeover"
+    );
+
+    drain_server_messages(&mut controller, Duration::from_millis(300));
+    send_client_input(
+        &mut controller,
+        b"printf 'FORMER_CONTROLLER_%s\\n' INPUT_REJECTED\n",
+    );
+    send_client_input(&mut controller, b"\x02");
+    assert!(
+        wait_for_frame_matching(&mut controller, Duration::from_secs(5), |frame| {
+            frame_contains_text(frame, "Prefix")
+        })
+        .expect("former-controller frame decoding should succeed"),
+        "the former controller should remain connected as a watcher"
+    );
+    send_client_input(&mut watcher, b"printf 'POST_TAKEOVER_%s\n' BARRIER\n");
+    assert!(
+        pane_read_recent_contains(
+            &api_socket,
+            &pane_id,
+            "POST_TAKEOVER_BARRIER",
+            Duration::from_secs(5),
+        ),
+        "the current controller should synchronize former-controller rejection"
+    );
+    assert!(
+        !pane_read_recent(&api_socket, &pane_id, 200).contains("FORMER_CONTROLLER_INPUT_REJECTED"),
+        "former-controller input must not reach the pane after takeover"
+    );
+
+    cleanup_spawned_gardn(server, base);
+}
+
+#[test]
 fn multi_client_eventually_broadcasts_frame_updates_to_all_clients() {
     let _lock = test_lock();
     let base = unique_test_dir();

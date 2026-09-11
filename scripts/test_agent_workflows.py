@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -81,6 +82,50 @@ class AgentTestWorkflowTests(unittest.TestCase):
             self.assertIn(f'"{target}"', matrix)
             self.assertIn(f"gardn-agent-tests-{target}-status", (self.repo_root / "ci/agent-tests/run-target.sh").read_text())
 
+    def test_release_reuses_fork_safe_workflows_before_publication(self):
+        ci_workflow = (self.repo_root / ".github/workflows/ci.yml").read_text()
+        fixture_workflow = (
+            self.repo_root / ".github/workflows/agent-tests.yml"
+        ).read_text()
+        release_workflow = (
+            self.repo_root / ".github/workflows/release.yml"
+        ).read_text()
+
+        for workflow in (ci_workflow, fixture_workflow):
+            self.assertIn("  pull_request:", workflow)
+            self.assertIn("  workflow_call:", workflow)
+            self.assertNotIn("pull_request_target:", workflow)
+            self.assertIn("permissions:\n  contents: read", workflow)
+            self.assertEqual(
+                workflow.count("uses: actions/checkout@"),
+                workflow.count("persist-credentials: false"),
+            )
+
+        self.assertNotIn("${{ secrets.", fixture_workflow)
+        self.assertRegex(
+            release_workflow,
+            r"(?m)^  required-ci:\n    uses: \./\.github/workflows/ci\.yml$",
+        )
+        self.assertRegex(
+            release_workflow,
+            r"(?m)^  agent-fixtures:\n    uses: \./\.github/workflows/agent-tests\.yml$",
+        )
+        self.assertNotIn("secrets: inherit", release_workflow)
+
+        publication = re.search(
+            r"(?m)^  release:\n    needs: \[([^\]]+)\]$",
+            release_workflow,
+        )
+        self.assertIsNotNone(publication)
+        self.assertEqual(
+            {
+                dependency.strip()
+                for dependency in publication.group(1).split(",")
+            },
+            {"build", "flake-check", "macos-app", "required-ci", "agent-fixtures"},
+        )
+
+
     def test_qwen_and_kilo_image_contract_is_complete(self):
         dockerfile = (self.repo_root / "ci/agent-tests/Dockerfile").read_text()
         doctor = (self.repo_root / "ci/agent-tests/doctor.sh").read_text()
@@ -115,6 +160,7 @@ class AgentTestWorkflowTests(unittest.TestCase):
         self.assertIn('export OPENAI_BASE_URL="$openrouter_base"', model_helpers)
         self.assertIn('export KILO_AUTH_CONTENT="$OPENCODE_AUTH_CONTENT"', model_helpers)
         self.assertIn('"@qwen-code/audio-capture": false', dockerfile)
+        self.assertIn('"esbuild": true', dockerfile)
 
     def test_target_dispatcher_runs_exactly_one_agent(self):
         dispatcher = self.repo_root / "ci/agent-tests/run-target.sh"

@@ -5917,6 +5917,118 @@ next_tab = ""
     }
 
     #[tokio::test]
+    async fn terminal_attach_requires_explicit_takeover() {
+        let mut server = test_headless_server();
+        let workspace = crate::workspace::Workspace::test_new("attached");
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        let terminal_id = workspace
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        let terminal_id_string = terminal_id.to_string();
+        server.app.state.workspaces = vec![workspace];
+        server.app.state.ensure_test_terminals();
+        server.app.terminal_runtimes.insert(
+            terminal_id,
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b""),
+        );
+
+        let (first_writer, first_control_rx, _first_render_rx) = test_client_writer();
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 7,
+            cols: 80,
+            rows: 24,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::TerminalAnsi,
+            keybindings: None,
+            direct_attach_requested: true,
+            direct_graphics: false,
+            writer: first_writer,
+        }));
+        assert!(
+            server.handle_server_event(ServerEvent::ClientAttachTerminal {
+                client_id: 7,
+                terminal_id: terminal_id_string.clone(),
+                takeover: false,
+            })
+        );
+
+        let (second_writer, second_control_rx, _second_render_rx) = test_client_writer();
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 8,
+            cols: 100,
+            rows: 30,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::TerminalAnsi,
+            keybindings: None,
+            direct_attach_requested: true,
+            direct_graphics: false,
+            writer: second_writer,
+        }));
+        assert!(
+            !server.handle_server_event(ServerEvent::ClientAttachTerminal {
+                client_id: 8,
+                terminal_id: terminal_id_string.clone(),
+                takeover: false,
+            })
+        );
+        assert_eq!(
+            read_server_shutdown_reason(
+                second_control_rx
+                    .recv()
+                    .expect("second client shutdown message")
+            ),
+            Some(format!(
+                "terminal attach failed: terminal {terminal_id_string} already has an attached client; retry with --takeover"
+            ))
+        );
+        assert_eq!(
+            server.terminal_attach_owners.get(&terminal_id_string),
+            Some(&7)
+        );
+        assert!(server.clients.contains_key(&7));
+        assert!(!server.clients.contains_key(&8));
+
+        let (third_writer, _third_control_rx, _third_render_rx) = test_client_writer();
+        assert!(server.handle_server_event(ServerEvent::ClientConnected {
+            client_id: 9,
+            cols: 100,
+            rows: 30,
+            cell_width_px: 0,
+            cell_height_px: 0,
+            render_encoding: RenderEncoding::TerminalAnsi,
+            keybindings: None,
+            direct_attach_requested: true,
+            direct_graphics: false,
+            writer: third_writer,
+        }));
+        assert!(
+            server.handle_server_event(ServerEvent::ClientAttachTerminal {
+                client_id: 9,
+                terminal_id: terminal_id_string.clone(),
+                takeover: true,
+            })
+        );
+        assert_eq!(
+            read_server_shutdown_reason(
+                first_control_rx
+                    .recv()
+                    .expect("first client takeover message")
+            ),
+            Some("terminal attach taken over".to_owned())
+        );
+        assert_eq!(
+            server.terminal_attach_owners.get(&terminal_id_string),
+            Some(&9)
+        );
+        assert!(!server.clients.contains_key(&7));
+        assert!(server.clients.contains_key(&9));
+    }
+
+    #[tokio::test]
     async fn direct_semantic_terminal_attach_does_not_forward_key_releases() {
         let mut server = test_headless_server();
         let workspace = crate::workspace::Workspace::test_new("attached");

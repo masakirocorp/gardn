@@ -80,6 +80,7 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
         '  "agent-browser": false' \
         '  "bufferutil": false' \
         '  "edgedriver": false' \
+        '  "esbuild": true' \
         '  "geckodriver": false' \
         '  "onnxruntime-node": false' \
         '  "droid": true' \
