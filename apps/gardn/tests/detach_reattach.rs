@@ -17,7 +17,8 @@ use serde_json::Value;
 use support::{
     cleanup_test_base, client_handshake, connect_unix_socket, drain_messages, read_server_message,
     register_runtime_dir, register_spawned_gardn_pid, send_detach, send_input,
-    unregister_spawned_gardn_pid, wait_for_file, wait_for_socket, wait_until,
+    unregister_spawned_gardn_pid, wait_for_file, wait_for_message_variant, wait_for_socket,
+    wait_until,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -588,6 +589,11 @@ fn detached_output_preserves_last_attached_pty_size() {
         .as_str()
         .expect("root pane id")
         .to_string();
+    assert!(
+        wait_for_message_variant(&mut stream, Duration::from_secs(5), 1)
+            .expect("workspace frame wait should succeed"),
+        "attached client should receive the workspace frame before size is measured"
+    );
 
     let before = read_pane_tty_size_after_marker(
         &api_socket,
