@@ -7,6 +7,7 @@ account_home="$(python3 -c 'import os, pwd; print(pwd.getpwuid(os.getuid()).pw_d
 config_dir="$account_home/.gemini/antigravity-cli"
 socket_path="$workdir/gardn.sock"; request_log="$workdir/gardn-requests.jsonl"; output="$workdir/antigravity-screen.txt"
 [[ -f "$hook_source" ]] || { echo "Antigravity status test needs Gardn repo mounted at $repo_dir" >&2; exit 1; }
+model="${GARDN_ANTIGRAVITY_MODEL:-Gemini 3.8 Flash (Low)}"
 if [[ "${GARDN_ANTIGRAVITY_REAL:-0}" == 1 ]]; then
   [[ -n "${GEMINI_API_KEY:-}" ]] || { echo "GEMINI_API_KEY is required for selected Antigravity real smoke" >&2; exit 64; }
   unset GOOGLE_GEMINI_BASE_URL
@@ -53,7 +54,7 @@ printf '{"conversationId":"gardn-antigravity-fixture"}\n' | \
   bash "$config_dir/hooks/gardn-agent-session.sh" session >/dev/null
 set +e
 GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
-  agy -p "$prompt" --output-format json >"$output" 2>"${output}.stderr"
+  agy -p "$prompt" --model "$model" --output-format json >"$output" 2>"${output}.stderr"
 status=$?
 set -e
 if [[ "$status" -ne 0 ]] || ! grep -Fq "$expected" "$output"; then
