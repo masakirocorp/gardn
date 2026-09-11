@@ -1789,6 +1789,27 @@ pub enum AgentPanelScope {
     AllWorkspaces,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentStatusGroup {
+    Triage,
+    FollowUp,
+    Blocked,
+    Working,
+    Idle,
+}
+
+impl AgentStatusGroup {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Triage => "Triage",
+            Self::FollowUp => "Follow Up",
+            Self::Blocked => "Blocked",
+            Self::Working => "Working",
+            Self::Idle => "Idle",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Settings UI state
 // ---------------------------------------------------------------------------
@@ -2526,6 +2547,19 @@ impl PaneCloseConsequence {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentContextMenuAction {
+    AddToFollowUp,
+    RemoveFromFollowUp,
+    MarkReviewed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockedReviewRef {
+    pane_id: PaneId,
+    generation: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextMenuKind {
     Sidebar {
         group_idx: usize,
@@ -2546,6 +2580,7 @@ pub enum ContextMenuKind {
         ws_idx: usize,
         pane_id: PaneId,
         in_follow_up: bool,
+        review_ref: Option<BlockedReviewRef>,
     },
     NewTabButton {
         ws_idx: usize,
@@ -2573,9 +2608,16 @@ pub struct ContextMenuState {
 
 pub(crate) const ADD_TO_FOLLOW_UP_CONTEXT_ITEM: &str = "add to follow up";
 pub(crate) const REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM: &str = "remove from follow up";
+pub(crate) const MARK_REVIEWED_CONTEXT_ITEM: &str = "mark reviewed";
 
 const ADD_TO_FOLLOW_UP_CONTEXT_ITEMS: &[&str] = &[ADD_TO_FOLLOW_UP_CONTEXT_ITEM];
+const ADD_TO_FOLLOW_UP_AND_REVIEW_CONTEXT_ITEMS: &[&str] =
+    &[ADD_TO_FOLLOW_UP_CONTEXT_ITEM, MARK_REVIEWED_CONTEXT_ITEM];
 const REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEMS: &[&str] = &[REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM];
+const REMOVE_FROM_FOLLOW_UP_AND_REVIEW_CONTEXT_ITEMS: &[&str] = &[
+    REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM,
+    MARK_REVIEWED_CONTEXT_ITEM,
+];
 
 const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
     &[
@@ -2769,11 +2811,24 @@ impl ContextMenuState {
             ContextMenuKind::Tab { .. } => &["rename", "close", "close other tabs"],
             ContextMenuKind::Agent {
                 in_follow_up: false,
+                review_ref: None,
                 ..
             } => ADD_TO_FOLLOW_UP_CONTEXT_ITEMS,
             ContextMenuKind::Agent {
-                in_follow_up: true, ..
+                in_follow_up: false,
+                review_ref: Some(_),
+                ..
+            } => ADD_TO_FOLLOW_UP_AND_REVIEW_CONTEXT_ITEMS,
+            ContextMenuKind::Agent {
+                in_follow_up: true,
+                review_ref: None,
+                ..
             } => REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEMS,
+            ContextMenuKind::Agent {
+                in_follow_up: true,
+                review_ref: Some(_),
+                ..
+            } => REMOVE_FROM_FOLLOW_UP_AND_REVIEW_CONTEXT_ITEMS,
             ContextMenuKind::NewTabButton {
                 project_commands, ..
             } => NEW_TAB_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
@@ -2797,6 +2852,23 @@ impl ContextMenuState {
                     [right_click_passthrough as usize][zoom.menu_index()][close.menu_index()];
                 &menu.rows[..menu.len]
             }
+        }
+    }
+
+    pub(crate) fn agent_action_at(&self, idx: usize) -> Option<AgentContextMenuAction> {
+        let ContextMenuKind::Agent {
+            in_follow_up,
+            review_ref,
+            ..
+        } = self.kind
+        else {
+            return None;
+        };
+        match (idx, in_follow_up, review_ref.is_some()) {
+            (0, false, _) => Some(AgentContextMenuAction::AddToFollowUp),
+            (0, true, _) => Some(AgentContextMenuAction::RemoveFromFollowUp),
+            (1, _, true) => Some(AgentContextMenuAction::MarkReviewed),
+            _ => None,
         }
     }
 
@@ -2834,6 +2906,7 @@ impl ContextMenuState {
             "close other tabs" => "Close Other Tabs",
             ADD_TO_FOLLOW_UP_CONTEXT_ITEM => "Add to Follow Up",
             REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM => "Remove from Follow Up",
+            MARK_REVIEWED_CONTEXT_ITEM => "Mark Reviewed",
             "rename pane" => "Rename Pane",
             "clear pane name" => "Clear Pane Name",
             "split vertical" => "Split Vertical",
@@ -3505,6 +3578,7 @@ pub struct AppState {
     pub git_repo_summaries:
         std::collections::HashMap<std::path::PathBuf, crate::workspace::GitWorkSummary>,
     pub(crate) next_agent_activity_seq: u64,
+    pub(crate) blocked_review_generations: std::collections::HashMap<PaneId, u64>,
     /// Terminal ids whose size is currently owned by a direct attach client.
     pub direct_attach_resize_locks: std::collections::HashSet<crate::terminal::TerminalId>,
     /// Pure render metadata mapping client-local overlay panes to their owning view.
@@ -4093,6 +4167,142 @@ impl AppState {
             .unwrap_or_default()
     }
 
+    pub(crate) fn pane_agent_state(&self, pane: &crate::pane::PaneState) -> AgentState {
+        match self
+            .terminals
+            .get(&pane.attached_terminal_id)
+            .map(|terminal| terminal.state)
+        {
+            Some(AgentState::Unknown) | None => {
+                #[cfg(test)]
+                {
+                    pane.state
+                }
+                #[cfg(not(test))]
+                {
+                    AgentState::Unknown
+                }
+            }
+            Some(state) => state,
+        }
+    }
+
+    pub(crate) fn agent_sidebar_section(
+        &self,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<AgentStatusGroup> {
+        if self.is_agent_follow_up(ws_idx, pane_id) {
+            return Some(AgentStatusGroup::FollowUp);
+        }
+        let workspace = self.workspaces.get(ws_idx)?;
+        let pane = workspace.pane_state(pane_id)?;
+        let state = self.pane_agent_state(pane);
+        if state == AgentState::Blocked {
+            return Some(
+                if pane.blocked_review == crate::pane::BlockedReviewState::Reviewed {
+                    AgentStatusGroup::Blocked
+                } else {
+                    AgentStatusGroup::Triage
+                },
+            );
+        }
+        if state == AgentState::Idle
+            && (!pane.seen
+                || self
+                    .triage_hold
+                    .as_ref()
+                    .is_some_and(|(workspace_id, hold_pane)| {
+                        workspace_id == &workspace.id && *hold_pane == pane_id
+                    }))
+        {
+            return Some(AgentStatusGroup::Triage);
+        }
+        Some(if state == AgentState::Working {
+            AgentStatusGroup::Working
+        } else {
+            AgentStatusGroup::Idle
+        })
+    }
+
+    pub(crate) fn pane_is_in_triage(&self, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
+        self.agent_sidebar_section(ws_idx, pane_id) == Some(AgentStatusGroup::Triage)
+    }
+
+    pub(crate) fn agent_context_menu_kind(
+        &self,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> Option<ContextMenuKind> {
+        let pane = self.workspaces.get(ws_idx)?.pane_state(pane_id)?;
+        let review_ref = (self.pane_agent_state(pane) == AgentState::Blocked
+            && pane.blocked_review == crate::pane::BlockedReviewState::Pending)
+            .then(|| BlockedReviewRef {
+                pane_id,
+                generation: self
+                    .blocked_review_generations
+                    .get(&pane_id)
+                    .copied()
+                    .unwrap_or_default(),
+            });
+        Some(ContextMenuKind::Agent {
+            ws_idx,
+            pane_id,
+            in_follow_up: self.is_agent_follow_up(ws_idx, pane_id),
+            review_ref,
+        })
+    }
+
+    pub(crate) fn advance_blocked_review_generation(&mut self, pane_id: PaneId) {
+        let generation = self.blocked_review_generations.entry(pane_id).or_default();
+        *generation = generation.wrapping_add(1);
+    }
+
+    pub(crate) fn mark_blocked_reviewed(&mut self, review_ref: BlockedReviewRef) -> bool {
+        if self
+            .blocked_review_generations
+            .get(&review_ref.pane_id)
+            .copied()
+            .unwrap_or_default()
+            != review_ref.generation
+        {
+            return false;
+        }
+        let Some((ws_idx, terminal_id)) =
+            self.workspaces
+                .iter()
+                .enumerate()
+                .find_map(|(ws_idx, workspace)| {
+                    workspace
+                        .pane_state(review_ref.pane_id)
+                        .map(|pane| (ws_idx, pane.attached_terminal_id.clone()))
+                })
+        else {
+            return false;
+        };
+        if self
+            .terminals
+            .get(&terminal_id)
+            .map(|terminal| terminal.state)
+            .unwrap_or(AgentState::Unknown)
+            != AgentState::Blocked
+        {
+            return false;
+        }
+        let Some(pane) = self.workspaces[ws_idx]
+            .terminal_tabs_mut()
+            .find_map(|(_, tab)| tab.panes.get_mut(&review_ref.pane_id))
+        else {
+            return false;
+        };
+        if pane.blocked_review != crate::pane::BlockedReviewState::Pending {
+            return false;
+        }
+        pane.blocked_review = crate::pane::BlockedReviewState::Reviewed;
+        self.mark_session_dirty();
+        true
+    }
+
     pub(crate) fn follow_up_identity(
         &self,
         ws_idx: usize,
@@ -4161,34 +4371,6 @@ impl AppState {
         self.agent_follow_up
             .iter()
             .any(|entry| entry.matches(&workspace_id, pane_number))
-    }
-
-    pub(crate) fn pane_is_in_triage(&self, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
-        let Some(workspace) = self.workspaces.get(ws_idx) else {
-            return false;
-        };
-        let Some(pane) = workspace.pane_state(pane_id) else {
-            return false;
-        };
-        let state = self
-            .terminals
-            .get(&pane.attached_terminal_id)
-            .map(|terminal| terminal.state)
-            .unwrap_or(AgentState::Unknown);
-        if state == AgentState::Blocked {
-            return true;
-        }
-        if state != AgentState::Idle {
-            return false;
-        }
-        if !pane.seen {
-            return true;
-        }
-        self.triage_hold
-            .as_ref()
-            .is_some_and(|(workspace_id, hold_pane)| {
-                workspace_id == &workspace.id && *hold_pane == pane_id
-            })
     }
 
     pub(crate) fn follow_up_added_at(
@@ -4633,6 +4815,7 @@ impl AppState {
             popup_panes: std::collections::HashMap::new(),
             git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
+            blocked_review_generations: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
             client_overlay_owners: std::collections::HashMap::new(),
             pane_id_aliases: std::collections::HashMap::new(),

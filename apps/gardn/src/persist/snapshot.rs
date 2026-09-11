@@ -440,6 +440,11 @@ pub struct PaneSnapshot {
     pub terminal_theme_binding: Option<crate::terminal_theme::TerminalThemeBinding>,
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub seen: bool,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::pane::BlockedReviewState::is_none"
+    )]
+    pub blocked_review: crate::pane::BlockedReviewState,
     #[serde(default, skip_serializing_if = "is_false")]
     pub right_click_passthrough: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1010,6 +1015,7 @@ fn capture_tab(
                 launch_env,
                 terminal_theme_binding,
                 seen,
+                blocked_review: pane.map(|pane| pane.blocked_review).unwrap_or_default(),
                 right_click_passthrough: pane.is_some_and(|pane| pane.right_click_passthrough),
                 terminal_semantics,
             },
@@ -1249,6 +1255,13 @@ mod tests {
             .filter_map(TabSnapshot::as_terminal)
             .flat_map(|tab| tab.panes.values())
             .all(|pane| pane.terminal_theme_binding.is_none()));
+        assert!(snapshot
+            .workspaces
+            .iter()
+            .flat_map(|workspace| &workspace.tabs)
+            .filter_map(TabSnapshot::as_terminal)
+            .flat_map(|tab| tab.panes.values())
+            .all(|pane| pane.blocked_review == crate::pane::BlockedReviewState::None));
     }
 
     #[test]
@@ -1576,6 +1589,7 @@ mod tests {
                 launch_env: Vec::new(),
                 terminal_theme_binding: None,
                 seen: true,
+                blocked_review: Default::default(),
                 right_click_passthrough: false,
                 terminal_semantics: None,
             },
@@ -1594,6 +1608,7 @@ mod tests {
                 launch_env: Vec::new(),
                 terminal_theme_binding: None,
                 seen: true,
+                blocked_review: Default::default(),
                 right_click_passthrough: false,
                 terminal_semantics: None,
             },

@@ -208,11 +208,7 @@ pub(crate) fn context_menu_state_for_pane(
             .map(|info| (info.rect.x.saturating_add(1), info.rect.y.saturating_add(1)))
             .unwrap_or((1, 1));
         return Some(ContextMenuState {
-            kind: ContextMenuKind::Agent {
-                ws_idx,
-                pane_id,
-                in_follow_up: state.is_agent_follow_up(ws_idx, pane_id),
-            },
+            kind: state.agent_context_menu_kind(ws_idx, pane_id)?,
             x,
             y,
             list: ModalListState::hidden(0),
@@ -1527,6 +1523,7 @@ pub(crate) fn apply_context_menu_action(
     idx: usize,
 ) {
     let item = menu.items().get(idx).copied();
+    let agent_action = menu.agent_action_at(idx);
     if item.is_some_and(|item| {
         ContextMenuState::item_is_separator(item) || ContextMenuState::item_is_section_header(item)
     }) {
@@ -1556,20 +1553,32 @@ pub(crate) fn apply_context_menu_action(
         }
         (
             ContextMenuKind::Agent {
-                ws_idx, pane_id, ..
+                ws_idx,
+                pane_id,
+                review_ref,
+                ..
             },
-            Some(item),
+            Some(_),
         ) => {
-            if item == crate::app::state::ADD_TO_FOLLOW_UP_CONTEXT_ITEM {
-                state.insert_agent_follow_up(ws_idx, pane_id);
-            } else if item == crate::app::state::REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM {
-                if let Some(workspace_id) = state
-                    .workspaces
-                    .get(ws_idx)
-                    .map(|workspace| workspace.id.clone())
-                {
-                    state.clear_agent_follow_up_for_pane(&workspace_id, pane_id);
+            match agent_action {
+                Some(crate::app::state::AgentContextMenuAction::AddToFollowUp) => {
+                    state.insert_agent_follow_up(ws_idx, pane_id);
                 }
+                Some(crate::app::state::AgentContextMenuAction::RemoveFromFollowUp) => {
+                    if let Some(workspace_id) = state
+                        .workspaces
+                        .get(ws_idx)
+                        .map(|workspace| workspace.id.clone())
+                    {
+                        state.clear_agent_follow_up_for_pane(&workspace_id, pane_id);
+                    }
+                }
+                Some(crate::app::state::AgentContextMenuAction::MarkReviewed) => {
+                    if let Some(review_ref) = review_ref {
+                        state.mark_blocked_reviewed(review_ref);
+                    }
+                }
+                None => {}
             }
             leave_modal(state);
         }
@@ -2706,6 +2715,48 @@ mod tests {
                 .right_click_passthrough
         );
     }
+
+    #[test]
+    fn stale_agent_menu_cannot_review_a_newer_blocked_condition() {
+        let mut state = state_with_workspaces(&["main"]);
+        state.ensure_test_terminals();
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = state.workspaces[0]
+            .pane_state(pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        let terminal = state.terminals.get_mut(&terminal_id).unwrap();
+        terminal.set_agent_name("codex".into());
+        terminal.state = crate::detect::AgentState::Blocked;
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap()
+            .blocked_review = crate::pane::BlockedReviewState::Pending;
+        let menu =
+            context_menu_state_for_local_pane(&state, 0, pane_id).expect("agent context menu");
+        let mark_reviewed = menu
+            .items()
+            .iter()
+            .position(|item| *item == crate::app::state::MARK_REVIEWED_CONTEXT_ITEM)
+            .expect("pending blocked agent exposes Mark Reviewed");
+
+        state.advance_blocked_review_generation(pane_id);
+        let mut terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        apply_context_menu_action(&mut state, &mut terminal_runtimes, menu, mark_reviewed);
+
+        assert_eq!(
+            state.workspaces[0]
+                .pane_state(pane_id)
+                .unwrap()
+                .blocked_review,
+            crate::pane::BlockedReviewState::Pending
+        );
+    }
+
     #[test]
     fn pane_context_menu_confirms_before_closing_its_space() {
         let mut state = state_with_workspaces(&["main", "other"]);

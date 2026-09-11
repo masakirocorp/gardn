@@ -6,14 +6,12 @@ use ratatui::{
     Frame,
 };
 
-use super::status::{
-    agent_section_icon, agent_section_style, state_icon, toast_kind_color, AgentStatusGroup,
-};
+use super::status::{agent_section_icon, agent_section_style, state_icon, toast_kind_color};
 use super::text::{display_width_u16, truncate_end};
 use super::widgets::{fill_rect, panel_contrast_fg, render_panel_shell};
 use crate::app::state::{
-    AgentPanelScope, MobileSwitcherLevel, NavigatorRow, NavigatorTarget, Palette, ToastKind,
-    ToastNotification,
+    AgentPanelScope, AgentStatusGroup, MobileSwitcherLevel, NavigatorRow, NavigatorTarget, Palette,
+    ToastKind, ToastNotification,
 };
 use crate::app::{AppState, ClientViewState};
 use crate::layout::PaneId;
@@ -783,6 +781,7 @@ fn render_mobile_agent_strip(
         0,
         (
             count(AgentStatusGroup::Triage),
+            count(AgentStatusGroup::Blocked),
             count(AgentStatusGroup::Working),
             count(AgentStatusGroup::Idle),
         ),
@@ -1108,7 +1107,7 @@ fn render_mobile_agent_summary(
     content: Rect,
     doc_y: usize,
     scroll: usize,
-    counts: (usize, usize, usize),
+    counts: (usize, usize, usize, usize),
     expanded: bool,
     selected: bool,
 ) {
@@ -1138,7 +1137,7 @@ fn render_mobile_agent_summary(
                 .add_modifier(Modifier::BOLD),
         ),
     ];
-    if counts == (0, 0, 0) {
+    if counts == (0, 0, 0, 0) {
         spans.push(Span::styled(
             " No Agents",
             Style::default()
@@ -1153,8 +1152,9 @@ fn render_mobile_agent_summary(
     } else {
         for (group, count) in [
             (AgentStatusGroup::Triage, counts.0),
-            (AgentStatusGroup::Working, counts.1),
-            (AgentStatusGroup::Idle, counts.2),
+            (AgentStatusGroup::Blocked, counts.1),
+            (AgentStatusGroup::Working, counts.2),
+            (AgentStatusGroup::Idle, counts.3),
         ] {
             if count == 0 {
                 continue;
@@ -1879,7 +1879,7 @@ mod tests {
                     Rect::new(0, 0, 60, 1),
                     0,
                     0,
-                    (2, 1, 3),
+                    (2, 1, 1, 3),
                     false,
                     false,
                 )
@@ -1890,6 +1890,7 @@ mod tests {
         let text = buffer_text(buffer);
         for (group, count) in [
             (AgentStatusGroup::Triage, 2),
+            (AgentStatusGroup::Blocked, 1),
             (AgentStatusGroup::Working, 1),
             (AgentStatusGroup::Idle, 3),
         ] {

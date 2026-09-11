@@ -163,6 +163,7 @@ struct AgentPanelView: View {
         switch section {
         case .triage: return "!"
         case .followUp: return "*"
+        case .blocked: return "◉"
         case .working: return ":"
         case .idle: return "✓"
         }
@@ -172,6 +173,7 @@ struct AgentPanelView: View {
         switch section {
         case .triage: return Color(red: 1.00, green: 0.72, blue: 0.42)
         case .followUp: return Color(red: 0.70, green: 0.47, blue: 0.85)
+        case .blocked: return Color(red: 0.90, green: 0.35, blue: 0.35)
         case .working: return Color(red: 0.86, green: 0.56, blue: 0.18)
         case .idle: return Color(red: 0.38, green: 0.68, blue: 0.42)
         }

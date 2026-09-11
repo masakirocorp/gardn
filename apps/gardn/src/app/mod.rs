@@ -835,6 +835,7 @@ impl App {
             terminals: std::collections::HashMap::new(),
             git_repo_summaries: std::collections::HashMap::new(),
             next_agent_activity_seq: 0,
+            blocked_review_generations: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
             popup_panes: std::collections::HashMap::new(),
             client_overlay_owners: std::collections::HashMap::new(),
@@ -6831,6 +6832,7 @@ impl App {
         idx: usize,
     ) {
         let item = menu.items().get(idx).copied();
+        let agent_action = menu.agent_action_at(idx);
         if item.is_some_and(|item| {
             state::ContextMenuState::item_is_separator(item)
                 || state::ContextMenuState::item_is_section_header(item)
@@ -6849,22 +6851,34 @@ impl App {
         match (menu.kind, item) {
             (
                 state::ContextMenuKind::Agent {
-                    ws_idx, pane_id, ..
+                    ws_idx,
+                    pane_id,
+                    review_ref,
+                    ..
                 },
-                Some(item),
+                Some(_),
             ) => {
-                if item == state::ADD_TO_FOLLOW_UP_CONTEXT_ITEM {
-                    self.state.insert_agent_follow_up(ws_idx, pane_id);
-                } else if item == state::REMOVE_FROM_FOLLOW_UP_CONTEXT_ITEM {
-                    if let Some(workspace_id) = self
-                        .state
-                        .workspaces
-                        .get(ws_idx)
-                        .map(|workspace| workspace.id.clone())
-                    {
-                        self.state
-                            .clear_agent_follow_up_for_pane(&workspace_id, pane_id);
+                match agent_action {
+                    Some(state::AgentContextMenuAction::AddToFollowUp) => {
+                        self.state.insert_agent_follow_up(ws_idx, pane_id);
                     }
+                    Some(state::AgentContextMenuAction::RemoveFromFollowUp) => {
+                        if let Some(workspace_id) = self
+                            .state
+                            .workspaces
+                            .get(ws_idx)
+                            .map(|workspace| workspace.id.clone())
+                        {
+                            self.state
+                                .clear_agent_follow_up_for_pane(&workspace_id, pane_id);
+                        }
+                    }
+                    Some(state::AgentContextMenuAction::MarkReviewed) => {
+                        if let Some(review_ref) = review_ref {
+                            self.state.mark_blocked_reviewed(review_ref);
+                        }
+                    }
+                    None => {}
                 }
                 Self::leave_client_view_command_mode(client_view);
                 client_view.reconcile(&self.state);
@@ -12072,12 +12086,11 @@ impl App {
         else {
             return false;
         };
+        let Some(kind) = self.state.agent_context_menu_kind(ws_idx, pane_id) else {
+            return false;
+        };
         client_view.context_menu = Some(state::ContextMenuState {
-            kind: state::ContextMenuKind::Agent {
-                ws_idx,
-                pane_id,
-                in_follow_up: self.state.is_agent_follow_up(ws_idx, pane_id),
-            },
+            kind,
             x: mouse.column,
             y: mouse.row,
             list: state::ModalListState::hidden(0),

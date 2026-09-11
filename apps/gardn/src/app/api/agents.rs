@@ -544,6 +544,48 @@ mod tests {
     }
 
     #[test]
+    fn local_api_uses_sidebar_policy_for_blocked_review_and_follow_up() {
+        let mut app = test_app();
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        let terminal = app.state.terminals.get_mut(&terminal_id).expect("terminal");
+        terminal.agent_name = Some("omp".into());
+        terminal.state = AgentState::Blocked;
+        let pane = app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap();
+        pane.blocked_review = crate::pane::BlockedReviewState::Pending;
+
+        assert!(app.agent_info(0, pane_id).unwrap().in_triage);
+
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap()
+            .blocked_review = crate::pane::BlockedReviewState::Reviewed;
+        assert!(!app.agent_info(0, pane_id).unwrap().in_triage);
+
+        app.state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap()
+            .blocked_review = crate::pane::BlockedReviewState::Pending;
+        assert!(app.state.insert_agent_follow_up(0, pane_id));
+        assert!(!app.agent_info(0, pane_id).unwrap().in_triage);
+    }
+
+    #[test]
     fn agent_focus_for_view_switches_the_invoking_client() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];

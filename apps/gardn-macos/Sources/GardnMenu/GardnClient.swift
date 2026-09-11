@@ -18,6 +18,7 @@ struct AgentRecord: Identifiable, Hashable {
     enum Section: String, CaseIterable, Hashable {
         case triage = "Triage"
         case followUp = "Follow Up"
+        case blocked = "Blocked"
         case working = "Working"
         case idle = "Idle"
     }
@@ -36,15 +37,16 @@ struct AgentRecord: Identifiable, Hashable {
 
     var section: Section {
         if followUp { return .followUp }
-        if inTriage || status == .blocked || status == .done { return .triage }
+        if inTriage { return .triage }
         switch status {
+        case .blocked: return .blocked
         case .working: return .working
-        case .idle, .unknown, .blocked, .done: return .idle
+        case .idle, .unknown, .done: return .idle
         }
     }
 
     var needsAttention: Bool {
-        followUp || inTriage || status == .blocked || status == .done
+        followUp || inTriage
     }
 
 
@@ -205,7 +207,7 @@ struct GardnClient {
                         ?? unixSecs(raw["last_meaningful_agent_activity_unix_secs"])
                 ),
                 followUp: followUp,
-                inTriage: boolValue(raw["in_triage"]) || status == .blocked || status == .done,
+                inTriage: boolValue(raw["in_triage"]),
                 focused: boolValue(raw["focused"])
             )
         }

@@ -713,6 +713,7 @@ mod tests {
                         launch_env: Vec::new(),
                         terminal_theme_binding: None,
                         seen: true,
+                        blocked_review: Default::default(),
                         right_click_passthrough: false,
                         terminal_semantics: None,
                     },

@@ -2581,6 +2581,103 @@ mod tests {
     }
 
     #[test]
+    fn mark_reviewed_moves_pending_blocked_without_changing_runtime_or_focus_state() {
+        let mut app = app_for_mouse_test();
+        let home = Workspace::test_new("home");
+        let home_pane = home.terminal_tab(0).unwrap().root_pane;
+        let mut blocked = Workspace::test_new("blocked");
+        let blocked_pane = blocked.terminal_tab(0).unwrap().root_pane;
+        let pane = blocked
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&blocked_pane)
+            .expect("blocked pane");
+        pane.detected_agent = Some(Agent::Claude);
+        pane.state = AgentState::Blocked;
+        pane.seen = false;
+        pane.blocked_review = crate::pane::BlockedReviewState::Pending;
+        app.state.workspaces = vec![home, blocked];
+        app.state.ensure_test_terminals();
+        let blocked_terminal_id = app.state.workspaces[1]
+            .pane_state(blocked_pane)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        let blocked_terminal = app.state.terminals.get_mut(&blocked_terminal_id).unwrap();
+        blocked_terminal.agent_name = Some("claude".into());
+        blocked_terminal.state = AgentState::Blocked;
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        app.state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 140, 30));
+
+        let detail_area = crate::ui::right_sidebar_content_rect(app.state.view.right_sidebar_rect);
+        let blocked_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| app.state.agent_detail_target_at(*row) == Some((1, 0, blocked_pane)))
+            .expect("blocked agent row");
+        let original_active = app.state.active;
+        let original_selected = app.state.selected;
+        let original_focus = app.state.workspaces[0]
+            .terminal_tab(0)
+            .unwrap()
+            .layout
+            .focused();
+        let original_follow_up = app.state.agent_follow_up.clone();
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Right),
+            detail_area.x + 2,
+            blocked_row,
+        ));
+
+        let context = app.state.context_menu.as_ref().expect("agent context menu");
+        assert_eq!(
+            context
+                .items()
+                .iter()
+                .map(|item| crate::app::state::ContextMenuState::item_display_label(item))
+                .collect::<Vec<_>>(),
+            vec!["Add to Follow Up", "Mark Reviewed"]
+        );
+        let menu = app.state.context_menu_rect().expect("context menu rect");
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            menu.x + 2,
+            menu.y + 2,
+        ));
+
+        let pane = app.state.workspaces[1].pane_state(blocked_pane).unwrap();
+        assert_eq!(
+            pane.blocked_review,
+            crate::pane::BlockedReviewState::Reviewed
+        );
+        assert!(!pane.seen);
+        assert_eq!(
+            app.state.agent_sidebar_section(1, blocked_pane),
+            Some(crate::app::state::AgentStatusGroup::Blocked)
+        );
+        assert_eq!(app.state.active, original_active);
+        assert_eq!(app.state.selected, original_selected);
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .unwrap()
+                .layout
+                .focused(),
+            original_focus
+        );
+        assert_eq!(original_focus, home_pane);
+        assert_eq!(app.state.agent_follow_up, original_follow_up);
+        assert_eq!(
+            app.state.terminals[&blocked_terminal_id].state,
+            AgentState::Blocked
+        );
+    }
+
+    #[test]
     fn clicking_agent_panel_toggle_opens_scope_menu() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("test")];

@@ -2,6 +2,21 @@
 use crate::detect::{Agent, AgentState};
 use crate::terminal::TerminalId;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BlockedReviewState {
+    #[default]
+    None,
+    Pending,
+    Reviewed,
+}
+
+impl BlockedReviewState {
+    pub(crate) const fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+}
+
 /// Viewport state for a pane.
 ///
 /// Terminal identity, cwd, labels, and agent metadata live in TerminalState.
@@ -16,6 +31,7 @@ pub struct PaneState {
     /// Whether the user has seen this pane since its last state change to Idle.
     /// False = "Done" (agent finished while user was in another workspace).
     pub seen: bool,
+    pub blocked_review: BlockedReviewState,
     /// Whether unmodified right-click gestures should be forwarded to the pane application.
     pub right_click_passthrough: bool,
 }
@@ -30,6 +46,7 @@ impl PaneState {
             #[cfg(test)]
             state: AgentState::Unknown,
             seen: true,
+            blocked_review: BlockedReviewState::None,
             right_click_passthrough: false,
         }
     }
