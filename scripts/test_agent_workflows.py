@@ -160,6 +160,7 @@ class AgentTestWorkflowTests(unittest.TestCase):
         self.assertIn('export OPENAI_BASE_URL="$openrouter_base"', model_helpers)
         self.assertIn('export KILO_AUTH_CONTENT="$OPENCODE_AUTH_CONTENT"', model_helpers)
         self.assertIn('"@qwen-code/audio-capture": false', dockerfile)
+        self.assertIn('"esbuild": true', dockerfile)
 
     def test_target_dispatcher_runs_exactly_one_agent(self):
         dispatcher = self.repo_root / "ci/agent-tests/run-target.sh"
