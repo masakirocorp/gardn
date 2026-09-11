@@ -223,16 +223,6 @@ pub(crate) fn workspace_created(workspace_id: &str, root_pane_id: u32) {
     );
 }
 
-pub(crate) fn workspace_focused(workspace_id: &str) {
-    tracing::info!(
-        event = "workspace.focus",
-        subsystem = "workspace",
-        outcome = "ok",
-        workspace_id,
-        "workspace focused"
-    );
-}
-
 pub(crate) fn workspace_closed(workspace_id: &str) {
     tracing::info!(
         event = "workspace.close",
@@ -262,17 +252,6 @@ pub(crate) fn tab_created(workspace_id: &str, tab_id: &str, root_pane_id: u32) {
         tab_id,
         pane_id = root_pane_id,
         "tab created"
-    );
-}
-
-pub(crate) fn tab_focused(workspace_id: &str, tab_id: &str) {
-    tracing::info!(
-        event = "tab.focus",
-        subsystem = "tab",
-        outcome = "ok",
-        workspace_id,
-        tab_id,
-        "tab focused"
     );
 }
 

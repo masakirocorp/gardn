@@ -82,10 +82,6 @@ impl App {
         let area =
             if view.computed.terminal_area.width >= 4 && view.computed.terminal_area.height >= 4 {
                 view.computed.terminal_area
-            } else if self.state.view.terminal_area.width >= 4
-                && self.state.view.terminal_area.height >= 4
-            {
-                self.state.view.terminal_area
             } else {
                 let (rows, cols) = self.state.estimate_pane_size();
                 ratatui::layout::Rect::new(0, 0, cols, rows)

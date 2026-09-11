@@ -50,8 +50,8 @@ impl App {
     pub(crate) fn window_title(&self) -> Option<String> {
         let (template, hostname) = self.window_title_template.as_ref()?;
         let workspace = self
-            .state
-            .active
+            .default_client_view
+            .active_workspace
             .and_then(|ws_idx| self.state.workspaces.get(ws_idx));
 
         let mut title = String::new();
@@ -68,7 +68,17 @@ impl App {
                     }
                 }
                 WindowTitlePart::Token(WindowTitleToken::Tab) => {
-                    if let Some(name) = workspace.and_then(|ws| ws.active_tab_display_name()) {
+                    if let Some(name) =
+                        self.default_client_view
+                            .active_workspace
+                            .and_then(|ws_idx| {
+                                let workspace = self.state.workspaces.get(ws_idx)?;
+                                let tab_idx = self
+                                    .default_client_view
+                                    .active_tab_index_for_workspace(&self.state, ws_idx)?;
+                                workspace.tab_display_name(tab_idx)
+                            })
+                    {
                         title.push_str(&name);
                     }
                 }
@@ -95,13 +105,7 @@ impl App {
     /// marks it when an `OSC 0`/`OSC 2` changes the retained title, so the
     /// event loop can re-sync the outer title without polling every pane.
     pub(crate) fn take_focused_terminal_title_dirty(&self) -> bool {
-        let Some(ws_idx) = self.state.active else {
-            return false;
-        };
-        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
-            return false;
-        };
-        let Some(pane_id) = workspace.focused_pane_id() else {
+        let Some((ws_idx, pane_id)) = self.default_client_view_focus() else {
             return false;
         };
         self.state
@@ -110,19 +114,26 @@ impl App {
     }
 
     fn focused_terminal_state(&self) -> Option<&crate::terminal::TerminalState> {
-        let workspace = self.state.workspaces.get(self.state.active?)?;
-        let terminal_id = workspace.terminal_id(workspace.focused_pane_id()?)?;
+        let (ws_idx, pane_id) = self.default_client_view_focus()?;
+        let workspace = self.state.workspaces.get(ws_idx)?;
+        let terminal_id = workspace.terminal_id(pane_id)?;
         self.state.terminals.get(terminal_id)
     }
 
     fn focused_terminal_title_stripped(&self) -> Option<String> {
-        let ws_idx = self.state.active?;
-        let workspace = self.state.workspaces.get(ws_idx)?;
-        let pane_id = workspace.focused_pane_id()?;
+        let (ws_idx, pane_id) = self.default_client_view_focus()?;
         let runtime =
             self.state
                 .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)?;
         crate::terminal::stripped_terminal_title(&runtime.agent_osc_title())
+    }
+
+    fn default_client_view_focus(&self) -> Option<(usize, crate::layout::PaneId)> {
+        let ws_idx = self.default_client_view.active_workspace?;
+        let (_, pane_id) = self
+            .default_client_view
+            .focused_pane_for_workspace(&self.state, ws_idx)?;
+        Some((ws_idx, pane_id))
     }
 }
 
@@ -137,8 +148,9 @@ mod tests {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(&Config::default(), true, None, api_rx, event_hub);
         app.state.workspaces = vec![Workspace::test_new("herd")];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
+        app.default_client_view.reconcile(&app.state);
         app
     }
 

@@ -4,7 +4,6 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::AppState;
 use crate::layout::PaneInfo;
 
 use super::widgets::modal_scrollbar_rect;
@@ -160,33 +159,4 @@ pub(super) fn render_scrollbar(
             cell.set_style(Style::default().fg(thumb_color));
         }
     }
-}
-
-pub(super) fn render_pane_scrollbar(
-    app: &AppState,
-    frame: &mut Frame,
-    info: &PaneInfo,
-    rt: &crate::terminal::TerminalRuntime,
-) {
-    let Some(metrics) = rt.scroll_metrics() else {
-        return;
-    };
-    let Some(track) = pane_scrollbar_rect(info) else {
-        return;
-    };
-
-    let (track_color, thumb_color, thumb_symbol) = if info.is_focused {
-        (app.palette.overlay0, app.palette.overlay1, "▐")
-    } else {
-        (app.palette.surface_dim, app.palette.overlay0, "▕")
-    };
-
-    render_scrollbar(
-        frame,
-        metrics,
-        track,
-        track_color,
-        thumb_color,
-        thumb_symbol,
-    );
 }

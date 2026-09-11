@@ -1,10 +1,17 @@
 use std::path::PathBuf;
 
-use super::{terminal_targets::TerminalTargetError, App, Mode};
+use super::{terminal_targets::TerminalTargetError, App, ClientViewState, Mode};
 use crate::api::schema::{AgentStartParams, SplitDirection};
 
 impl App {
     pub(super) fn collect_agent_infos(&self) -> Vec<crate::api::schema::AgentInfo> {
+        self.collect_agent_infos_for_view(&self.default_client_view)
+    }
+
+    pub(super) fn collect_agent_infos_for_view(
+        &self,
+        view: &ClientViewState,
+    ) -> Vec<crate::api::schema::AgentInfo> {
         self.state
             .workspaces
             .iter()
@@ -14,36 +21,10 @@ impl App {
                     tab.layout
                         .pane_ids()
                         .into_iter()
-                        .filter_map(move |pane_id| self.agent_info(ws_idx, pane_id))
+                        .filter_map(move |pane_id| self.agent_info_for_view(view, ws_idx, pane_id))
                 })
             })
             .collect()
-    }
-
-    pub(super) fn agent_info_for_target(
-        &self,
-        target: &str,
-    ) -> Result<crate::api::schema::AgentInfo, TerminalTargetError> {
-        let resolved = self.resolve_agent_target(target)?;
-        self.agent_info(resolved.ws_idx, resolved.pane_id)
-            .ok_or_else(|| TerminalTargetError::NotFound {
-                target: target.to_string(),
-            })
-    }
-
-    pub(super) fn focus_agent_target(
-        &mut self,
-        target: &str,
-    ) -> Result<crate::api::schema::AgentInfo, TerminalTargetError> {
-        let resolved = self.resolve_agent_target(target)?;
-        self.state
-            .focus_workspace_tab_pane(resolved.ws_idx, resolved.tab_idx, resolved.pane_id);
-        self.state.mark_active_tab_seen();
-        self.state.mode = Mode::Terminal;
-        self.agent_info(resolved.ws_idx, resolved.pane_id)
-            .ok_or_else(|| TerminalTargetError::NotFound {
-                target: target.to_string(),
-            })
     }
 
     pub(super) fn rename_agent_target(
@@ -100,13 +81,12 @@ impl App {
         params: AgentStartParams,
         extra_env: Vec<(String, String)>,
     ) -> Result<AgentStartOutcome, AgentStartError> {
-        let view = self.default_client_view.clone_reconciled(&self.state);
-        self.start_agent_for_view(&view, params, extra_env)
+        self.with_default_client_view(|app, view| app.start_agent_for_view(view, params, extra_env))
     }
 
     pub(super) fn start_agent_for_view(
         &mut self,
-        invoking_view: &crate::app::ClientViewState,
+        invoking_view: &mut crate::app::ClientViewState,
         params: AgentStartParams,
         extra_env: Vec<(String, String)>,
     ) -> Result<AgentStartOutcome, AgentStartError> {
@@ -165,17 +145,20 @@ impl App {
                     return Err(AgentStartError::PlacementConflict);
                 }
             }
-            let target_pane = self.state.workspaces[ws_idx]
+            let tab = self.state.workspaces[ws_idx]
                 .terminal_tab(tab_idx)
                 .map_err(|error| match error {
                     crate::workspace::TerminalTabError::NotFound => {
                         AgentStartError::TargetNotFound { target: tab_id }
                     }
                     crate::workspace::TerminalTabError::NativeTab => AgentStartError::NativeTab,
-                })?
-                .layout
-                .focused();
+                })?;
+            let target_pane = invoking_view
+                .focused_pane_for_tab(&self.state.workspaces[ws_idx].id, tab.number)
+                .filter(|pane_id| tab.panes.contains_key(pane_id))
+                .unwrap_or(tab.root_pane);
             self.spawn_agent_split(
+                invoking_view,
                 ws_idx,
                 target_pane,
                 params.split.unwrap_or(SplitDirection::Right),
@@ -192,8 +175,10 @@ impl App {
                     target: workspace_id.clone(),
                 }
             })?;
-            let tab_idx = self.state.workspaces[ws_idx].active_tab;
-            let target_pane = self.state.workspaces[ws_idx]
+            let tab_idx = invoking_view
+                .active_tab_index_for_workspace(&self.state, ws_idx)
+                .unwrap_or(0);
+            let tab = self.state.workspaces[ws_idx]
                 .terminal_tab(tab_idx)
                 .map_err(|error| match error {
                     crate::workspace::TerminalTabError::NotFound => {
@@ -202,10 +187,13 @@ impl App {
                         }
                     }
                     crate::workspace::TerminalTabError::NativeTab => AgentStartError::NativeTab,
-                })?
-                .layout
-                .focused();
+                })?;
+            let target_pane = invoking_view
+                .focused_pane_for_tab(&self.state.workspaces[ws_idx].id, tab.number)
+                .filter(|pane_id| tab.panes.contains_key(pane_id))
+                .unwrap_or(tab.root_pane);
             self.spawn_agent_split(
+                invoking_view,
                 ws_idx,
                 target_pane,
                 params.split.unwrap_or(SplitDirection::Right),
@@ -218,6 +206,7 @@ impl App {
             )?
         } else if self.state.workspaces.is_empty() {
             self.spawn_agent_workspace(
+                invoking_view,
                 cwd,
                 rows,
                 cols,
@@ -234,6 +223,7 @@ impl App {
             })
         {
             self.spawn_agent_split(
+                invoking_view,
                 ws_idx,
                 target_pane,
                 params.split.unwrap_or(SplitDirection::Right),
@@ -245,15 +235,12 @@ impl App {
                 cwd_was_explicit,
             )?
         } else {
-            let ws_idx = invoking_view
-                .active_workspace
-                .or(self.state.active)
-                .unwrap_or(0);
+            let ws_idx = invoking_view.active_workspace.unwrap_or(0);
             let workspace = &self.state.workspaces[ws_idx];
             let tab_idx = invoking_view
-                .active_tab_for_workspace(&workspace.id)
-                .unwrap_or(workspace.active_tab);
-            let target_pane = workspace
+                .active_tab_index_for_workspace(&self.state, ws_idx)
+                .unwrap_or(0);
+            let tab = workspace
                 .terminal_tab(tab_idx)
                 .map_err(|error| match error {
                     crate::workspace::TerminalTabError::NotFound => {
@@ -262,10 +249,13 @@ impl App {
                         }
                     }
                     crate::workspace::TerminalTabError::NativeTab => AgentStartError::NativeTab,
-                })?
-                .layout
-                .focused();
+                })?;
+            let target_pane = invoking_view
+                .focused_pane_for_tab(&workspace.id, tab.number)
+                .filter(|pane_id| tab.panes.contains_key(pane_id))
+                .unwrap_or(tab.root_pane);
             self.spawn_agent_split(
+                invoking_view,
                 ws_idx,
                 target_pane,
                 params.split.unwrap_or(SplitDirection::Right),
@@ -449,6 +439,7 @@ impl App {
 
     fn spawn_agent_workspace(
         &mut self,
+        invoking_view: &mut crate::app::ClientViewState,
         cwd: PathBuf,
         rows: u16,
         cols: u16,
@@ -470,7 +461,7 @@ impl App {
                 .begin_remote_workspace(
                     location,
                     focus,
-                    self.state.active_group_id().to_string(),
+                    invoking_view.active_group_id(&self.state).to_string(),
                     Some(command),
                     extra_env,
                 )
@@ -500,9 +491,14 @@ impl App {
         self.state.workspaces.push(ws);
         let ws_idx = self.state.workspaces.len() - 1;
         self.state.remove_alias_shadowed_by_new_pane(pane_id);
-        if focus || self.state.active.is_none() {
-            self.state.switch_workspace(ws_idx);
-            self.state.mode = Mode::Terminal;
+        if focus || invoking_view.active_workspace.is_none() {
+            invoking_view.active_workspace = Some(ws_idx);
+            invoking_view.selected_workspace = ws_idx;
+            invoking_view
+                .active_tabs
+                .insert(self.state.workspaces[ws_idx].id.clone(), 1);
+            invoking_view.focus_pane_in_workspace(&self.state, ws_idx, 0, pane_id);
+            invoking_view.mode = Mode::Terminal;
         }
         self.schedule_session_save();
         Ok(AgentStartPlacement::Committed {
@@ -514,6 +510,7 @@ impl App {
 
     fn spawn_agent_split(
         &mut self,
+        invoking_view: &mut crate::app::ClientViewState,
         ws_idx: usize,
         target_pane: crate::layout::PaneId,
         split: SplitDirection,
@@ -567,7 +564,6 @@ impl App {
             return Ok(AgentStartPlacement::Pending(terminal_id));
         }
         let cwd = location.path.as_path().to_path_buf();
-        let previous_focus = self.state.current_pane_focus_target();
         let result = self
             .state
             .workspaces
@@ -583,7 +579,6 @@ impl App {
                     extra_env,
                     self.state.pane_scrollback_limit_bytes,
                     self.state.host_terminal_theme,
-                    focus,
                 )
             })
             .ok_or_else(|| AgentStartError::TargetNotFound {
@@ -598,11 +593,8 @@ impl App {
             .terminals
             .insert(result.1.terminal.id.clone(), result.1.terminal);
         if focus {
-            self.state.switch_workspace(ws_idx);
-            self.state.switch_tab(result.0);
-            self.state.mode = Mode::Terminal;
-            self.state
-                .record_pane_focus_change(previous_focus, ws_idx, result.1.pane_id);
+            invoking_view.focus_pane_in_workspace(&self.state, ws_idx, result.0, result.1.pane_id);
+            invoking_view.mode = Mode::Terminal;
         }
         self.schedule_session_save();
         Ok(AgentStartPlacement::Committed {
@@ -617,13 +609,26 @@ impl App {
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
     ) -> Option<crate::api::schema::AgentInfo> {
+        self.agent_info_for_view(&self.default_client_view, ws_idx, pane_id)
+    }
+
+    pub(super) fn agent_info_for_view(
+        &self,
+        view: &ClientViewState,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<crate::api::schema::AgentInfo> {
         let ws = self.state.workspaces.get(ws_idx)?;
         let pane_state = ws.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane_state.attached_terminal_id)?;
-        if !terminal.is_agent_terminal() && !self.state.is_agent_follow_up(ws_idx, pane_id) {
+        if !terminal.is_agent_terminal()
+            && !self
+                .state
+                .is_agent_follow_up(&view.agent_follow_up, ws_idx, pane_id)
+        {
             return None;
         }
-        let pane = self.pane_info(ws_idx, pane_id)?;
+        let pane = self.pane_info_for_view(view, ws_idx, pane_id)?;
         Some(crate::api::schema::AgentInfo {
             terminal_id: pane.terminal_id,
             location: pane.location,
@@ -646,10 +651,23 @@ impl App {
             revision: pane.revision,
             last_meaningful_agent_activity_unix_secs: terminal
                 .last_meaningful_agent_activity_unix_secs(),
-            follow_up: self.state.is_agent_follow_up(ws_idx, pane_id),
-            in_triage: self.state.pane_is_in_triage(ws_idx, pane_id),
-
-            follow_up_added_at_unix_secs: self.state.follow_up_added_at(ws_idx, pane_id),
+            follow_up: self
+                .state
+                .is_agent_follow_up(&view.agent_follow_up, ws_idx, pane_id),
+            in_triage: view
+                .triage_hold
+                .as_ref()
+                .is_some_and(|(workspace_id, held_pane)| {
+                    workspace_id == &ws.id && *held_pane == pane_id
+                })
+                || self
+                    .state
+                    .pane_is_in_triage(&view.agent_follow_up, ws_idx, pane_id),
+            follow_up_added_at_unix_secs: self.state.follow_up_added_at(
+                &view.agent_follow_up,
+                ws_idx,
+                pane_id,
+            ),
         })
     }
 
@@ -766,7 +784,7 @@ mod tests {
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();
         }
-        app.state.active = None;
+        app.default_client_view.active_workspace = None;
         app
     }
 
@@ -926,12 +944,13 @@ mod tests {
             .unwrap()
             .connect_test_host(host_id.clone());
 
-        app.state.mode = Mode::CommandPalette;
-        app.state.command_palette.query = "run project command: dev".to_string();
-        app.handle_command_palette_key(crossterm::event::KeyEvent::new(
+        app.default_client_view.mode = Mode::CommandPalette;
+        app.default_client_view.command_palette.query = "run project command: dev".to_string();
+        app.handle_key(crate::input::TerminalKey::new(
             crossterm::event::KeyCode::Enter,
             crossterm::event::KeyModifiers::NONE,
-        ));
+        ))
+        .await;
 
         let messages: std::sync::MutexGuard<'_, Vec<CoordinatorMessage>> = match messages.lock() {
             Ok(messages) => messages,
@@ -1277,6 +1296,7 @@ mod tests {
         // First refresh issues DiscoverProjectCommands (no local FS for remote).
         assert!(
             app.state.refresh_command_catalog_with_hosts(
+                &app.default_client_view,
                 &app.terminal_runtimes,
                 app.execution_hosts.as_mut(),
             ) || app.state.command_catalog.is_empty()
@@ -1312,6 +1332,7 @@ mod tests {
         );
 
         let _ = app.state.refresh_command_catalog_with_hosts(
+            &app.default_client_view,
             &app.terminal_runtimes,
             app.execution_hosts.as_mut(),
         );
@@ -1403,6 +1424,7 @@ mod tests {
             .connect_test_host(host_id.clone());
 
         let _ = app.state.refresh_command_catalog_with_hosts(
+            &app.default_client_view,
             &app.terminal_runtimes,
             app.execution_hosts.as_mut(),
         );
@@ -1438,6 +1460,7 @@ mod tests {
         );
 
         let _ = app.state.refresh_command_catalog_with_hosts(
+            &app.default_client_view,
             &app.terminal_runtimes,
             app.execution_hosts.as_mut(),
         );

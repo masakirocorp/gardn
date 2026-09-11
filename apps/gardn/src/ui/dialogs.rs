@@ -80,18 +80,6 @@ pub(crate) fn rename_modal_size_for_view(
     }
 }
 
-pub(crate) fn rename_modal_size(app: &AppState) -> (u16, u16) {
-    rename_modal_size_for_view(
-        app.mode,
-        app.creating_new_group,
-        app.pending_workspace_create_location.is_some(),
-    )
-}
-
-pub(crate) fn rename_name_input_rect(app: &AppState, inner: Rect) -> Rect {
-    rename_name_input_rect_for_view(app.mode, app.creating_new_group, inner)
-}
-
 pub(crate) fn rename_name_input_rect_for_view(
     mode: Mode,
     creating_new_group: bool,
@@ -228,30 +216,6 @@ pub(crate) fn group_icon_picker_rects_for_view(
     let field = group_field_rect_for_view(creating_new_group, inner, y);
     let start = Rect::new(field.x, inner.y + y, field.width.min(24), 3);
     group_icon_picker_rects_at(start)
-}
-
-pub(crate) fn group_icon_button_rect(app: &AppState, inner: Rect) -> Rect {
-    group_icon_button_rect_for_view(app.creating_new_group, inner)
-}
-
-pub(crate) fn group_name_input_rect(app: &AppState, inner: Rect) -> Rect {
-    group_name_input_rect_for_view(app.creating_new_group, inner)
-}
-
-pub(crate) fn group_default_directory_input_rect(app: &AppState, inner: Rect) -> Rect {
-    group_default_directory_input_rect_for_view(
-        app.creating_new_group,
-        app.group_icon_picker_open,
-        inner,
-    )
-}
-
-pub(crate) fn group_default_host_rect(app: &AppState, inner: Rect) -> Rect {
-    group_default_host_rect_for_view(app.creating_new_group, app.group_icon_picker_open, inner)
-}
-
-pub(crate) fn group_icon_picker_rects(app: &AppState, inner: Rect) -> Vec<(Rect, &'static str)> {
-    group_icon_picker_rects_for_view(app.creating_new_group, inner)
 }
 
 fn group_host_label(app: &AppState, host_id: &crate::execution_host::ExecutionHostId) -> String {
@@ -433,20 +397,6 @@ fn render_group_modal_fields(
     }
 }
 
-fn rename_palette(app: &AppState) -> crate::app::state::Palette {
-    match app.mode {
-        Mode::RenameWorkspace | Mode::RenameTab | Mode::RenamePane => app
-            .active
-            .map(|ws_idx| app.palette_for_workspace(ws_idx))
-            .unwrap_or_else(|| app.palette.clone()),
-        Mode::RenameGroup if !app.creating_new_group => app
-            .rename_group_target
-            .map(|group_idx| app.palette_for_group(group_idx))
-            .unwrap_or_else(|| app.palette_for_group(app.active_group)),
-        _ => app.palette.clone(),
-    }
-}
-
 pub(super) fn render_rename_overlay_for_view(
     app: &AppState,
     client_view: &crate::app::ClientViewState,
@@ -526,82 +476,6 @@ fn render_rename_overlay_with_view_state(
             &palette,
         );
         if let Some(location) = client_view.pending_workspace_create_location.as_ref() {
-            let caption = rename_location_caption_rect(inner);
-            if caption.height > 0 {
-                frame.render_widget(
-                    Paragraph::new(format!(
-                        "Runs On {} · Directory {}",
-                        group_host_label(app, &location.execution_host_id),
-                        location.path.as_path().display()
-                    ))
-                    .style(Style::default().fg(palette.overlay0)),
-                    caption,
-                );
-            }
-        }
-    }
-
-    let (save_rect, clear_rect, _) = rename_button_rects(inner);
-    render_action_button(
-        frame,
-        save_rect,
-        Some("↵"),
-        "Save",
-        primary_action_style(&palette),
-    );
-    render_action_button(
-        frame,
-        clear_rect,
-        Some("^c"),
-        "Clear",
-        secondary_action_style(&palette),
-    );
-}
-
-pub(super) fn render_rename_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    super::dim_background(frame, area);
-
-    let title = match app.mode {
-        Mode::RenameWorkspace if app.pending_workspace_create_location.is_some() => "New Workspace",
-        Mode::RenameWorkspace => "Rename Workspace",
-        Mode::RenameGroup if app.creating_new_group => "New Group",
-        Mode::RenameGroup => "Rename Group",
-        Mode::RenameTab if app.creating_new_tab => "New Tab",
-        Mode::RenameTab => "Rename Tab",
-        Mode::RenamePane => "Rename Pane",
-        _ => return,
-    };
-
-    let palette = rename_palette(app);
-    let (popup_w, popup_h) = rename_modal_size(app);
-    let Some(inner) = render_modal_shell(frame, area, popup_w, popup_h, &palette) else {
-        return;
-    };
-    if inner.height < 4 {
-        return;
-    }
-
-    let stack = rename_stack_areas(inner);
-    render_modal_header_bar(frame, stack.header, title, &palette, true);
-    if matches!(app.mode, Mode::RenameGroup) {
-        render_modal_divider(frame, stack.content, &palette);
-        render_group_modal_fields(
-            app,
-            frame,
-            inner,
-            app.creating_new_group,
-            app.group_icon_picker_open,
-            app.group_modal_selected_field,
-            &app.name_input,
-            &app.group_icon_input,
-            &app.group_default_directory_input,
-            &app.group_default_execution_host_id,
-            &palette,
-        );
-    } else {
-        let input_rect = rename_name_input_rect(app, inner);
-        render_modal_text_input(frame, input_rect, &app.name_input, &palette);
-        if let Some(location) = app.pending_workspace_create_location.as_ref() {
             let caption = rename_location_caption_rect(inner);
             if caption.height > 0 {
                 frame.render_widget(
@@ -735,14 +609,6 @@ fn render_confirm_close_overlay_with(
     }
 }
 
-pub(super) fn render_confirm_close_overlay(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    render_confirm_close_overlay_with(app, app.selected, terminal_runtimes, frame, area);
-}
 pub(super) fn render_confirm_delete_group_overlay_for_view(
     app: &AppState,
     client_view: &crate::app::ClientViewState,
@@ -832,15 +698,6 @@ fn render_confirm_delete_group_overlay_with(
             secondary_action_style(&palette),
         );
     }
-}
-
-pub(super) fn render_confirm_delete_group_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_confirm_delete_group_overlay_with(
-        app,
-        app.confirm_delete_group.unwrap_or(app.active_group),
-        frame,
-        area,
-    );
 }
 
 pub(crate) fn confirm_close_popup_rect(area: Rect) -> Option<Rect> {
@@ -980,16 +837,17 @@ mod tests {
         let mut app = AppState::test_new();
         app.workspaces = vec![Workspace::test_new("empty")];
         app.workspaces[0].tabs.clear();
-        app.selected = 0;
-        app.active = Some(0);
-        app.mode = Mode::ConfirmClose;
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.selected_workspace = 0;
+        client_view.mode = Mode::ConfirmClose;
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                render_confirm_close_overlay(
+                render_confirm_close_overlay_for_view(
                     &app,
+                    &client_view,
                     &TerminalRuntimeRegistry::new(),
                     frame,
                     Rect::new(0, 0, 80, 24),
@@ -1024,16 +882,17 @@ mod tests {
             .get_mut(&target_terminal_id)
             .expect("target terminal")
             .cwd = "/projects/current".into();
-        app.active = Some(0);
-        app.selected = 1;
-        app.mode = Mode::ConfirmClose;
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.selected_workspace = 1;
+        client_view.mode = Mode::ConfirmClose;
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
             .draw(|frame| {
-                render_confirm_close_overlay(
+                render_confirm_close_overlay_for_view(
                     &app,
+                    &client_view,
                     &TerminalRuntimeRegistry::new(),
                     frame,
                     Rect::new(0, 0, 80, 24),
@@ -1057,8 +916,6 @@ mod tests {
             Workspace::test_new("selected"),
         ];
         app.ensure_test_terminals();
-        app.active = Some(0);
-        app.selected = 0;
         let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
         client_view.selected_workspace = 1;
         client_view.mode = Mode::ConfirmClose;
@@ -1094,12 +951,20 @@ mod tests {
         let mut app = AppState::test_new();
         let group_idx = app.create_group("work".to_string());
         app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Yellow));
-        app.confirm_delete_group = Some(group_idx);
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.confirm_delete_group = Some(group_idx);
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_confirm_delete_group_overlay(&app, frame, Rect::new(0, 0, 80, 24)))
+            .draw(|frame| {
+                render_confirm_delete_group_overlay_for_view(
+                    &app,
+                    &client_view,
+                    frame,
+                    Rect::new(0, 0, 80, 24),
+                )
+            })
             .unwrap();
 
         let buffer = terminal.backend().buffer();
@@ -1112,18 +977,21 @@ mod tests {
 
     #[test]
     fn new_group_overlay_renders_optional_default_directory_field() {
-        let mut app = AppState::test_new();
-        app.mode = Mode::RenameGroup;
-        app.creating_new_group = true;
-        app.name_input = "Work".to_string();
-        app.group_icon_input = "✿".to_string();
-        app.group_default_directory_input = "/tmp/work".to_string();
-        app.group_modal_selected_field = 2;
+        let app = AppState::test_new();
+        let mut client_view = crate::app::ClientViewState::from_default_client_state(&app);
+        client_view.mode = Mode::RenameGroup;
+        client_view.creating_new_group = true;
+        client_view.name_input = "Work".to_string();
+        client_view.group_icon_input = "✿".to_string();
+        client_view.group_default_directory_input = "/tmp/work".to_string();
+        client_view.group_modal_selected_field = 2;
 
         let backend = TestBackend::new(90, 28);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| render_rename_overlay(&app, frame, Rect::new(0, 0, 90, 28)))
+            .draw(|frame| {
+                render_rename_overlay_for_view(&app, &client_view, frame, Rect::new(0, 0, 90, 28))
+            })
             .unwrap();
 
         let buffer = terminal.backend().buffer();
@@ -1139,7 +1007,11 @@ mod tests {
         assert!(!text.contains("Name + Icon + Runs On + Directory"));
         assert!(!text.contains("Runs On ·"));
 
-        let (popup_w, popup_h) = rename_modal_size(&app);
+        let (popup_w, popup_h) = rename_modal_size_for_view(
+            client_view.mode,
+            client_view.creating_new_group,
+            client_view.pending_workspace_create_location.is_some(),
+        );
         let popup = centered_popup_rect(Rect::new(0, 0, 90, 28), popup_w, popup_h).unwrap();
         let inner = Rect::new(
             popup.x + 1,
@@ -1173,15 +1045,26 @@ mod tests {
             Some(app.palette.overlay0)
         );
         assert_eq!(buffer[(inner.x + 1, inner.y + 6)].symbol(), "N");
-        assert_eq!(group_name_input_rect(&app, inner).x, inner.x + 1);
         assert_eq!(
-            group_default_directory_input_rect(&app, inner),
+            group_name_input_rect_for_view(client_view.creating_new_group, inner).x,
+            inner.x + 1
+        );
+        assert_eq!(
+            group_default_directory_input_rect_for_view(
+                client_view.creating_new_group,
+                client_view.group_icon_picker_open,
+                inner,
+            ),
             Rect::new(inner.x + 1, inner.y + 14, inner.width.saturating_sub(1), 1)
         );
 
-        app.group_icon_picker_open = true;
+        client_view.group_icon_picker_open = true;
         assert_eq!(
-            group_default_directory_input_rect(&app, inner),
+            group_default_directory_input_rect_for_view(
+                client_view.creating_new_group,
+                client_view.group_icon_picker_open,
+                inner,
+            ),
             Rect::new(inner.x + 1, inner.y + 17, inner.width.saturating_sub(1), 1)
         );
     }
@@ -1198,52 +1081,6 @@ mod tests {
         let name = rename_name_input_rect_for_view(Mode::RenameWorkspace, false, inner);
         assert_ne!(name.y, caption.y);
         assert_ne!(name.y, save.y);
-    }
-
-    #[test]
-    fn rename_overlay_caret_reaches_the_frame_the_server_sends() {
-        let mut app = AppState::test_new();
-        app.mode = Mode::RenameWorkspace;
-        app.name_input = "Work".to_string();
-
-        let area = Rect::new(0, 0, 90, 28);
-        let (_buffer, cursor) = crate::server::render_stream::render_virtual(&mut app, area, false);
-        let cursor = cursor.expect("rename overlay should anchor the host cursor");
-        let (popup_w, popup_h) = rename_modal_size(&app);
-        let popup = centered_popup_rect(area, popup_w, popup_h).expect("rename popup fits");
-        let inner = Rect::new(
-            popup.x + 1,
-            popup.y + 1,
-            popup.width.saturating_sub(2),
-            popup.height.saturating_sub(2),
-        );
-        let name_rect = rename_name_input_rect(&app, inner);
-        assert_eq!(cursor.y, name_rect.y);
-        assert_eq!(cursor.x, name_rect.x + 1 + 4);
-        assert!(cursor.visible);
-    }
-
-    #[test]
-    fn rename_overlay_caret_tracks_cjk_display_width() {
-        let mut app = AppState::test_new();
-        app.mode = Mode::RenameWorkspace;
-        app.name_input = "\u{4f5c}\u{696d}".to_string();
-
-        let area = Rect::new(0, 0, 90, 28);
-        let (_buffer, cursor) = crate::server::render_stream::render_virtual(&mut app, area, false);
-        let cursor = cursor.expect("rename overlay should anchor the host cursor");
-        let (popup_w, popup_h) = rename_modal_size(&app);
-        let popup = centered_popup_rect(area, popup_w, popup_h).expect("rename popup fits");
-        let inner = Rect::new(
-            popup.x + 1,
-            popup.y + 1,
-            popup.width.saturating_sub(2),
-            popup.height.saturating_sub(2),
-        );
-        let name_rect = rename_name_input_rect(&app, inner);
-        assert_eq!(cursor.y, name_rect.y);
-        // Two wide glyphs occupy four columns, so the caret lands four cells in.
-        assert_eq!(cursor.x, name_rect.x + 1 + 4);
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

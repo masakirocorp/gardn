@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use super::scrollbar::{render_pane_scrollbar, scrollbar_thumb, should_show_scrollbar};
+use super::scrollbar::{scrollbar_thumb, should_show_scrollbar};
 use super::widgets::panel_contrast_fg;
 use crate::app::state::Palette;
 use crate::app::{AppState, ClientViewState, Mode};
@@ -293,21 +293,22 @@ fn render_projected_scrollbar(
 
 fn render_projected_search_highlights(
     app: &AppState,
+    accent: Color,
     frame: &mut Frame,
     info: &PaneInfo,
     destination: Rect,
-    source_col: u16,
-    source_row: u16,
+    source_origin: (u16, u16),
     top: u32,
     bottom: u32,
     matches: &[(usize, crate::pane::TerminalTextMatch)],
     current: Option<usize>,
     current_only: bool,
 ) {
+    let (source_col, source_row) = source_origin;
     let style = if current_only {
         Style::default()
             .fg(panel_contrast_fg(&app.palette))
-            .bg(app.active_workspace_accent_color())
+            .bg(accent)
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default()
@@ -456,103 +457,6 @@ fn pane_theme_background(p: &Palette) -> Option<Color> {
     }
 }
 
-/// Compute pane layout info and optionally resize pane runtimes to match.
-pub(crate) fn compute_pane_infos(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    area: Rect,
-    resize_panes: bool,
-    cell_size: crate::kitty_graphics::HostCellSize,
-) -> Vec<PaneInfo> {
-    let Some(ws_idx) = app.active else {
-        return Vec::new();
-    };
-    let Some(ws) = app.workspaces.get(ws_idx) else {
-        return Vec::new();
-    };
-    let tab_idx = ws.active_tab_index();
-    let Ok(tab) = ws.terminal_tab(tab_idx) else {
-        return Vec::new();
-    };
-
-    let multi_pane = tab.layout.pane_count() > 1;
-    let terminal_active = matches!(app.mode, Mode::Terminal | Mode::Github);
-
-    if tab.zoomed {
-        let focused_id = tab.layout.focused();
-        let pane_inner = pane_inner_rect(area, multi_pane);
-        let mut inner_rect = pane_inner;
-        let mut scrollbar_rect = None;
-        if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, focused_id) {
-            (inner_rect, scrollbar_rect) =
-                stable_scrollbar_gutter(rt, pane_inner, app.pane_scrollbars);
-            if resize_panes
-                && ws.terminal_id(focused_id).is_some_and(|terminal_id| {
-                    !app.direct_attach_resize_locks.contains(terminal_id)
-                })
-            {
-                rt.resize(
-                    inner_rect.height,
-                    inner_rect.width,
-                    cell_size.width_px,
-                    cell_size.height_px,
-                );
-            }
-        }
-        return vec![PaneInfo {
-            id: focused_id,
-            rect: area,
-            inner_rect,
-            scrollbar_rect,
-            is_focused: true,
-        }];
-    }
-
-    let mut pane_infos = tab.layout.panes(area);
-    if app.pane_gaps && multi_pane {
-        separate_split_panes(&mut pane_infos, &tab.layout.splits(area));
-    }
-    for info in &mut pane_infos {
-        let pane_inner = if multi_pane {
-            let border_set = if info.is_focused && terminal_active {
-                ratatui::symbols::border::THICK
-            } else {
-                ratatui::symbols::border::PLAIN
-            };
-            let block = Block::default()
-                .borders(Borders::ALL)
-                .border_set(border_set);
-            block.inner(info.rect)
-        } else {
-            area
-        };
-
-        let mut inner_rect = pane_inner;
-        let mut scrollbar_rect = None;
-        if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
-            (inner_rect, scrollbar_rect) =
-                stable_scrollbar_gutter(rt, pane_inner, app.pane_scrollbars);
-            if resize_panes
-                && ws.terminal_id(info.id).is_some_and(|terminal_id| {
-                    !app.direct_attach_resize_locks.contains(terminal_id)
-                })
-            {
-                rt.resize(
-                    inner_rect.height,
-                    inner_rect.width,
-                    cell_size.width_px,
-                    cell_size.height_px,
-                );
-            }
-        }
-
-        info.inner_rect = inner_rect;
-        info.scrollbar_rect = scrollbar_rect;
-    }
-
-    pane_infos
-}
-
 fn layout_for_client_view(
     app: &AppState,
     client_view: &ClientViewState,
@@ -599,9 +503,9 @@ pub(super) fn compute_pane_infos_for_view(
     let focused_id = client_view
         .focused_pane_for_tab(&ws.id, tab.number)
         .filter(|pane_id| layout.pane_ids().contains(pane_id))
-        .unwrap_or_else(|| layout.focused());
-    let multi_pane = layout.pane_count() > 1;
+        .unwrap_or(tab.root_pane);
     let terminal_active = matches!(client_view.mode, Mode::Terminal | Mode::Github);
+    let multi_pane = layout.pane_count() > 1;
 
     if client_view.tab_is_zoomed(&ws.id, tab.number) {
         let pane_inner = pane_inner_rect(area, multi_pane);
@@ -628,12 +532,11 @@ pub(super) fn compute_pane_infos_for_view(
         }];
     }
 
-    let mut pane_infos = layout.panes(area);
+    let mut pane_infos = layout.panes(area, focused_id);
     if app.pane_gaps && multi_pane {
         separate_split_panes(&mut pane_infos, &layout.splits(area));
     }
     for info in &mut pane_infos {
-        info.is_focused = info.id == focused_id;
         let pane_inner = if multi_pane {
             let border_set = if info.is_focused && terminal_active {
                 ratatui::symbols::border::THICK
@@ -758,6 +661,7 @@ pub(super) fn render_panes_for_view(
     app: &AppState,
     client_view: &ClientViewState,
     terminal_runtimes: &TerminalRuntimeRegistry,
+    tab_control: crate::app::ClientTabControl,
     frame: &mut Frame,
     area: Rect,
 ) {
@@ -787,7 +691,7 @@ pub(super) fn render_panes_for_view(
     let multi_pane = tab.layout.pane_count() > 1;
     let active_accent = app.palette_for_workspace(ws_idx).accent;
     let terminal_active = matches!(client_view.mode, Mode::Terminal | Mode::Github);
-    let watching = client_view.tab_control.is_watching();
+    let watching = tab_control.is_watching();
 
     for info in &client_view.computed.pane_infos {
         let pane_state = tab.panes.get(&info.id);
@@ -838,7 +742,7 @@ pub(super) fn render_panes_for_view(
         };
         let source_col = projected_inner.source.x.saturating_sub(info.inner_rect.x);
         let source_row = projected_inner.source.y.saturating_sub(info.inner_rect.y);
-        let show_cursor = client_view.can_mutate_tab()
+        let show_cursor = tab_control.can_mutate_tab()
             && info.is_focused
             && client_view.mode == Mode::Terminal
             && !pane_is_scrolled_back(rt);
@@ -883,11 +787,11 @@ pub(super) fn render_panes_for_view(
             .and_then(|copy_mode| copy_mode.search.current);
         render_projected_search_highlights(
             app,
+            active_accent,
             frame,
             info,
             projected_inner.destination,
-            source_col,
-            source_row,
+            (source_col, source_row),
             copy_search_top,
             copy_search_bottom,
             &copy_search_matches,
@@ -907,11 +811,11 @@ pub(super) fn render_panes_for_view(
         );
         render_projected_search_highlights(
             app,
+            active_accent,
             frame,
             info,
             projected_inner.destination,
-            source_col,
-            source_row,
+            (source_col, source_row),
             copy_search_top,
             copy_search_bottom,
             &copy_search_matches,
@@ -921,6 +825,7 @@ pub(super) fn render_panes_for_view(
         render_copy_mode_cursor_for_view(
             app,
             client_view,
+            active_accent,
             frame,
             info,
             projected_inner.destination,
@@ -930,140 +835,10 @@ pub(super) fn render_panes_for_view(
     }
 }
 
-pub(super) fn render_panes(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    let Some(ws_idx) = app.active else {
-        render_empty(app, frame, area);
-        return;
-    };
-    let Some(ws) = app.workspaces.get(ws_idx) else {
-        render_empty(app, frame, area);
-        return;
-    };
-    let tab_idx = ws.active_tab_index();
-    let Ok(tab) = ws.terminal_tab(tab_idx) else {
-        render_empty(app, frame, area);
-        return;
-    };
-
-    let multi_pane = tab.layout.pane_count() > 1;
-    let active_accent = app.active_workspace_accent_color();
-    let terminal_active = matches!(app.mode, Mode::Terminal | Mode::Github);
-
-    for info in &app.view.pane_infos {
-        let pane_state = ws.pane_state(info.id);
-
-        if let Some(rt) = app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
-            if multi_pane {
-                let (border_style, border_set) = if info.is_focused && terminal_active {
-                    (
-                        Style::default().fg(active_accent),
-                        ratatui::symbols::border::THICK,
-                    )
-                } else if info.is_focused {
-                    (
-                        Style::default().fg(active_accent),
-                        ratatui::symbols::border::PLAIN,
-                    )
-                } else {
-                    (
-                        Style::default().fg(app.palette.overlay0),
-                        ratatui::symbols::border::PLAIN,
-                    )
-                };
-
-                let mut block = Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(border_style)
-                    .border_set(border_set);
-                if let Some(title) = pane_state
-                    .and_then(|pane| {
-                        app.terminals
-                            .get(&pane.attached_terminal_id)
-                            .and_then(|terminal| {
-                                terminal.border_label(app.pane_border_agent_info, pane.seen)
-                            })
-                    })
-                    .and_then(|label| pane_border_title(&label, info.rect.width))
-                {
-                    block = block.title(Line::from(Span::styled(title, border_style)));
-                }
-                frame.render_widget(block, info.rect);
-            }
-
-            let show_cursor =
-                info.is_focused && app.mode == Mode::Terminal && !pane_is_scrolled_back(rt);
-            rt.render_with_theme_background(
-                frame,
-                info.inner_rect,
-                show_cursor,
-                pane_theme_background(&app.palette),
-            );
-            render_pane_scrollbar(app, frame, info, rt);
-
-            let should_dim = !info.is_focused && multi_pane && !terminal_active;
-            if should_dim {
-                let inner = info.inner_rect;
-                let buf = frame.buffer_mut();
-                for y in inner.y..inner.y + inner.height {
-                    for x in inner.x..inner.x + inner.width {
-                        let cell = &mut buf[(x, y)];
-                        cell.set_style(cell.style().add_modifier(Modifier::DIM));
-                    }
-                }
-            }
-
-            let (copy_search_top, copy_search_bottom, copy_search_matches) =
-                validated_copy_mode_search_matches(app.copy_mode.as_ref(), info, rt);
-            let copy_search_current = app
-                .copy_mode
-                .as_ref()
-                .and_then(|copy_mode| copy_mode.search.current);
-            render_copy_mode_search_highlights(
-                app,
-                frame,
-                info,
-                copy_search_top,
-                copy_search_bottom,
-                &copy_search_matches,
-                copy_search_current,
-                false,
-            );
-            render_selection_highlight(
-                &app.selection,
-                frame,
-                info.id,
-                info.inner_rect,
-                rt.scroll_metrics(),
-                &app.palette,
-                app.host_terminal_theme,
-            );
-            render_copy_mode_search_highlights(
-                app,
-                frame,
-                info,
-                copy_search_top,
-                copy_search_bottom,
-                &copy_search_matches,
-                copy_search_current,
-                true,
-            );
-            render_copy_mode_cursor(app, frame, info);
-        }
-    }
-}
-
-fn render_copy_mode_cursor(app: &AppState, frame: &mut Frame, info: &PaneInfo) {
-    render_copy_mode_cursor_cell(app, app.mode, app.copy_mode.as_ref(), frame, info);
-}
-
 fn render_copy_mode_cursor_for_view(
     app: &AppState,
     client_view: &crate::app::ClientViewState,
+    accent: Color,
     frame: &mut Frame,
     info: &PaneInfo,
     destination: Rect,
@@ -1092,38 +867,7 @@ fn render_copy_mode_cursor_for_view(
     cell.set_style(
         Style::default()
             .fg(panel_contrast_fg(&app.palette))
-            .bg(app.active_workspace_accent_color())
-            .add_modifier(Modifier::BOLD),
-    );
-}
-
-fn render_copy_mode_cursor_cell(
-    app: &AppState,
-    mode: Mode,
-    copy_mode: Option<&crate::app::state::CopyModeState>,
-    frame: &mut Frame,
-    info: &PaneInfo,
-) {
-    if mode != Mode::Copy {
-        return;
-    }
-    let Some(copy_mode) = copy_mode else {
-        return;
-    };
-    if copy_mode.pane_id != info.id
-        || copy_mode.cursor_row >= info.inner_rect.height
-        || copy_mode.cursor_col >= info.inner_rect.width
-    {
-        return;
-    }
-
-    let x = info.inner_rect.x + copy_mode.cursor_col;
-    let y = info.inner_rect.y + copy_mode.cursor_row;
-    let cell = &mut frame.buffer_mut()[(x, y)];
-    cell.set_style(
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.active_workspace_accent_color())
+            .bg(accent)
             .add_modifier(Modifier::BOLD),
     );
 }
@@ -1164,78 +908,6 @@ fn validated_copy_mode_search_matches(
         })
         .collect();
     (top, bottom, matches)
-}
-
-fn render_copy_mode_search_highlights(
-    app: &AppState,
-    frame: &mut Frame,
-    info: &PaneInfo,
-    top: u32,
-    bottom: u32,
-    matches: &[(usize, crate::pane::TerminalTextMatch)],
-    current: Option<usize>,
-    current_only: bool,
-) {
-    let style = if current_only {
-        Style::default()
-            .fg(panel_contrast_fg(&app.palette))
-            .bg(app.active_workspace_accent_color())
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-            .fg(app.palette.text)
-            .bg(app.palette.surface1)
-    };
-    for &(index, text_match) in matches {
-        if (current == Some(index)) != current_only {
-            continue;
-        }
-        let start_row = text_match.start.row.max(top);
-        let end_row = text_match.end.row.min(bottom);
-        for absolute_row in start_row..=end_row {
-            let viewport_row = absolute_row.saturating_sub(top) as u16;
-            let start_col = if absolute_row == text_match.start.row {
-                text_match.start.col
-            } else {
-                0
-            };
-            let end_col = if absolute_row == text_match.end.row {
-                text_match.end.col
-            } else {
-                info.inner_rect.width.saturating_sub(1)
-            };
-            for col in start_col..=end_col.min(info.inner_rect.width.saturating_sub(1)) {
-                let x = info.inner_rect.x.saturating_add(col);
-                let y = info.inner_rect.y.saturating_add(viewport_row);
-                frame.buffer_mut()[(x, y)].set_style(style);
-            }
-        }
-    }
-}
-
-fn render_selection_highlight(
-    selection: &Option<crate::selection::Selection>,
-    frame: &mut Frame,
-    pane_id: crate::layout::PaneId,
-    inner: Rect,
-    scroll_metrics: Option<crate::pane::ScrollMetrics>,
-    p: &Palette,
-    host_theme: crate::terminal_theme::TerminalTheme,
-) {
-    if let Some(sel) = selection {
-        if sel.is_visible() && sel.pane_id == pane_id {
-            let buf = frame.buffer_mut();
-            let style = automatic_selection_style(p, host_theme);
-            for y in 0..inner.height {
-                for x in 0..inner.width {
-                    if sel.contains(y, x, scroll_metrics) {
-                        let cell = &mut buf[(inner.x + x, inner.y + y)];
-                        cell.set_style(style);
-                    }
-                }
-            }
-        }
-    }
 }
 
 type Rgb = (u8, u8, u8);
@@ -1373,17 +1045,6 @@ fn render_empty_for_view(app: &AppState, client_view: &ClientViewState, frame: &
     );
 }
 
-fn render_empty(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_empty_with_context(
-        app,
-        app.active,
-        app.group_filter_enabled,
-        app.active_group,
-        frame,
-        area,
-    );
-}
-
 fn render_empty_with_context(
     app: &AppState,
     active_workspace: Option<usize>,
@@ -1476,6 +1137,7 @@ fn render_empty_with_context(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::view_state::ClientTabViewKey;
     use crate::detect::AgentState;
     use crate::layout::PaneId;
     use crate::selection::Selection;
@@ -1545,13 +1207,8 @@ mod tests {
         let mut workspace = Workspace::test_new("test");
         let root = workspace.terminal_tab(0).unwrap().root_pane;
         let overlay = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(root);
+        let tab_number = workspace.terminal_tab(0).unwrap().number;
         app.workspaces = vec![workspace];
-        app.active = Some(0);
 
         let mut owner = ClientViewState::from_default_client_state(&app);
         let mut other = ClientViewState::from_default_client_state(&app);
@@ -1559,7 +1216,7 @@ mod tests {
         other.reconcile(&app);
         app.client_overlay_owners.insert(overlay, owner.id());
         assert!(owner.focus_pane_in_workspace(&app, 0, 0, overlay));
-        owner.set_tab_zoomed(&app.workspaces[0].id, 1, true);
+        owner.set_tab_zoomed(&app.workspaces[0].id, tab_number, true);
 
         let area = Rect::new(3, 2, 80, 24);
         let runtimes = TerminalRuntimeRegistry::new();
@@ -1707,7 +1364,6 @@ mod tests {
     #[test]
     fn client_split_panes_draw_closed_right_edges() {
         let mut app = AppState::test_new();
-        app.zen_mode = true;
         app.pane_borders = true;
         app.pane_scrollbars = false;
         app.pane_gaps = true;
@@ -1722,34 +1378,30 @@ mod tests {
             right,
             TerminalRuntime::test_with_scrollback_bytes(20, 8, 1024, b"right\n"),
         );
-        workspace
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(left);
         app.workspaces = vec![workspace];
-        app.active = Some(0);
 
         let area = Rect::new(0, 0, 40, 12);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         let mut client = ClientViewState::from_default_client_state(&app);
+        let tab_number = app.workspaces[0].terminal_tab(0).unwrap().number;
+        client.focused_panes.insert(
+            ClientTabViewKey::new(&app.workspaces[0].id, tab_number),
+            left,
+        );
         client.zen_mode = true;
-        crate::ui::compute_view_for_client_without_resizing_panes(
+        crate::ui::compute_view(
             &app,
             &mut client,
             &terminal_runtimes,
             area,
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::ui::PaneResizeAuthority::Denied,
         );
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
             .draw(|frame| {
-                crate::ui::render_with_runtime_registry_for_view(
-                    &app,
-                    &client,
-                    &terminal_runtimes,
-                    frame,
-                );
+                crate::ui::render(&app, &client, &terminal_runtimes, frame);
             })
             .expect("render split panes");
         let buffer = terminal.backend().buffer();
@@ -1781,7 +1433,6 @@ mod tests {
     #[test]
     fn watching_client_washes_pane_contents() {
         let mut app = AppState::test_new();
-        app.zen_mode = true;
         let mut workspace = Workspace::test_new("watch");
         let root = workspace.terminal_tab(0).unwrap().root_pane;
         workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
@@ -1789,47 +1440,50 @@ mod tests {
             TerminalRuntime::test_with_scrollback_bytes(20, 8, 1024, b"hello\n"),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
 
         let area = Rect::new(0, 0, 40, 12);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         let mut controller = ClientViewState::from_default_client_state(&app);
         controller.zen_mode = true;
         let mut watcher = controller.clone();
-        watcher.set_tab_control(crate::app::ClientTabControl::WatchingControlled { epoch: 3 });
-        crate::ui::compute_view_for_client_without_resizing_panes(
+        let watcher_context = crate::app::ClientTabContext {
+            control: crate::app::ClientTabControl::WatchingControlled { epoch: 3 },
+            canvas_size: None,
+        };
+        crate::ui::compute_view(
             &app,
             &mut controller,
             &terminal_runtimes,
             area,
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::ui::PaneResizeAuthority::Denied,
         );
-        crate::ui::compute_view_for_client_without_resizing_panes(
+        crate::ui::compute_view_with_tab_context(
             &app,
             &mut watcher,
             &terminal_runtimes,
+            watcher_context,
             area,
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::ui::PaneResizeAuthority::Denied,
         );
 
         let mut controller_terminal =
             Terminal::new(TestBackend::new(area.width, area.height)).expect("controller backend");
         controller_terminal
             .draw(|frame| {
-                crate::ui::render_with_runtime_registry_for_view(
-                    &app,
-                    &controller,
-                    &terminal_runtimes,
-                    frame,
-                );
+                crate::ui::render(&app, &controller, &terminal_runtimes, frame);
             })
             .expect("render controller");
         let mut watcher_terminal =
             Terminal::new(TestBackend::new(area.width, area.height)).expect("watcher backend");
         watcher_terminal
             .draw(|frame| {
-                crate::ui::render_with_runtime_registry_for_view(
+                crate::ui::render_with_tab_context(
                     &app,
                     &watcher,
                     &terminal_runtimes,
+                    watcher_context,
                     frame,
                 );
             })
@@ -1866,12 +1520,13 @@ mod tests {
         let mut workspace = Workspace::test_new("empty");
         workspace.tabs.clear();
         app.workspaces = vec![workspace];
-        app.active = Some(0);
+        let mut client_view = ClientViewState::from_default_client_state(&app);
+        client_view.computed.terminal_area = Rect::new(0, 0, 72, 14);
 
         let backend = TestBackend::new(72, 14);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_empty(&app, frame, Rect::new(0, 0, 72, 14)))
+            .draw(|frame| render_empty_for_view(&app, &client_view, frame))
             .expect("render empty pane");
 
         let text = buffer_text(terminal.backend().buffer(), 72, 14);
@@ -1888,16 +1543,18 @@ mod tests {
         app.workspaces = vec![Workspace::test_new("hidden")];
         let group_idx = app.create_group("work".to_string());
         app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Magenta));
-        app.active_group = group_idx;
-        app.group_filter_enabled = true;
-        app.active = None;
+        let mut client_view = ClientViewState::from_default_client_state(&app);
+        client_view.active_group = group_idx;
+        client_view.group_filter_enabled = true;
+        client_view.active_workspace = None;
+        client_view.computed.terminal_area = Rect::new(0, 0, 72, 14);
         let expected_accent = app.group_accent_color(group_idx);
         assert_ne!(expected_accent, app.palette.accent);
 
         let backend = TestBackend::new(72, 14);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_empty(&app, frame, Rect::new(0, 0, 72, 14)))
+            .draw(|frame| render_empty_for_view(&app, &client_view, frame))
             .expect("render empty pane");
 
         let buffer = terminal.backend().buffer();
@@ -1920,12 +1577,13 @@ mod tests {
             TerminalRuntime::test_with_scrollback_bytes(40, 8, 1024, b"ready\n"),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
+        let client_view = ClientViewState::from_default_client_state(&app);
 
         let area = Rect::new(10, 3, 40, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let infos = compute_pane_infos(
+        let infos = compute_pane_infos_for_view(
             &app,
+            &client_view,
             &terminal_runtimes,
             area,
             true,
@@ -1977,19 +1635,25 @@ mod tests {
     async fn zoomed_pane_scrollbar_gutter_is_reserved_before_scrollback_exists() {
         let mut app = AppState::test_new();
         let mut workspace = Workspace::test_new("test");
-        workspace.terminal_tab_mut(0).unwrap().zoomed = true;
         let root_pane = workspace.terminal_tab(0).unwrap().root_pane;
         workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             root_pane,
             TerminalRuntime::test_with_scrollback_bytes(40, 8, 1024, b"ready\n"),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
+        let mut client_view = ClientViewState::from_default_client_state(&app);
+        let workspace_id = app.workspaces[0].id.clone();
+        let tab_number = app.workspaces[0].terminal_tab(0).unwrap().number;
+        client_view
+            .focused_panes
+            .insert(ClientTabViewKey::new(&workspace_id, tab_number), root_pane);
+        client_view.set_tab_zoomed(&workspace_id, tab_number, true);
 
         let area = Rect::new(10, 3, 40, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let infos = compute_pane_infos(
+        let infos = compute_pane_infos_for_view(
             &app,
+            &client_view,
             &terminal_runtimes,
             area,
             false,
@@ -2007,18 +1671,22 @@ mod tests {
         let mut app = AppState::test_new();
         let mut workspace = Workspace::test_new("test");
         let focused_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.terminal_tab_mut(0).unwrap().zoomed = true;
+        let workspace_id = workspace.id.clone();
+        let tab_number = workspace.terminal_tab(0).unwrap().number;
         workspace.terminal_tab_mut(0).unwrap().runtimes.insert(
             focused_pane,
             TerminalRuntime::test_with_scrollback_bytes(40, 8, 1024, b"ready\n"),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
+        let mut client_view = ClientViewState::from_default_client_state(&app);
+        client_view.focus_pane_in_workspace(&app, 0, 0, focused_pane);
+        client_view.set_tab_zoomed(&workspace_id, tab_number, true);
 
         let area = Rect::new(10, 3, 40, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let infos = compute_pane_infos(
+        let infos = compute_pane_infos_for_view(
             &app,
+            &client_view,
             &terminal_runtimes,
             area,
             false,
@@ -2042,12 +1710,13 @@ mod tests {
             TerminalRuntime::test_with_scrollback_bytes(4, 8, 1024, b"ready\n"),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
+        let client_view = ClientViewState::from_default_client_state(&app);
 
         let area = Rect::new(10, 3, 4, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let infos = compute_pane_infos(
+        let infos = compute_pane_infos_for_view(
             &app,
+            &client_view,
             &terminal_runtimes,
             area,
             false,
@@ -2075,12 +1744,13 @@ mod tests {
             ),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
+        let client_view = ClientViewState::from_default_client_state(&app);
 
         let area = Rect::new(10, 3, 40, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let infos = compute_pane_infos(
+        let infos = compute_pane_infos_for_view(
             &app,
+            &client_view,
             &terminal_runtimes,
             area,
             false,
@@ -2108,13 +1778,14 @@ mod tests {
             ),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
         app.pane_scrollbars = false;
+        let client_view = ClientViewState::from_default_client_state(&app);
 
         let area = Rect::new(10, 3, 40, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let infos = compute_pane_infos(
+        let infos = compute_pane_infos_for_view(
             &app,
+            &client_view,
             &terminal_runtimes,
             area,
             false,
@@ -2142,14 +1813,15 @@ mod tests {
             ),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
+        let client_view = ClientViewState::from_default_client_state(&app);
 
         let area = Rect::new(10, 3, 40, 8);
         let inner_rect = Rect::new(10, 3, 39, 8);
         let scrollbar_rect = Rect::new(49, 3, 1, 8);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let primary = compute_pane_infos(
+        let primary = compute_pane_infos_for_view(
             &app,
+            &client_view,
             &terminal_runtimes,
             area,
             true,
@@ -2175,8 +1847,9 @@ mod tests {
                 .get(&root_pane)
                 .expect("runtime")
                 .test_process_pty_bytes(root_pane, screen_transition);
-            let infos = compute_pane_infos(
+            let infos = compute_pane_infos_for_view(
                 &app,
+                &client_view,
                 &terminal_runtimes,
                 area,
                 true,
@@ -2202,9 +1875,10 @@ mod tests {
             TerminalRuntime::test_with_scrollback_bytes(40, 8, 1024, b"ready\n"),
         );
         app.workspaces = vec![workspace];
-        app.active = Some(0);
         app.pane_border_agent_info = crate::config::PaneBorderAgentInfoConfig::NameAndStatus;
         app.ensure_test_terminals();
+        let mut client_view = ClientViewState::from_default_client_state(&app);
+        client_view.focus_pane_in_workspace(&app, 0, 0, agent_pane);
 
         let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&agent_pane]
             .attached_terminal_id
@@ -2218,19 +1892,36 @@ mod tests {
         let height = 10;
         let area = Rect::new(0, 0, width, height);
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        app.view.pane_infos = compute_pane_infos(
+        client_view.computed.pane_infos = compute_pane_infos_for_view(
             &app,
+            &client_view,
             &terminal_runtimes,
             area,
             false,
             crate::kitty_graphics::HostCellSize::default(),
         );
-        let expected_accent = app.active_workspace_accent_color();
+        client_view.tab_canvas_view = Some(crate::app::view_state::TabCanvasViewport::new(
+            ratatui::layout::Size::new(width, height),
+            area,
+            crate::app::view_state::CanvasOrigin::default(),
+        ));
+        let expected_accent = app
+            .palette_for_workspace(client_view.active_workspace.expect("active workspace"))
+            .accent;
         let backend = TestBackend::new(width, height);
         let mut terminal = Terminal::new(backend).expect("test backend");
 
         terminal
-            .draw(|frame| render_panes(&app, &terminal_runtimes, frame, area))
+            .draw(|frame| {
+                render_panes_for_view(
+                    &app,
+                    &client_view,
+                    &terminal_runtimes,
+                    crate::app::ClientTabControl::default(),
+                    frame,
+                    area,
+                )
+            })
             .expect("render working agent pane");
         let (x, y) = first_cell_with_text(
             terminal.backend().buffer(),
@@ -2249,7 +1940,16 @@ mod tests {
             .expect("agent terminal state")
             .set_detected_state(Some(crate::detect::Agent::Claude), AgentState::Blocked);
         terminal
-            .draw(|frame| render_panes(&app, &terminal_runtimes, frame, area))
+            .draw(|frame| {
+                render_panes_for_view(
+                    &app,
+                    &client_view,
+                    &terminal_runtimes,
+                    crate::app::ClientTabControl::default(),
+                    frame,
+                    area,
+                )
+            })
             .expect("render blocked agent pane");
         let rendered = buffer_text(terminal.backend().buffer(), width, height);
         assert!(rendered.contains("claude · blocked"));
@@ -2288,11 +1988,13 @@ mod tests {
                         .add_modifier(Modifier::BOLD),
                 );
                 buf[(2, 0)].set_style(Style::default().fg(Color::Blue).bg(Color::Reset));
-                render_selection_highlight(
+                render_projected_selection_highlight(
                     &selection,
                     frame,
                     PaneId::from_raw(1),
                     Rect::new(0, 0, 4, 1),
+                    0,
+                    0,
                     None,
                     &palette,
                     host_theme,

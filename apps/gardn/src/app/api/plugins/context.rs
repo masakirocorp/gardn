@@ -1,5 +1,5 @@
 use crate::api::schema::{EventData, PluginInvocationContext};
-use crate::app::App;
+use crate::app::{App, ClientViewState};
 
 impl App {
     pub(super) fn merge_plugin_context(
@@ -29,10 +29,14 @@ impl App {
     }
 
     pub(super) fn current_plugin_context(&self, correlation_id: &str) -> PluginInvocationContext {
-        let Some(ws_idx) = self.state.active else {
+        let Some(ws_idx) = self.default_client_view.active_workspace else {
             return empty_plugin_context(correlation_id);
         };
-        self.plugin_context_for_workspace(ws_idx, correlation_id)
+        self.plugin_context_for_workspace_for_view(
+            &self.default_client_view,
+            ws_idx,
+            correlation_id,
+        )
     }
 
     pub(super) fn plugin_context_for_event(
@@ -191,19 +195,22 @@ impl App {
     ) -> Option<PluginInvocationContext> {
         let (ws_idx, tab_idx) = self.parse_tab_id(tab_id)?;
         let ws = self.state.workspaces.get(ws_idx)?;
-        let workspace = self.workspace_info(ws_idx);
-        let pane_id = ws
-            .terminal_tab(tab_idx)
-            .ok()
-            .map(|tab| tab.layout.focused());
-        let focused_pane = pane_id.and_then(|pane_id| self.pane_info(ws_idx, pane_id));
+        let workspace = self.workspace_info_for_view(&self.default_client_view, ws_idx);
+        let pane_id = ws.terminal_tab(tab_idx).ok().and_then(|tab| {
+            self.default_client_view
+                .focused_pane_for_tab(&ws.id, tab.number)
+                .or(Some(tab.root_pane))
+        });
+        let focused_pane = pane_id.and_then(|pane_id| {
+            self.pane_info_for_view(&self.default_client_view, ws_idx, pane_id)
+        });
         Some(self.plugin_context_from_parts(
             ws_idx,
             workspace,
             self.public_tab_id(ws_idx, tab_idx),
             ws.tab_display_name(tab_idx),
             focused_pane,
-            self.state.selection.as_ref(),
+            self.default_client_view.selection.as_ref(),
             correlation_id,
         ))
     }
@@ -257,23 +264,36 @@ impl App {
         ws_idx: usize,
         correlation_id: &str,
     ) -> PluginInvocationContext {
+        self.plugin_context_for_workspace_for_view(
+            &self.default_client_view,
+            ws_idx,
+            correlation_id,
+        )
+    }
+
+    pub(super) fn plugin_context_for_workspace_for_view(
+        &self,
+        view: &crate::app::ClientViewState,
+        ws_idx: usize,
+        correlation_id: &str,
+    ) -> PluginInvocationContext {
         let Some(ws) = self.state.workspaces.get(ws_idx) else {
             return empty_plugin_context(correlation_id);
         };
-        let workspace = self.workspace_info(ws_idx);
-        let tab_idx = ws.active_tab_index();
-        let tab_id = self.public_tab_id(ws_idx, tab_idx);
-        let tab_label = ws.tab_display_name(tab_idx);
-        let focused_pane = ws
-            .focused_pane_id()
-            .and_then(|pane_id| self.pane_info(ws_idx, pane_id));
+        let workspace = self.workspace_info_for_view(view, ws_idx);
+        let tab_idx = view.active_tab_index_for_workspace(&self.state, ws_idx);
+        let tab_id = tab_idx.and_then(|tab_idx| self.public_tab_id(ws_idx, tab_idx));
+        let tab_label = tab_idx.and_then(|tab_idx| ws.tab_display_name(tab_idx));
+        let focused_pane = view
+            .focused_pane_for_workspace(&self.state, ws_idx)
+            .and_then(|(_, pane_id)| self.pane_info_for_view(view, ws_idx, pane_id));
         self.plugin_context_from_parts(
             ws_idx,
             workspace,
             tab_id,
             tab_label,
             focused_pane,
-            self.state.selection.as_ref(),
+            view.selection.as_ref(),
             correlation_id,
         )
     }
@@ -287,7 +307,34 @@ impl App {
         self.plugin_context_for_pane_with_selection(
             ws_idx,
             pane_id,
-            self.state.selection.as_ref(),
+            self.default_client_view.selection.as_ref(),
+            correlation_id,
+        )
+    }
+    pub(super) fn plugin_context_for_pane_for_view(
+        &self,
+        view: &ClientViewState,
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+        correlation_id: &str,
+    ) -> PluginInvocationContext {
+        let Some(ws) = self.state.workspaces.get(ws_idx) else {
+            return empty_plugin_context(correlation_id);
+        };
+        let workspace = self.workspace_info_for_view(view, ws_idx);
+        let tab_idx = ws
+            .find_tab_index_for_pane(pane_id)
+            .or_else(|| view.active_tab_index_for_workspace(&self.state, ws_idx));
+        let tab_id = tab_idx.and_then(|tab_idx| self.public_tab_id(ws_idx, tab_idx));
+        let tab_label = tab_idx.and_then(|tab_idx| ws.tab_display_name(tab_idx));
+        let focused_pane = self.pane_info_for_view(view, ws_idx, pane_id);
+        self.plugin_context_from_parts(
+            ws_idx,
+            workspace,
+            tab_id,
+            tab_label,
+            focused_pane,
+            view.selection.as_ref(),
             correlation_id,
         )
     }
@@ -300,13 +347,14 @@ impl App {
         correlation_id: &str,
     ) -> PluginInvocationContext {
         let ws = &self.state.workspaces[ws_idx];
-        let workspace = self.workspace_info(ws_idx);
-        let tab_idx = ws
-            .find_tab_index_for_pane(pane_id)
-            .unwrap_or_else(|| ws.active_tab_index());
-        let tab_id = self.public_tab_id(ws_idx, tab_idx);
-        let tab_label = ws.tab_display_name(tab_idx);
-        let focused_pane = self.pane_info(ws_idx, pane_id);
+        let workspace = self.workspace_info_for_view(&self.default_client_view, ws_idx);
+        let tab_idx = ws.find_tab_index_for_pane(pane_id).or_else(|| {
+            self.default_client_view
+                .active_tab_index_for_workspace(&self.state, ws_idx)
+        });
+        let tab_id = tab_idx.and_then(|tab_idx| self.public_tab_id(ws_idx, tab_idx));
+        let tab_label = tab_idx.and_then(|tab_idx| ws.tab_display_name(tab_idx));
+        let focused_pane = self.pane_info_for_view(&self.default_client_view, ws_idx, pane_id);
         self.plugin_context_from_parts(
             ws_idx,
             workspace,
@@ -328,10 +376,20 @@ impl App {
         selection: Option<&crate::selection::Selection>,
         correlation_id: &str,
     ) -> PluginInvocationContext {
+        let focused_pane_id = focused_pane
+            .as_ref()
+            .and_then(|pane| self.parse_pane_id(&pane.pane_id))
+            .map(|(_, pane_id)| pane_id);
         let workspace_cwd = focused_pane
             .as_ref()
             .and_then(|pane| pane.cwd.clone())
-            .or_else(|| Some(self.default_cwd_for_workspace(ws_idx).display().to_string()));
+            .or_else(|| {
+                Some(
+                    self.default_cwd_for_workspace(ws_idx, focused_pane_id)
+                        .display()
+                        .to_string(),
+                )
+            });
         let selected_text = focused_pane
             .as_ref()
             .and_then(|pane| self.parse_pane_id(&pane.pane_id))
@@ -374,12 +432,20 @@ impl App {
             .filter(|text| !text.is_empty())
     }
 
-    fn default_cwd_for_workspace(&self, ws_idx: usize) -> std::path::PathBuf {
+    fn default_cwd_for_workspace(
+        &self,
+        ws_idx: usize,
+        focused_pane: Option<crate::layout::PaneId>,
+    ) -> std::path::PathBuf {
         self.state
             .workspaces
             .get(ws_idx)
             .and_then(|ws| {
-                ws.resolved_identity_cwd_from(&self.state.terminals, &self.terminal_runtimes)
+                ws.resolved_identity_cwd_from(
+                    focused_pane,
+                    &self.state.terminals,
+                    &self.terminal_runtimes,
+                )
             })
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| "/".into()))
     }

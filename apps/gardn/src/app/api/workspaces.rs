@@ -9,18 +9,7 @@ use super::responses::{encode_error, encode_success};
 
 impl App {
     pub(super) fn handle_workspace_list(&mut self, id: String) -> String {
-        encode_success(
-            id,
-            ResponseResult::WorkspaceList {
-                workspaces: self
-                    .state
-                    .workspaces
-                    .iter()
-                    .enumerate()
-                    .map(|(idx, _)| self.workspace_info(idx))
-                    .collect(),
-            },
-        )
+        self.with_default_client_view(|app, view| app.handle_workspace_list_for_view(view, id))
     }
 
     pub(crate) fn workspace_info_for_view(
@@ -31,8 +20,8 @@ impl App {
         let ws = &self.state.workspaces[index];
         let (agg_state, seen) = ws.aggregate_state(&self.state.terminals);
         let active_tab = view
-            .active_tab_for_workspace(&ws.id)
-            .unwrap_or(ws.active_tab);
+            .active_tab_index_for_workspace(&self.state, index)
+            .unwrap_or(0);
         WorkspaceInfo {
             workspace_id: self.public_workspace_id(index),
             group_id: ws.group_id.clone(),
@@ -57,19 +46,9 @@ impl App {
     }
 
     pub(super) fn handle_workspace_get(&mut self, id: String, target: WorkspaceTarget) -> String {
-        let Some(index) = self.parse_workspace_id(&target.workspace_id) else {
-            return workspace_not_found(id, &target.workspace_id);
-        };
-        let Some(_) = self.state.workspaces.get(index) else {
-            return workspace_not_found(id, &target.workspace_id);
-        };
-
-        encode_success(
-            id,
-            ResponseResult::WorkspaceInfo {
-                workspace: self.workspace_info(index),
-            },
-        )
+        self.with_default_client_view(|app, view| {
+            app.handle_workspace_get_for_view(view, id, target)
+        })
     }
 
     pub(super) fn handle_workspace_create_disposition(
@@ -114,8 +93,9 @@ impl App {
             .state
             .groups
             .get(invocation.view().active_group)
+            .or_else(|| self.state.groups.first())
             .map(|group| group.id.clone())
-            .unwrap_or_else(|| self.state.active_group_id().to_string());
+            .unwrap_or_default();
         let group_default = self.group_default_location(&group_id);
         let local_fallback = match crate::execution_host::ResourceLocation::local(
             self.resolve_new_terminal_cwd(None),
@@ -197,19 +177,35 @@ impl App {
                     }
                 }
                 let workspace = self.workspace_info_for_view(invocation.view(), index);
-                let tab = self
-                    .tab_info_for_view(invocation.view(), index, 0)
-                    .expect("new workspace should have an initial tab");
-                let root_pane = self
-                    .pane_info_for_view(
-                        invocation.view(),
-                        index,
-                        self.state.workspaces[index]
-                            .terminal_tab(0)
-                            .expect("new workspace should have an initial terminal tab")
-                            .root_pane,
-                    )
-                    .expect("new workspace should have an initial root pane");
+                let Some(tab) = self.tab_info_for_view(invocation.view(), index, 0) else {
+                    return crate::api::ApiRequestDisposition::Respond(encode_error(
+                        id,
+                        "workspace_create_failed",
+                        "new workspace initial tab unavailable",
+                    ));
+                };
+                let Some(root_pane_id) = self
+                    .state
+                    .workspaces
+                    .get(index)
+                    .and_then(|workspace| workspace.terminal_tab(0).ok())
+                    .map(|tab| tab.root_pane)
+                else {
+                    return crate::api::ApiRequestDisposition::Respond(encode_error(
+                        id,
+                        "workspace_create_failed",
+                        "new workspace initial terminal tab unavailable",
+                    ));
+                };
+                let Some(root_pane) =
+                    self.pane_info_for_view(invocation.view(), index, root_pane_id)
+                else {
+                    return crate::api::ApiRequestDisposition::Respond(encode_error(
+                        id,
+                        "workspace_create_failed",
+                        "new workspace initial pane unavailable",
+                    ));
+                };
                 self.emit_event(EventEnvelope {
                     event: EventKind::WorkspaceCreated,
                     data: EventData::WorkspaceCreated {
@@ -365,11 +361,7 @@ impl App {
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
-        let ambient_focus = AmbientWorkspaceFocus::capture(self);
-        self.state.selected = index;
-        self.state.close_selected_workspace();
-        ambient_focus.restore_if_valid(self);
-        view.reconcile(&self.state);
+        self.close_workspace_for_client_view(view, index);
         for pane_id in pane_ids {
             self.state.plugin_panes.remove(&pane_id);
         }
@@ -386,20 +378,9 @@ impl App {
     }
 
     pub(super) fn handle_workspace_focus(&mut self, id: String, target: WorkspaceTarget) -> String {
-        let Some(index) = self.parse_workspace_id(&target.workspace_id) else {
-            return workspace_not_found(id, &target.workspace_id);
-        };
-        if self.state.workspaces.get(index).is_none() {
-            return workspace_not_found(id, &target.workspace_id);
-        }
-        self.state.switch_workspace(index);
-
-        encode_success(
-            id,
-            ResponseResult::WorkspaceInfo {
-                workspace: self.workspace_info(index),
-            },
-        )
+        self.with_default_client_view(|app, view| {
+            app.handle_workspace_focus_for_view(view, id, target)
+        })
     }
 
     pub(super) fn handle_workspace_rename(
@@ -407,65 +388,15 @@ impl App {
         id: String,
         params: WorkspaceRenameParams,
     ) -> String {
-        let Some(index) = self.parse_workspace_id(&params.workspace_id) else {
-            return workspace_not_found(id, &params.workspace_id);
-        };
-        let Some(ws) = self.state.workspaces.get_mut(index) else {
-            return workspace_not_found(id, &params.workspace_id);
-        };
-        ws.set_custom_name(params.label.clone());
-        crate::logging::workspace_renamed(&ws.id);
-        self.schedule_session_save();
-        self.emit_event(EventEnvelope {
-            event: EventKind::WorkspaceRenamed,
-            data: EventData::WorkspaceRenamed {
-                workspace_id: self.public_workspace_id(index),
-                label: params.label,
-            },
-        });
-
-        encode_success(
-            id,
-            ResponseResult::WorkspaceInfo {
-                workspace: self.workspace_info(index),
-            },
-        )
+        self.with_default_client_view(|app, view| {
+            app.handle_workspace_rename_for_view(view, id, params)
+        })
     }
 
     pub(super) fn handle_workspace_close(&mut self, id: String, target: WorkspaceTarget) -> String {
-        let Some(index) = self.parse_workspace_id(&target.workspace_id) else {
-            return workspace_not_found(id, &target.workspace_id);
-        };
-        if self.state.workspaces.get(index).is_none() {
-            return workspace_not_found(id, &target.workspace_id);
-        }
-        let workspace_id = self.public_workspace_id(index);
-        let workspace = self.workspace_info(index);
-        let pane_ids = self
-            .state
-            .workspaces
-            .get(index)
-            .map(|ws| {
-                ws.terminal_tabs()
-                    .flat_map(|(_, tab)| tab.layout.pane_ids())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        self.state.selected = index;
-        self.state.close_selected_workspace();
-        for pane_id in pane_ids {
-            self.state.plugin_panes.remove(&pane_id);
-        }
-        self.shutdown_detached_terminal_runtimes();
-        self.emit_event(EventEnvelope {
-            event: EventKind::WorkspaceClosed,
-            data: EventData::WorkspaceClosed {
-                workspace_id,
-                workspace: Some(workspace),
-            },
-        });
-
-        encode_success(id, ResponseResult::Ok {})
+        self.with_default_client_view(|app, view| {
+            app.handle_workspace_close_for_view(view, id, target)
+        })
     }
 }
 
@@ -475,57 +406,6 @@ fn workspace_not_found(id: String, workspace_id: &str) -> String {
         "workspace_not_found",
         format!("workspace {workspace_id} not found"),
     )
-}
-
-struct AmbientWorkspaceFocus {
-    active_id: Option<String>,
-    selected_id: Option<String>,
-    active_group: usize,
-    mode: Mode,
-}
-
-impl AmbientWorkspaceFocus {
-    fn capture(app: &App) -> Self {
-        Self {
-            active_id: app
-                .state
-                .active
-                .and_then(|idx| app.state.workspaces.get(idx))
-                .map(|workspace| workspace.id.clone()),
-            selected_id: app
-                .state
-                .workspaces
-                .get(app.state.selected)
-                .map(|workspace| workspace.id.clone()),
-            active_group: app.state.active_group,
-            mode: app.state.mode,
-        }
-    }
-
-    fn restore_if_valid(self, app: &mut App) {
-        if self.active_group >= app.state.groups.len() && !app.state.groups.is_empty() {
-            return;
-        }
-        if let Some(id) = self.active_id {
-            if let Some(idx) = app.state.workspaces.iter().position(|ws| ws.id == id) {
-                app.state.active = Some(idx);
-            }
-        }
-        if let Some(id) = self.selected_id {
-            if let Some(idx) = app.state.workspaces.iter().position(|ws| ws.id == id) {
-                app.state.selected = idx;
-            }
-        } else if !app.state.workspaces.is_empty() {
-            app.state.selected = app
-                .state
-                .selected
-                .min(app.state.workspaces.len().saturating_sub(1));
-        }
-        app.state.active_group = self
-            .active_group
-            .min(app.state.groups.len().saturating_sub(1));
-        app.state.mode = self.mode;
-    }
 }
 
 fn focus_workspace_in_view(state: &crate::app::AppState, view: &mut ClientViewState, index: usize) {
@@ -538,7 +418,7 @@ fn focus_workspace_in_view(state: &crate::app::AppState, view: &mut ClientViewSt
             .iter()
             .position(|group| group.id == workspace.group_id)
         {
-            view.active_group = group_idx;
+            view.select_group(state, group_idx);
         }
         view.mode = Mode::Terminal;
         view.reconcile(state);
@@ -579,6 +459,7 @@ mod tests {
             crate::api::EventHub::default(),
         );
         app.state.workspaces = vec![Workspace::test_new("issue")];
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
         app
     }
 
@@ -604,6 +485,7 @@ mod tests {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(&Config::default(), true, None, api_rx, event_hub.clone());
         app.state.workspaces = app_with_workspace().state.workspaces;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
         let workspace_id = app.state.workspaces[0].id.clone();
 
         let response = app.handle_workspace_close(
@@ -644,9 +526,6 @@ mod tests {
             Workspace::test_new("c"),
         ];
         app.state.ensure_test_terminals();
-        app.state.active = Some(1);
-        app.state.selected = 1;
-        app.state.mode = Mode::Navigate;
         let focused_id = app.state.workspaces[1].id.clone();
         let closing_id = app.state.workspaces[0].id.clone();
 
@@ -667,12 +546,6 @@ mod tests {
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         assert_eq!(success.id, "req");
         assert_eq!(app.state.workspaces.len(), 2);
-        assert_eq!(
-            app.state.workspaces[app.state.active.unwrap()].id,
-            focused_id
-        );
-        assert_eq!(app.state.workspaces[app.state.selected].id, focused_id);
-        assert_eq!(app.state.mode, Mode::Navigate);
         assert_eq!(view.active_workspace, Some(0));
         assert_eq!(view.selected_workspace, 0);
         assert_eq!(
@@ -694,7 +567,7 @@ mod tests {
             crate::app::state::DEFAULT_GROUP_ICON.into(),
             Some(group_default.clone()),
         );
-        app.default_client_view.active_group = group_idx;
+        app.default_client_view.select_group(&app.state, group_idx);
         app.default_client_view.group_filter_enabled = true;
         let group_id = app.state.groups[group_idx].id.clone();
         let workspaces_before = app.state.workspaces.len();
@@ -743,7 +616,7 @@ mod tests {
                 Some(group_default.clone()),
             );
             app.state.workspaces[0].group_id = app.state.groups[group_idx].id.clone();
-            app.default_client_view.active_group = group_idx;
+            app.default_client_view.select_group(&app.state, group_idx);
             app.default_client_view.group_filter_enabled = true;
         }
 
@@ -814,20 +687,17 @@ mod tests {
         assert_eq!(view_created.default_location, group_default);
         assert_eq!(
             ambient_created.group_id,
-            ambient_app.state.groups[ambient_app.state.active_group].id
+            ambient_app.state.groups[ambient_app.default_client_view.active_group].id
         );
         assert_eq!(
             view_created.group_id,
-            view_app.state.groups[view_app.state.active_group].id
+            view_app.state.groups[view.active_group].id
         );
     }
 
     #[tokio::test]
     async fn deferred_remote_workspace_create_focus_true_only_initiator_after_ack() {
         let mut app = app_with_workspace();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
         app.state.ensure_test_terminals();
 
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:focus-ws").unwrap();
@@ -844,7 +714,7 @@ mod tests {
         other.selected_workspace = 0;
         other.reconcile(&app.state);
 
-        let ambient_active = app.state.active;
+        let ambient_active = app.default_client_view.active_workspace;
         let disposition = app.handle_workspace_create_with(
             ApiInvocationContext::with_origin(ApiInvocationOrigin::ClientLocal, &mut initiator),
             "ws-remote-focus".into(),
@@ -868,7 +738,7 @@ mod tests {
             "initiator should keep pending workspace focus until ACK"
         );
         assert!(other.pending_active_workspace.is_none());
-        assert_eq!(app.state.active, ambient_active);
+        assert_eq!(app.default_client_view.active_workspace, ambient_active);
         assert_eq!(app.state.workspaces.len(), 1);
 
         let (respond_to, response_rx) = std::sync::mpsc::channel();
@@ -899,8 +769,8 @@ mod tests {
         assert_eq!(body["result"]["type"], "workspace_created");
         assert_eq!(body["result"]["workspace"]["focused"], true);
 
-        // Ambient shared focus stays put; initiator pending resolves on reconcile.
-        assert_eq!(app.state.active, ambient_active);
+        // The default view stays put; initiator pending focus resolves on reconcile.
+        assert_eq!(app.default_client_view.active_workspace, ambient_active);
         assert_eq!(app.state.workspaces.len(), 2);
         initiator.reconcile(&app.state);
         other.reconcile(&app.state);
@@ -912,9 +782,6 @@ mod tests {
     #[tokio::test]
     async fn deferred_remote_workspace_create_focus_false_changes_neither_client() {
         let mut app = app_with_workspace();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
         app.state.ensure_test_terminals();
 
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:nofocus-ws").unwrap();
@@ -974,15 +841,12 @@ mod tests {
         other.reconcile(&app.state);
         assert_eq!(initiator.active_workspace, Some(0));
         assert_eq!(other.active_workspace, Some(0));
-        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.default_client_view.active_workspace, Some(0));
     }
 
     #[tokio::test]
     async fn deferred_remote_workspace_create_failure_clears_only_initiator_marker() {
         let mut app = app_with_workspace();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
         app.state.ensure_test_terminals();
 
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:fail-ws").unwrap();

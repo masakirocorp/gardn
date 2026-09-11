@@ -220,8 +220,6 @@ pub struct WorkspaceSnapshot {
     #[serde(default)]
     pub next_public_tab_number: usize,
     pub tabs: Vec<TabSnapshot>,
-    #[serde(default, rename = "active_tab", skip_serializing)]
-    pub(crate) legacy_active_tab: usize,
 }
 
 #[derive(Serialize, Clone)]
@@ -336,6 +334,23 @@ struct LegacyWorkspaceSnapshot {
     root_pane: Option<u32>,
 }
 
+struct MigratedWorkspaceSnapshot {
+    snapshot: WorkspaceSnapshot,
+    legacy_view: LegacyWorkspaceViewSnapshot,
+}
+
+#[derive(Default)]
+struct LegacyWorkspaceViewSnapshot {
+    active_tab: usize,
+    tabs: Vec<LegacyTabViewSnapshot>,
+}
+
+#[derive(Default)]
+struct LegacyTabViewSnapshot {
+    zoomed: bool,
+    focused: Option<u32>,
+}
+
 pub enum TabSnapshot {
     Terminal(TerminalTabSnapshot),
     Github {
@@ -431,10 +446,6 @@ pub struct TerminalTabSnapshot {
     pub custom_name: Option<String>,
     pub layout: LayoutSnapshot,
     pub panes: HashMap<u32, PaneSnapshot>,
-    #[serde(default, rename = "zoomed", skip_serializing)]
-    pub(crate) legacy_zoomed: bool,
-    #[serde(default, rename = "focused", skip_serializing)]
-    pub(crate) legacy_focused: Option<u32>,
     #[serde(default)]
     pub root_pane: Option<u32>,
 }
@@ -517,34 +528,41 @@ pub enum DirectionSnapshot {
     Vertical,
 }
 
-impl From<LegacyWorkspaceSnapshot> for WorkspaceSnapshot {
+impl From<LegacyWorkspaceSnapshot> for MigratedWorkspaceSnapshot {
     fn from(snap: LegacyWorkspaceSnapshot) -> Self {
         let identity_cwd = legacy_identity_cwd(&snap);
+        let legacy_view = LegacyWorkspaceViewSnapshot {
+            active_tab: 0,
+            tabs: vec![LegacyTabViewSnapshot {
+                zoomed: snap.zoomed,
+                focused: snap.focused,
+            }],
+        };
         let tab = TabSnapshot::Terminal(TerminalTabSnapshot {
             custom_name: None,
             layout: snap.layout,
             panes: snap.panes,
-            legacy_zoomed: snap.zoomed,
-            legacy_focused: snap.focused,
             root_pane: snap.root_pane,
         });
 
         Self {
-            id: None,
-            custom_name: snap.custom_name,
-            group_id: default_group_id(),
-            identity_cwd: identity_cwd.clone(),
-            default_location: crate::execution_host::ResourceLocation::new(
-                crate::execution_host::ExecutionHostId::local(),
-                crate::execution_host::HostPath::new(identity_cwd).unwrap_or_default(),
-            ),
-            github_scope: crate::github::GithubRepositoryScope::default(),
-            public_pane_numbers: HashMap::new(),
-            next_public_pane_number: 0,
-            public_tab_numbers: Vec::new(),
-            next_public_tab_number: 0,
-            tabs: vec![tab],
-            legacy_active_tab: 0,
+            snapshot: WorkspaceSnapshot {
+                id: None,
+                custom_name: snap.custom_name,
+                group_id: default_group_id(),
+                identity_cwd: identity_cwd.clone(),
+                default_location: crate::execution_host::ResourceLocation::new(
+                    crate::execution_host::ExecutionHostId::local(),
+                    crate::execution_host::HostPath::new(identity_cwd).unwrap_or_default(),
+                ),
+                github_scope: crate::github::GithubRepositoryScope::default(),
+                public_pane_numbers: HashMap::new(),
+                next_public_pane_number: 0,
+                public_tab_numbers: Vec::new(),
+                next_public_tab_number: 0,
+                tabs: vec![tab],
+            },
+            legacy_view,
         }
     }
 }
@@ -665,18 +683,22 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         .as_ref()
         .map(RawSessionDefaultViewSnapshot::current)
         .unwrap_or_else(|| SessionDefaultViewSnapshot::from_legacy(&raw));
-    let mut workspaces = raw
+    let mut migrated_workspaces = raw
         .workspaces
         .into_iter()
         .map(migrate_workspace)
         .collect::<Result<Vec<_>, _>>()?;
     if legacy_format {
-        for workspace in &mut workspaces {
-            workspace.prepare_legacy_view_identity();
+        for workspace in &mut migrated_workspaces {
+            workspace.snapshot.prepare_legacy_view_identity();
         }
         default_view.active_group = raw.active_group;
         default_view.group_filter_enabled = raw.group_filter_enabled;
-        default_view.upgrade_legacy_navigation(&workspaces, legacy_active, legacy_selected);
+        default_view.upgrade_legacy_navigation(
+            &migrated_workspaces,
+            legacy_active,
+            legacy_selected,
+        );
     }
     Ok(SessionSnapshot {
         version: SNAPSHOT_VERSION,
@@ -687,7 +709,10 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
         } else {
             raw.groups
         },
-        workspaces,
+        workspaces: migrated_workspaces
+            .into_iter()
+            .map(|workspace| workspace.snapshot)
+            .collect(),
         default_view,
         agent_follow_up: raw.agent_follow_up,
         pane_id_aliases: raw.pane_id_aliases,
@@ -697,29 +722,36 @@ fn migrate_snapshot(raw: RawSessionSnapshot) -> Result<SessionSnapshot, String> 
 impl SessionDefaultViewSnapshot {
     fn upgrade_legacy_navigation(
         &mut self,
-        workspaces: &[WorkspaceSnapshot],
+        workspaces: &[MigratedWorkspaceSnapshot],
         legacy_active: Option<usize>,
         legacy_selected: usize,
     ) {
         self.active_workspace_id = legacy_active
             .and_then(|index| workspaces.get(index))
-            .and_then(|workspace| workspace.id.clone());
+            .and_then(|workspace| workspace.snapshot.id.clone());
         self.selected_workspace_id = workspaces
             .get(legacy_selected)
-            .and_then(|workspace| workspace.id.clone());
+            .and_then(|workspace| workspace.snapshot.id.clone());
 
-        for workspace in workspaces {
+        for migrated in workspaces {
+            let workspace = &migrated.snapshot;
             let Some(workspace_id) = workspace.id.as_ref() else {
                 continue;
             };
-            let active_index = workspace
-                .legacy_active_tab
+            let active_index = migrated
+                .legacy_view
+                .active_tab
                 .min(workspace.tabs.len().saturating_sub(1));
             if let Some(tab_number) = workspace.public_tab_numbers.get(active_index).copied() {
                 self.active_tabs.insert(workspace_id.clone(), tab_number);
             }
-            for (tab_index, tab) in workspace.tabs.iter().enumerate() {
-                let TabSnapshot::Terminal(tab) = tab else {
+            for (tab_index, (tab, legacy_tab)) in workspace
+                .tabs
+                .iter()
+                .zip(&migrated.legacy_view.tabs)
+                .enumerate()
+            {
+                let TabSnapshot::Terminal(_) = tab else {
                     continue;
                 };
                 let tab_number = workspace
@@ -727,8 +759,8 @@ impl SessionDefaultViewSnapshot {
                     .get(tab_index)
                     .copied()
                     .unwrap_or(tab_index + 1);
-                if let Some(pane_number) = tab
-                    .legacy_focused
+                if let Some(pane_number) = legacy_tab
+                    .focused
                     .and_then(|pane_id| workspace.public_pane_numbers.get(&pane_id).copied())
                 {
                     self.focused_panes.push(SessionFocusedPaneSnapshot {
@@ -737,7 +769,7 @@ impl SessionDefaultViewSnapshot {
                         pane_number,
                     });
                 }
-                if tab.legacy_zoomed {
+                if legacy_tab.zoomed {
                     self.zoomed_tabs.push(SessionTabViewSnapshot {
                         workspace_id: workspace_id.clone(),
                         tab_number,
@@ -783,7 +815,7 @@ fn collect_layout_pane_ids(layout: &LayoutSnapshot, pane_ids: &mut Vec<u32>) {
     }
 }
 
-fn migrate_workspace(mut raw: serde_json::Value) -> Result<WorkspaceSnapshot, String> {
+fn migrate_workspace(mut raw: serde_json::Value) -> Result<MigratedWorkspaceSnapshot, String> {
     migrate_pane_locations(&mut raw)?;
     if raw.get("identity_cwd").is_some() {
         let Some(object) = raw.as_object_mut() else {
@@ -798,7 +830,12 @@ fn migrate_workspace(mut raw: serde_json::Value) -> Result<WorkspaceSnapshot, St
         } else {
             object.remove("default_cwd");
         }
-        return serde_json::from_value(raw).map_err(|error| error.to_string());
+        let legacy_view = extract_legacy_workspace_view(object)?;
+        let snapshot = serde_json::from_value(raw).map_err(|error| error.to_string())?;
+        return Ok(MigratedWorkspaceSnapshot {
+            snapshot,
+            legacy_view,
+        });
     }
 
     if raw.get("layout").is_some() {
@@ -808,6 +845,45 @@ fn migrate_workspace(mut raw: serde_json::Value) -> Result<WorkspaceSnapshot, St
     }
 
     Err("workspace snapshot is neither current nor legacy format".to_string())
+}
+
+fn extract_legacy_workspace_view(
+    workspace: &mut serde_json::Map<String, serde_json::Value>,
+) -> Result<LegacyWorkspaceViewSnapshot, String> {
+    let active_tab = workspace
+        .remove("active_tab")
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| error.to_string())?
+        .unwrap_or_default();
+    let tabs = workspace
+        .get_mut("tabs")
+        .and_then(serde_json::Value::as_array_mut)
+        .map(|tabs| {
+            tabs.iter_mut()
+                .map(|tab| {
+                    let Some(tab) = tab.as_object_mut() else {
+                        return Err("workspace tab snapshot must be an object".to_string());
+                    };
+                    let zoomed = tab
+                        .remove("zoomed")
+                        .map(serde_json::from_value)
+                        .transpose()
+                        .map_err(|error| error.to_string())?
+                        .unwrap_or_default();
+                    let focused = tab
+                        .remove("focused")
+                        .map(serde_json::from_value)
+                        .transpose()
+                        .map_err(|error| error.to_string())?
+                        .flatten();
+                    Ok(LegacyTabViewSnapshot { zoomed, focused })
+                })
+                .collect::<Result<Vec<_>, String>>()
+        })
+        .transpose()?
+        .unwrap_or_default();
+    Ok(LegacyWorkspaceViewSnapshot { active_tab, tabs })
 }
 
 fn migrate_pane_locations(raw: &mut serde_json::Value) -> Result<(), String> {
@@ -1002,14 +1078,16 @@ impl SessionDefaultViewSnapshot {
         let active_tabs = view
             .active_tabs
             .iter()
-            .filter_map(|(workspace_id, tab_index)| {
-                let workspace = workspaces
-                    .iter()
-                    .find(|workspace| workspace.id == *workspace_id)?;
-                workspace
-                    .public_tab_number(*tab_index)
-                    .map(|tab_number| (workspace_id.clone(), tab_number))
+            .filter(|(workspace_id, tab_number)| {
+                workspaces.iter().any(|workspace| {
+                    workspace.id == workspace_id.as_str()
+                        && workspace
+                            .tabs
+                            .iter()
+                            .any(|tab| tab.number() == **tab_number)
+                })
             })
+            .map(|(workspace_id, tab_number)| (workspace_id.clone(), *tab_number))
             .collect();
         let mut focused_panes = view
             .focused_panes
@@ -1018,12 +1096,19 @@ impl SessionDefaultViewSnapshot {
                 let workspace = workspaces
                     .iter()
                     .find(|workspace| workspace.id == key.workspace_id)?;
-                workspace.public_pane_number(*pane_id).map(|pane_number| {
-                    SessionFocusedPaneSnapshot {
-                        workspace_id: key.workspace_id.clone(),
-                        tab_number: key.tab_number,
-                        pane_number,
-                    }
+                let tab = workspace
+                    .tabs
+                    .iter()
+                    .find(|tab| tab.number() == key.tab_number)?
+                    .as_terminal()?;
+                if !tab.panes.contains_key(pane_id) {
+                    return None;
+                }
+                let pane_number = workspace.public_pane_number(*pane_id)?;
+                Some(SessionFocusedPaneSnapshot {
+                    workspace_id: key.workspace_id.clone(),
+                    tab_number: key.tab_number,
+                    pane_number,
                 })
             })
             .collect::<Vec<_>>();
@@ -1037,6 +1122,15 @@ impl SessionDefaultViewSnapshot {
         let mut zoomed_tabs = view
             .zoomed_tabs
             .iter()
+            .filter(|key| {
+                workspaces.iter().any(|workspace| {
+                    workspace.id == key.workspace_id
+                        && workspace
+                            .tabs
+                            .iter()
+                            .any(|tab| tab.number() == key.tab_number)
+                })
+            })
             .map(|key| SessionTabViewSnapshot {
                 workspace_id: key.workspace_id.clone(),
                 tab_number: key.tab_number,
@@ -1129,7 +1223,6 @@ fn capture_workspace(
                 },
             })
             .collect(),
-        legacy_active_tab: 0,
     }
 }
 
@@ -1218,8 +1311,6 @@ fn capture_tab(
         custom_name: tab.custom_name.clone(),
         layout: capture_node(tab.layout.root()),
         panes,
-        legacy_zoomed: false,
-        legacy_focused: None,
         root_pane: Some(tab.root_pane.raw()),
     })
 }
@@ -1330,7 +1421,7 @@ mod tests {
     use ratatui::layout::{Direction, Rect};
 
     use super::*;
-    use crate::app::{state::AgentPanelScope, AppState, Mode};
+    use crate::app::{state::AgentPanelScope, AppState, ClientViewState};
     use crate::layout::NavDirection;
     use crate::workspace::Workspace;
 
@@ -1353,11 +1444,6 @@ mod tests {
         let mut state = AppState::test_new();
         state.workspaces = names.iter().map(|name| Workspace::test_new(name)).collect();
         state.ensure_test_terminals();
-        if !state.workspaces.is_empty() {
-            state.active = Some(0);
-            state.selected = 0;
-            state.mode = Mode::Terminal;
-        }
         state
     }
 
@@ -1366,11 +1452,27 @@ mod tests {
         capture_from_state_with_runtimes(state, &terminal_runtimes)
     }
 
+    fn capture_from_state_with_view(
+        state: &AppState,
+        default_view: &ClientViewState,
+    ) -> SessionSnapshot {
+        let terminal_runtimes = TerminalRuntimeRegistry::new();
+        capture_from_state_with_runtimes_and_view(state, &terminal_runtimes, default_view)
+    }
+
     fn capture_from_state_with_runtimes(
         state: &AppState,
         terminal_runtimes: &TerminalRuntimeRegistry,
     ) -> SessionSnapshot {
-        let default_view = crate::app::ClientViewState::from_default_client_state(state);
+        let default_view = ClientViewState::from_default_client_state(state);
+        capture_from_state_with_runtimes_and_view(state, terminal_runtimes, &default_view)
+    }
+
+    fn capture_from_state_with_runtimes_and_view(
+        state: &AppState,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+        default_view: &ClientViewState,
+    ) -> SessionSnapshot {
         capture(
             &state.groups,
             &state.session_namespace_id,
@@ -1378,8 +1480,8 @@ mod tests {
             &state.workspaces,
             &state.terminals,
             terminal_runtimes,
-            &default_view,
-            &state.agent_follow_up,
+            default_view,
+            &default_view.agent_follow_up,
         )
     }
 
@@ -1502,7 +1604,7 @@ mod tests {
             &state.terminals,
             &terminal_runtimes,
             &default_view,
-            &state.agent_follow_up,
+            &default_view.agent_follow_up,
         );
         let durable_pane =
             &durable.workspaces[0].tabs[0].as_terminal().unwrap().panes[&root_pane.raw()];
@@ -1613,15 +1715,16 @@ mod tests {
         let mut state = AppState::test_new();
         state.workspaces = vec![crate::workspace::Workspace::test_new("kept")];
         let pane = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
-        assert!(state.insert_agent_follow_up(0, pane));
-        state
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        assert!(state.insert_agent_follow_up(&mut default_view.agent_follow_up, 0, pane));
+        default_view
             .agent_follow_up
             .push(crate::app::state::AgentFollowUpEntry {
                 workspace_id: "missing".into(),
                 pane_number: 99,
                 added_at_unix_secs: 1,
             });
-        let snap = capture_from_state(&state);
+        let snap = capture_from_state_with_view(&state, &default_view);
         assert_eq!(snap.version, SNAPSHOT_VERSION);
         assert_eq!(snap.agent_follow_up.len(), 1);
         assert_eq!(snap.agent_follow_up[0].pane_number, 1);
@@ -1687,11 +1790,13 @@ mod tests {
             github_organization: crate::app::state::GithubOrganization::parse("masakirocorp")
                 .expect("valid organization"),
         });
-        state.active_group = 1;
-        state.group_filter_enabled = false;
         state.workspaces[1].group_id = group_id.clone();
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        default_view.active_group = 1;
+        default_view.group_filter_enabled = false;
 
-        let json = serde_json::to_string(&capture_from_state(&state)).unwrap();
+        let json =
+            serde_json::to_string(&capture_from_state_with_view(&state, &default_view)).unwrap();
         let restored = parse_snapshot(&json).unwrap();
 
         assert_eq!(restored.groups.len(), 2);
@@ -1808,7 +1913,6 @@ mod tests {
                     custom_name: Some("api".to_string()),
                     legacy_pane_ids: vec![0, 1],
                 }],
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
@@ -1957,26 +2061,28 @@ mod tests {
         assert_eq!(snap.workspaces.len(), 1);
         assert_eq!(ws.custom_name.as_deref(), Some("legacy"));
         assert_eq!(ws.identity_cwd, PathBuf::from("/tmp/pion"));
-        assert_eq!(ws.legacy_active_tab, 0);
         assert_eq!(ws.tabs.len(), 1);
         let TabSnapshot::Terminal(tab) = &ws.tabs[0] else {
             panic!("legacy workspace should restore a terminal tab");
         };
-        assert_eq!(tab.legacy_focused, Some(1));
         assert_eq!(tab.root_pane, Some(0));
         assert_eq!(tab.panes[&0].cwd, PathBuf::from("/tmp/pion"));
         assert_eq!(tab.panes[&1].cwd, PathBuf::from("/tmp/gardn"));
     }
 
     #[test]
-    fn capture_contract_tracks_workspace_order_active_and_selected() {
+    fn capture_contract_tracks_stable_workspace_view_identities_across_reordering() {
         let mut state = state_with_workspaces(&["a", "b", "c"]);
-        state.active = Some(1);
-        state.selected = 2;
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        default_view.active_workspace = Some(1);
+        default_view.selected_workspace = 2;
+        default_view.reconcile(&state);
+        let active_workspace_id = state.workspaces[1].id.clone();
+        let selected_workspace_id = state.workspaces[2].id.clone();
 
-        state.move_workspace(1, 0);
+        state.move_workspace(&mut default_view, 1, 0);
 
-        let snapshot = capture_from_state(&state);
+        let snapshot = capture_from_state_with_view(&state, &default_view);
         let ids: Vec<_> = state
             .workspaces
             .iter()
@@ -1990,17 +2096,11 @@ mod tests {
         assert_eq!(captured_ids, ids);
         assert_eq!(
             snapshot.default_view.active_workspace_id.as_deref(),
-            state
-                .active
-                .and_then(|index| state.workspaces.get(index))
-                .map(|workspace| workspace.id.as_str())
+            Some(active_workspace_id.as_str())
         );
         assert_eq!(
             snapshot.default_view.selected_workspace_id.as_deref(),
-            state
-                .workspaces
-                .get(state.selected)
-                .map(|workspace| workspace.id.as_str())
+            Some(selected_workspace_id.as_str())
         );
     }
 
@@ -2009,13 +2109,14 @@ mod tests {
         let mut state = state_with_workspaces(&["one"]);
         state.workspaces[0].set_custom_name("renamed-workspace".into());
         let second_tab = state.workspaces[0].test_add_tab(Some("logs"));
-        state.workspaces[0].switch_tab(second_tab);
         state.workspaces[0]
             .terminal_tab_mut(0)
             .unwrap()
             .set_custom_name("main".into());
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        assert!(default_view.focus_tab_in_workspace(&state, 0, second_tab));
 
-        let snapshot = capture_from_state(&state);
+        let snapshot = capture_from_state_with_view(&state, &default_view);
         let workspace = &snapshot.workspaces[0];
         assert_eq!(workspace.custom_name.as_deref(), Some("renamed-workspace"));
         let workspace_id = state.workspaces[0].id.as_str();
@@ -2039,12 +2140,13 @@ mod tests {
     #[test]
     fn capture_contract_tracks_workspace_closure() {
         let mut state = state_with_workspaces(&["one", "two"]);
-        state.selected = 1;
-        state.active = Some(1);
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        default_view.selected_workspace = 1;
+        default_view.active_workspace = Some(1);
 
-        state.close_selected_workspace();
+        state.close_selected_workspace(&mut default_view);
 
-        let snapshot = capture_from_state(&state);
+        let snapshot = capture_from_state_with_view(&state, &default_view);
         assert_eq!(snapshot.workspaces.len(), 1);
         assert_eq!(snapshot.workspaces[0].custom_name.as_deref(), Some("one"));
         let remaining_id = state.workspaces[0].id.as_str();
@@ -2060,15 +2162,16 @@ mod tests {
 
     #[test]
     fn capture_contract_tracks_sidebar_state() {
-        let mut state = state_with_workspaces(&["one"]);
-        state.sidebar_width = 31;
-        state.sidebar_collapsed = true;
-        state.sidebar_section_split = 0.4;
-        state.right_sidebar_width = 34;
-        state.right_sidebar_collapsed = true;
-        state.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        let state = state_with_workspaces(&["one"]);
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        default_view.sidebar_width = 31;
+        default_view.sidebar_collapsed = true;
+        default_view.sidebar_section_split = 0.4;
+        default_view.right_sidebar_width = 34;
+        default_view.right_sidebar_collapsed = true;
+        default_view.agent_panel_scope = AgentPanelScope::AllWorkspaces;
 
-        let snapshot = capture_from_state(&state);
+        let snapshot = capture_from_state_with_view(&state, &default_view);
         assert_eq!(snapshot.default_view.sidebar_width, Some(31));
         assert!(snapshot.default_view.sidebar_collapsed);
         assert_eq!(snapshot.default_view.sidebar_section_split, Some(0.4));
@@ -2085,13 +2188,14 @@ mod tests {
         let mut state = state_with_workspaces(&["one"]);
         let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let second = state.workspaces[0].test_split(Direction::Horizontal);
-        state.workspaces[0]
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(second);
-        state.toggle_zoom();
-        let snapshot = capture_from_state(&state);
+        let workspace_id = state.workspaces[0].id.clone();
+        let tab_number = state.workspaces[0].public_tab_number(0).unwrap();
+        let pane_number = state.workspaces[0].public_pane_number(second).unwrap();
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        assert!(default_view.focus_pane_in_workspace(&state, 0, 0, second));
+        default_view.set_tab_zoomed(&workspace_id, tab_number, true);
+
+        let snapshot = capture_from_state_with_view(&state, &default_view);
 
         let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
             panic!("terminal capture should retain terminal payload");
@@ -2099,10 +2203,6 @@ mod tests {
         assert!(matches!(tab.layout, LayoutSnapshot::Split { .. }));
         assert_eq!(tab.root_pane, Some(root.raw()));
         assert_eq!(tab.panes.len(), 2);
-        let workspace = &state.workspaces[0];
-        let workspace_id = workspace.id.as_str();
-        let tab_number = workspace.public_tab_number(0).unwrap();
-        let pane_number = workspace.public_pane_number(second).unwrap();
         assert!(snapshot.default_view.focused_panes.iter().any(|focused| {
             focused.workspace_id == workspace_id
                 && focused.tab_number == tab_number
@@ -2111,18 +2211,21 @@ mod tests {
         assert!(snapshot.default_view.zoomed_tabs.iter().any(|zoomed| {
             zoomed.workspace_id == workspace_id && zoomed.tab_number == tab_number
         }));
+        let encoded = serde_json::to_string(&snapshot).unwrap();
+        assert!(!encoded.contains("\"active_tab\""));
+        assert!(!encoded.contains("\"focused\""));
+        assert!(!encoded.contains("\"zoomed\""));
     }
 
     #[test]
-    fn capture_contract_tracks_focus_navigation() {
+    fn capture_contract_tracks_explicit_focus() {
         let mut state = state_with_workspaces(&["one"]);
-        let _root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let second = state.workspaces[0].test_split(Direction::Horizontal);
-        crate::ui::compute_view(&mut state, Rect::new(0, 0, 106, 20));
+        let mut default_view = ClientViewState::from_default_client_state(&state);
 
-        state.navigate_pane(NavDirection::Right);
+        assert!(default_view.focus_pane_in_workspace(&state, 0, 0, second));
 
-        let snapshot = capture_from_state(&state);
+        let snapshot = capture_from_state_with_view(&state, &default_view);
         let workspace = &state.workspaces[0];
         let tab_number = workspace.public_tab_number(0).unwrap();
         let pane_number = workspace.public_pane_number(second).unwrap();
@@ -2136,11 +2239,15 @@ mod tests {
     #[test]
     fn capture_contract_tracks_resize_ratio_changes() {
         let mut state = state_with_workspaces(&["one"]);
+        let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         state.workspaces[0].test_split(Direction::Horizontal);
-        crate::ui::compute_view(&mut state, Rect::new(0, 0, 106, 20));
         let before = capture_from_state(&state);
 
-        state.resize_pane(NavDirection::Right);
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .layout
+            .resize_pane(root, NavDirection::Right, 0.05, Rect::new(0, 0, 106, 20));
 
         let after = capture_from_state(&state);
         let before_ratio = root_split_ratio(&before.workspaces[0].tabs[0]).unwrap();
@@ -2151,10 +2258,12 @@ mod tests {
     #[test]
     fn capture_contract_tracks_last_tab_closure_as_empty_workspace() {
         let mut state = state_with_workspaces(&["one"]);
+        let mut default_view = ClientViewState::from_default_client_state(&state);
 
-        state.close_tab();
+        assert!(state.workspaces[0].close_tab_allow_empty(0));
+        default_view.reconcile(&state);
 
-        let snapshot = capture_from_state(&state);
+        let snapshot = capture_from_state_with_view(&state, &default_view);
         let workspace = &snapshot.workspaces[0];
         assert!(workspace.tabs.is_empty());
         assert_eq!(
@@ -2171,11 +2280,13 @@ mod tests {
     fn capture_contract_tracks_non_last_tab_closure() {
         let mut state = state_with_workspaces(&["one"]);
         let second_tab = state.workspaces[0].test_add_tab(Some("logs"));
-        state.switch_tab(second_tab);
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        assert!(default_view.focus_tab_in_workspace(&state, 0, second_tab));
 
-        state.close_tab();
+        assert!(state.workspaces[0].close_tab(second_tab));
+        default_view.reconcile(&state);
 
-        let snapshot = capture_from_state(&state);
+        let snapshot = capture_from_state_with_view(&state, &default_view);
         let workspace = &snapshot.workspaces[0];
         assert_eq!(workspace.tabs.len(), 1);
         let active_tab_number = state.workspaces[0].public_tab_number(0).unwrap();
@@ -2195,10 +2306,18 @@ mod tests {
     #[test]
     fn capture_contract_tracks_pane_closure() {
         let mut state = state_with_workspaces(&["one"]);
-        state.workspaces[0].test_split(Direction::Horizontal);
+        let second = state.workspaces[0].test_split(Direction::Horizontal);
+        let workspace_id = state.workspaces[0].id.clone();
+        let tab_number = state.workspaces[0].public_tab_number(0).unwrap();
+        let mut default_view = ClientViewState::from_default_client_state(&state);
+        assert!(default_view.focus_pane_in_workspace(&state, 0, 0, second));
+        default_view.set_tab_zoomed(&workspace_id, tab_number, true);
 
-        state.close_pane();
-        let snapshot = capture_from_state(&state);
+        assert!(!state.workspaces[0].close_pane(second));
+        default_view.set_tab_zoomed(&workspace_id, tab_number, false);
+        default_view.reconcile(&state);
+
+        let snapshot = capture_from_state_with_view(&state, &default_view);
         let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
             panic!("terminal capture should retain terminal payload");
         };
@@ -2401,13 +2520,6 @@ mod tests {
             err.contains("snapshot version 999 is newer than supported"),
             "error should identify unsupported future version: {err}"
         );
-    }
-
-    #[test]
-    fn active_tab_default_is_zero() {
-        let json = r#"{"custom_name":"test","identity_cwd":"/tmp","default_location":{"execution_host_id":"local","path":"/tmp"},"tabs":[]}"#;
-        let ws: WorkspaceSnapshot = serde_json::from_str(json).unwrap();
-        assert_eq!(ws.legacy_active_tab, 0);
     }
 
     #[test]

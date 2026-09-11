@@ -17,12 +17,6 @@ pub struct ReleaseNotes {
 struct StoredReleaseNotes {
     version: String,
     body: String,
-    #[serde(default = "default_show_on_startup")]
-    show_on_startup: bool,
-}
-
-fn default_show_on_startup() -> bool {
-    true
 }
 
 pub fn pending_path() -> PathBuf {
@@ -46,7 +40,6 @@ fn save_pending_to_path(path: &Path, version: &str, body: &str) -> std::io::Resu
         &StoredReleaseNotes {
             version: version.to_string(),
             body,
-            show_on_startup: true,
         },
     )
 }
@@ -123,21 +116,6 @@ fn release_notes_from_stored(
         version: stored.version,
         body,
     })
-}
-
-pub fn mark_current_version_seen() -> std::io::Result<()> {
-    mark_current_version_seen_at(&pending_path(), env!("CARGO_PKG_VERSION"))
-}
-
-fn mark_current_version_seen_at(path: &Path, current_version: &str) -> std::io::Result<()> {
-    let Some(mut stored) = load_stored_from_path(path) else {
-        return Ok(());
-    };
-    if stored.version != current_version || !stored.show_on_startup {
-        return Ok(());
-    }
-    stored.show_on_startup = false;
-    write_stored_to_path(path, &stored)
 }
 
 fn clear_pending_at(path: &Path) -> std::io::Result<()> {
@@ -220,27 +198,6 @@ mod tests {
     }
 
     #[test]
-    fn marking_current_version_seen_preserves_latest_notes() {
-        let path = std::env::temp_dir().join(format!(
-            "gardn-release-notes-{}-{}.json",
-            std::process::id(),
-            "seen"
-        ));
-        let _ = clear_pending_at(&path);
-        save_pending_to_path(&path, "0.3.1", "### Changed\n- One").unwrap();
-
-        mark_current_version_seen_at(&path, "0.3.1").unwrap();
-
-        let stored = load_stored_from_path(&path).expect("stored notes");
-        assert!(!stored.show_on_startup);
-        let latest = load_latest_from_path(&path, "0.3.1").expect("latest notes");
-        assert_eq!(latest.version, "0.3.1");
-        assert!(!latest.preview);
-
-        clear_pending_at(&path).unwrap();
-    }
-
-    #[test]
     fn legacy_notes_without_show_on_startup_remain_available_as_latest() {
         let path = std::env::temp_dir().join(format!(
             "gardn-release-notes-{}-{}.json",
@@ -257,7 +214,6 @@ mod tests {
         let stored = load_stored_from_path(&path).expect("legacy notes should deserialize");
         assert_eq!(stored.version, "0.3.1");
         assert_eq!(stored.body, "### Changed\n- One");
-        assert!(stored.show_on_startup);
 
         let notes = load_latest_from_path(&path, "0.3.1").expect("latest notes");
         assert_eq!(notes.version, "0.3.1");

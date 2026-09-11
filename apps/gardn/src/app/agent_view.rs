@@ -351,7 +351,7 @@ fn context_value(
     match context {
         AgentViewContext::CurrentWorkspaceId => Some(EvalValue::String(workspace.id.clone())),
         AgentViewContext::CurrentTabId => {
-            let tab_number = workspace.public_tab_number(workspace.active_tab)?;
+            let tab_number = view.active_tab_for_workspace(&workspace.id)?;
             Some(EvalValue::String(
                 crate::workspace::public_tab_id_for_number(&workspace.id, tab_number),
             ))
@@ -467,8 +467,6 @@ mod tests {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
         for (ws_idx, agent_state) in [(0, AgentState::Working), (1, AgentState::Idle)] {
             let tab = state.workspaces[ws_idx].terminal_tab(0).unwrap();
             let pane_id = tab.root_pane;

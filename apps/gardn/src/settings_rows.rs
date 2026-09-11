@@ -165,13 +165,6 @@ pub(crate) fn option_hit_for_visual_row(
     None
 }
 
-pub(crate) fn rows_for_section(
-    app: &AppState,
-    section: SettingsSection,
-) -> Option<Vec<SettingsListRow>> {
-    rows_for_section_with_settings(app, &app.settings, section)
-}
-
 fn rows_for_section_with_settings(
     app: &AppState,
     settings: &SettingsState,
@@ -2580,7 +2573,9 @@ mod tests {
             state: crate::integration::IntegrationStatusKind::Current,
         }];
 
-        let rows = rows_for_section(&app, SettingsSection::Agents).expect("agent rows");
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.settings.section = SettingsSection::Agents;
+        let rows = rows_for_section_for_view(&app, &view).expect("agent rows");
         let row = rows
             .iter()
             .find(|row| {
@@ -2660,7 +2655,9 @@ mod tests {
             state: crate::integration::IntegrationStatusKind::Current,
         }];
 
-        let rows = rows_for_section(&app, SettingsSection::Integrations).expect("integration rows");
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.settings.section = SettingsSection::Integrations;
+        let rows = rows_for_section_for_view(&app, &view).expect("integration rows");
         let codex_row = rows
             .iter()
             .find(|row| {
@@ -2700,15 +2697,16 @@ mod tests {
             state: crate::integration::IntegrationStatusKind::Current,
         }];
 
-        let local_rows =
-            rows_for_section(&app, SettingsSection::Integrations).expect("local integration rows");
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.settings.section = SettingsSection::Integrations;
+        let local_rows = rows_for_section_for_view(&app, &view).expect("local integration rows");
         assert!(matches!(
             &local_rows[0],
             SettingsListRow::Value { title, value, .. }
                 if title.as_ref() == "Integration Host" && value.as_ref() == "test-host"
         ));
 
-        app.settings.integration_host_profile_id = Some("workbox".to_string());
+        view.settings.integration_host_profile_id = Some("workbox".to_string());
         app.host_integration_observations.insert(
             host_id,
             crate::integration::host::HostIntegrationObservation::Ready(
@@ -2722,8 +2720,7 @@ mod tests {
                 },
             ),
         );
-        let remote_rows =
-            rows_for_section(&app, SettingsSection::Integrations).expect("remote integration rows");
+        let remote_rows = rows_for_section_for_view(&app, &view).expect("remote integration rows");
         assert!(matches!(
             &remote_rows[0],
             SettingsListRow::Value { value, .. } if value.as_ref() == "Work box"
@@ -2741,8 +2738,7 @@ mod tests {
 
     #[test]
     fn client_rows_use_the_client_pending_sidebar_width() {
-        let mut app = AppState::test_new();
-        app.settings.pending_sidebar_width = Some(22);
+        let app = AppState::test_new();
         let mut view = ClientViewState::from_default_client_state(&app);
         view.settings.section = SettingsSection::Layout;
         view.settings.pending_sidebar_width = Some(77);
@@ -2766,7 +2762,8 @@ mod tests {
     #[test]
     fn appearance_rows_keep_blank_line_between_sidebar_and_panes() {
         let app = AppState::test_new();
-        let rows = appearance_rows(&app, &app.settings);
+        let view = ClientViewState::from_default_client_state(&app);
+        let rows = appearance_rows(&app, &view.settings);
         let initial_agent_scope = rows
             .iter()
             .position(|row| {
@@ -2789,7 +2786,8 @@ mod tests {
     #[test]
     fn experimental_settings_expose_kitty_graphics_with_reconnect_guidance() {
         let app = AppState::test_new();
-        let rows = experiment_rows(&app, &app.settings);
+        let view = ClientViewState::from_default_client_state(&app);
+        let rows = experiment_rows(&app, &view.settings);
         assert!(rows.iter().any(|row| matches!(
             row,
             SettingsListRow::Toggle {
@@ -2805,9 +2803,11 @@ mod tests {
     #[test]
     fn every_settings_section_separates_group_headers() {
         let app = AppState::test_new();
+        let mut view = ClientViewState::from_default_client_state(&app);
 
         for section in SettingsSection::ALL {
-            let rows = rows_for_section(&app, *section).expect("settings rows");
+            view.settings.section = *section;
+            let rows = rows_for_section_for_view(&app, &view).expect("settings rows");
             for (index, row) in rows.iter().enumerate() {
                 if index > 0 && matches!(row, SettingsListRow::Header(_)) {
                     assert!(
@@ -2822,7 +2822,9 @@ mod tests {
     #[test]
     fn appearance_and_behavior_rows_expose_approved_settings() {
         let app = AppState::test_new();
-        let appearance = rows_for_section(&app, SettingsSection::Theme).expect("appearance rows");
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.settings.section = SettingsSection::Theme;
+        let appearance = rows_for_section_for_view(&app, &view).expect("appearance rows");
         for title in [
             "Pane Borders",
             "Pane Scrollbars",
@@ -2838,7 +2840,8 @@ mod tests {
             );
         }
 
-        let behavior = rows_for_section(&app, SettingsSection::PaneLabels).expect("behavior rows");
+        view.settings.section = SettingsSection::PaneLabels;
+        let behavior = rows_for_section_for_view(&app, &view).expect("behavior rows");
         assert!(behavior.iter().any(|row| matches!(
             row,
             SettingsListRow::Toggle { title, .. } if title.as_ref() == "Name New Workspaces"
@@ -2863,8 +2866,8 @@ mod tests {
             .iter()
             .any(|row| { matches!(row, SettingsListRow::Header("Terminal")) }));
 
-        let notifications =
-            rows_for_section(&app, SettingsSection::Sound).expect("notification rows");
+        view.settings.section = SettingsSection::Sound;
+        let notifications = rows_for_section_for_view(&app, &view).expect("notification rows");
         assert!(notifications
             .iter()
             .any(|row| matches!(row, SettingsListRow::Header("Sound Alerts"))));
@@ -2887,7 +2890,8 @@ mod tests {
             SettingsListRow::Toggle { title, .. } if title.as_ref() == "Copy Confirmation"
         )));
 
-        let advanced = rows_for_section(&app, SettingsSection::Experiments).expect("advanced rows");
+        view.settings.section = SettingsSection::Experiments;
+        let advanced = rows_for_section_for_view(&app, &view).expect("advanced rows");
         assert!(advanced
             .iter()
             .any(|row| matches!(row, SettingsListRow::Header("Updates"))));

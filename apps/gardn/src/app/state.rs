@@ -12,7 +12,6 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::execution_host::protocol::SessionNamespaceId;
 use crate::layout::{PaneId, PaneInfo, SplitBorder};
-use crate::selection::Selection;
 use crate::terminal_theme::{TerminalTheme, ThemeAppearance};
 
 pub(crate) type InstalledPluginRegistry =
@@ -1573,6 +1572,31 @@ pub struct ViewState {
     pub split_borders: Vec<SplitBorder>,
 }
 
+impl Default for ViewState {
+    fn default() -> Self {
+        Self {
+            layout: ViewLayout::Desktop,
+            sidebar_rect: Rect::default(),
+            right_sidebar_rect: Rect::default(),
+            workspace_card_areas: Vec::new(),
+            workspace_group_header_areas: Vec::new(),
+            workspace_group_empty_areas: Vec::new(),
+            tab_bar_rect: Rect::default(),
+            tab_hit_areas: Vec::new(),
+            tab_close_hit_areas: Vec::new(),
+            tab_scroll_left_hit_area: Rect::default(),
+            tab_scroll_right_hit_area: Rect::default(),
+            new_tab_hit_area: Rect::default(),
+            context_bar: ContextBarView::default(),
+            terminal_area: Rect::default(),
+            mobile_header_rect: Rect::default(),
+            toast_hit_area: Rect::default(),
+            pane_infos: Vec::new(),
+            split_borders: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Onboarding,
@@ -2204,11 +2228,6 @@ impl ModalListState {
         self.engaged
     }
 
-    #[cfg(test)]
-    pub fn is_active(&self) -> bool {
-        self.visible().is_some()
-    }
-
     pub fn move_prev(&mut self) {
         self.select(self.selected.saturating_sub(1));
     }
@@ -2369,6 +2388,89 @@ pub struct SettingsState {
     pub workspace_settings_target: Option<usize>,
 }
 
+impl Default for SettingsState {
+    fn default() -> Self {
+        Self {
+            section: SettingsSection::Theme,
+            sidebar_expanded: Some(SettingsSection::Theme),
+            sidebar_selection: SettingsSidebarSelection::section(SettingsSection::Theme),
+            sidebar_focused: false,
+            list: ModalListState::default(),
+            focused_input: None,
+            scroll: 0,
+            original_palette: None,
+            original_theme: None,
+            pending_theme_name: None,
+            pending_theme_mode: None,
+            pending_light_theme_name: None,
+            pending_dark_theme_name: None,
+            pending_terminal_light_accent: None,
+            pending_terminal_dark_accent: None,
+            pending_sound_enabled: None,
+            pending_toast_delivery: None,
+            pending_default_shell: None,
+            pending_shell_mode: None,
+            pending_version_check: None,
+            pending_manifest_check: None,
+            pending_toast_delay: None,
+            pending_toast_gardn_position: None,
+            pending_clipboard_toast_enabled: None,
+            pending_clipboard_toast_position: None,
+            pending_confirm_close: None,
+            pending_prompt_new_tab_name: None,
+            pending_show_counters: None,
+            pending_pane_borders: None,
+            pending_pane_scrollbars: None,
+            pending_pane_gaps: None,
+            pending_hide_tab_bar_when_single_tab: None,
+            pending_copy_on_select: None,
+            pending_prompt_new_workspace_name: None,
+            pending_right_click_passthrough_modifier: None,
+            pending_new_terminal_cwd: None,
+            pending_mouse_scroll_lines: None,
+            pending_resume_agents_on_restore: None,
+            pending_window_title: None,
+            pending_headless_cols: None,
+            pending_headless_rows: None,
+            pending_browser_command: None,
+            pending_review_command: None,
+            pending_editor_command: None,
+            pending_sidebar_width: None,
+            pending_sidebar_min_width: None,
+            pending_sidebar_max_width: None,
+            pending_sidebar_arrangement: None,
+            pending_context_bar_visibility: None,
+            pending_sidebar_initial_state: None,
+            pending_sidebar_initial_agent_scope: None,
+            pending_pane_border_agent_info: None,
+            pending_status_indicators: None,
+            pending_switch_ascii_input_source_in_prefix: None,
+            pending_group_accent_choice: None,
+            pending_workspace_name: None,
+            pending_workspace_default_cwd: None,
+            pending_workspace_default_execution_host_id: None,
+            pending_workspace_github_scope: None,
+            pending_workspace_github_repositories: None,
+            pending_group_name: None,
+            pending_group_icon: None,
+            pending_group_github_organization: None,
+            pending_group_default_directory: None,
+            pending_group_default_execution_host_id: None,
+            pending_agent_profile_id: None,
+            pending_agent_profile_name: None,
+            pending_agent_profile_kind: None,
+            pending_agent_profile_command: None,
+            pending_agent_profile_enabled: None,
+            agent_profile_kind_filter: None,
+            integration_host_profile_id: None,
+            connection_editor: None,
+            group_settings_target: None,
+            group_icon_picker_open: false,
+            workspace_settings_target: None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) enum DragTarget {
     WorkspaceReorder {
@@ -2417,12 +2519,6 @@ pub(crate) enum DragTarget {
         grab_row_offset: u16,
     },
     SettingsThemeScrollbar {
-        grab_row_offset: u16,
-    },
-    CommandPaletteScrollbar {
-        grab_row_offset: u16,
-    },
-    AgentProfilePickerScrollbar {
         grab_row_offset: u16,
     },
     SidebarDivider,
@@ -3440,7 +3536,6 @@ pub struct ReleaseNotesState {
 #[derive(Clone)]
 pub struct ProductAnnouncementState {
     pub version: String,
-    pub id: String,
     pub title: String,
     pub body: String,
     pub scroll: u16,
@@ -3454,14 +3549,14 @@ pub struct KeybindHelpState {
     pub search_focused: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct CommandPaletteState {
     pub query: String,
     pub list: ModalListState,
     pub scroll: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct AgentProfilePickerState {
     pub ws_idx: usize,
     pub query: String,
@@ -3533,6 +3628,18 @@ pub struct GitRepoPickerState {
     pub scroll: usize,
 }
 
+impl Default for GitRepoPickerState {
+    fn default() -> Self {
+        Self {
+            ws_idx: 0,
+            command_kind: ProjectCommandKind::Review,
+            roots: Vec::new(),
+            list: ModalListState::default(),
+            scroll: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SidebarWidthSource {
     ConfigDefault,
@@ -3564,13 +3671,11 @@ pub(crate) struct RemoteTerminationTombstone {
     pub remote_runtime_identity: crate::execution_host::protocol::RuntimeIdentity,
 }
 
-/// All application state — pure data, no channels or async runtime.
+/// Shared application structure, runtime, configuration, and notification state.
 /// Testable without PTYs or a tokio runtime.
 #[derive(Clone)]
 pub struct AppState {
     pub groups: Vec<Group>,
-    pub active_group: usize,
-    pub group_filter_enabled: bool,
     /// Detached plugin popup panes. Runtime ownership remains in `App`.
     pub(crate) popup_panes: std::collections::HashMap<PaneId, PopupPaneState>,
     pub terminals:
@@ -3586,10 +3691,6 @@ pub struct AppState {
     pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
     pub(crate) public_pane_id_aliases: std::collections::HashMap<String, PaneId>,
     pub workspaces: Vec<Workspace>,
-    pub active: Option<usize>,
-    pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
-    pub selected: usize,
-    pub mode: Mode,
     pub should_quit: bool,
     /// In monolithic --no-session mode, detach exits the app because there is no server to detach from.
     pub detach_exits: bool,
@@ -3607,61 +3708,12 @@ pub struct AppState {
     /// their client-local sound config from disk.
     pub request_client_config_reload: bool,
     /// Set when UI interaction requested a clipboard write that must be
-    pub group_default_execution_host_id: crate::execution_host::ExecutionHostId,
     /// handled by the outer App/event loop instead of directly from AppState.
     pub request_clipboard_write: Option<Vec<u8>>,
-    pub creating_new_tab: bool,
-    pub creating_new_group: bool,
-    pub group_icon_input: String,
-    pub group_default_directory_input: String,
-    pub group_modal_selected_field: usize,
-    pub group_icon_picker_open: bool,
-    pub rename_group_target: Option<usize>,
-    pub requested_new_tab_name: Option<String>,
-    /// Host-qualified location captured for a pending interactive workspace creation prompt.
-    pub pending_workspace_create_location: Option<crate::execution_host::ResourceLocation>,
-    /// Custom name captured when a pending workspace prompt is saved by mouse input.
     pub requested_new_workspace_name: Option<String>,
-    pub rename_pane_target: Option<PaneId>,
-    pub confirm_delete_group: Option<usize>,
-    pub request_complete_onboarding: bool,
-    pub name_input: String,
-    pub name_input_replace_on_type: bool,
-    pub release_notes: Option<ReleaseNotesState>,
-    pub product_announcement: Option<ProductAnnouncementState>,
-    pub keybind_help: KeybindHelpState,
-    pub config_diagnostics_scroll: u16,
-    pub navigator: NavigatorState,
-    pub command_palette: CommandPaletteState,
-    pub agent_profile_picker: AgentProfilePickerState,
-    pub git_repo_picker: GitRepoPickerState,
     pub command_catalog: Vec<crate::commands::ProjectCommand>,
     pub command_runs: std::collections::HashMap<String, crate::commands::CommandRun>,
     pub port_registry: crate::ports::PortRegistry,
-    pub copy_mode: Option<CopyModeState>,
-    pub agent_profiles: crate::agent_profiles::AgentProfileCatalog,
-    pub workspace_scroll: usize,
-    pub agent_panel_scroll: usize,
-    pub tab_scroll: usize,
-    pub tab_scroll_follow_active: bool,
-    pub hovered_tab: Option<usize>,
-    pub(crate) collapsed_sidebar_hover: Option<CollapsedSidebarHover>,
-    pub mobile_switcher_scroll: usize,
-    pub(crate) mobile_switcher_level: MobileSwitcherLevel,
-    pub(crate) mobile_switcher_selected: usize,
-    pub(crate) mobile_agents_expanded: bool,
-    // View geometry (computed before render, consumed by render + mouse)
-    pub view: ViewState,
-    pub(crate) drag: Option<DragState>,
-
-    pub(crate) workspace_press: Option<WorkspacePressState>,
-    pub(crate) group_press: Option<GroupPressState>,
-    pub(crate) tab_press: Option<TabPressState>,
-    pub(crate) agent_press: Option<AgentPressState>,
-    pub(crate) agent_follow_up: Vec<AgentFollowUpEntry>,
-    pub selection: Option<Selection>,
-    pub selection_autoscroll: Option<SelectionAutoscroll>,
-    pub context_menu: Option<ContextMenuState>,
     // Notifications
     pub update_available: Option<String>,
     pub update_install: crate::install::UpdateInstallAction,
@@ -3685,37 +3737,13 @@ pub struct AppState {
     pub host_display: crate::app::host_label::HostDisplayNameOverlay,
 
     pub default_sidebar_width: u16,
-    pub sidebar_width: u16,
     pub sidebar_min_width: u16,
     pub sidebar_max_width: u16,
     pub mobile_width_threshold: u16,
-    pub sidebar_width_source: SidebarWidthSource,
-    pub sidebar_width_auto: bool,
-    pub sidebar_collapsed: bool,
-    pub right_sidebar_width: u16,
-    pub right_sidebar_collapsed: bool,
     pub sidebar_arrangement: crate::config::SidebarArrangementConfig,
     pub context_bar_visibility: crate::config::ContextBarVisibilityConfig,
-    /// Per-process override used by the monolithic client. Attached clients own this separately.
-    pub context_bar_visibility_override: Option<bool>,
-    /// Per-process Zen mode used by the monolithic client.
-    pub zen_mode: bool,
     /// Sidebar row/token layout loaded from `[ui.sidebar]`.
     pub sidebar_config: crate::config::SidebarConfig,
-    /// Ratio of sidebar height allocated to the workspaces section when activity
-    /// is stacked into the same sidebar.
-    pub sidebar_section_split: f32,
-    pub activity_agents_expanded: bool,
-    pub activity_commands_expanded: bool,
-    pub activity_ports_expanded: bool,
-    pub collapsed_agent_sections: Vec<String>,
-    pub collapsed_command_groups: Vec<String>,
-    pub collapsed_command_status_groups: Vec<String>,
-    pub collapsed_workspace_groups: Vec<String>,
-    pub agent_panel_scope: AgentPanelScope,
-    pub(crate) connection_scope: crate::app::connection_scope::ConnectionScope,
-    /// Keep a just-focused Done agent in Triage until focus leaves that pane.
-    pub(crate) triage_hold: Option<(String, crate::layout::PaneId)>,
     /// Capture mouse input for Gardn's own mouse UI. When false, Gardn only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
@@ -3734,7 +3762,6 @@ pub struct AppState {
     /// Automatically copy mouse drag selections on completion. When false, retain drag or double-click word selection until Ctrl+C or a host-forwarded Cmd+C. Default: true.
     pub copy_on_select: bool,
     pub right_click_passthrough_modifiers: Option<KeyModifiers>,
-    pub right_click_passthrough: Option<RightClickPassthroughGesture>,
     pub redraw_on_focus_gained: bool,
     pub mouse_scroll_lines: usize,
     pub confirm_close: bool,
@@ -3776,6 +3803,7 @@ pub struct AppState {
     pub toast_config: ToastConfig,
     pub update_version_check: bool,
     pub update_manifest_check: bool,
+    pub agent_profiles: crate::agent_profiles::AgentProfileCatalog,
     pub keybinds: Keybinds,
     /// Frame counter for spinner animations (wraps around).
     pub spinner_tick: u32,
@@ -3797,8 +3825,6 @@ pub struct AppState {
     pub global_terminal_light_accent: TerminalAccent,
     /// ANSI color used for the app accent when terminal colors resolve dark.
     pub global_terminal_dark_accent: TerminalAccent,
-    /// Settings panel state.
-    pub settings: SettingsState,
     /// Cached integration recommendations for onboarding/settings UI.
     pub integration_recommendations: Vec<crate::integration::IntegrationRecommendation>,
     /// Host-qualified integration state reported by managed execution workers.
@@ -3842,12 +3868,6 @@ pub struct AppState {
     pub(crate) plugin_command_logs: Vec<crate::api::schema::PluginCommandLogInfo>,
     pub(crate) next_plugin_command_log_id: u64,
     pub(crate) plugin_commands_in_flight: usize,
-    /// Highlight state for the bottom-right global launcher menu.
-    pub global_menu: ModalListState,
-    /// Highlight state for the sidebar group switcher menu.
-    pub group_menu: ModalListState,
-    /// Highlight state for the right-sidebar agent scope menu.
-    pub agent_menu: ModalListState,
     /// Resolved host terminal default colors for theming embedded panes.
     pub host_terminal_theme: TerminalTheme,
     /// Durable namespace for remote execution-worker runtime adoption.
@@ -3938,13 +3958,6 @@ impl AppState {
         )
     }
 
-    pub fn terminal_accent_for_mode(&self, mode: ThemeMode) -> TerminalAccent {
-        match self.theme_appearance_for_mode(mode) {
-            crate::terminal_theme::ThemeAppearance::Light => self.global_terminal_light_accent,
-            crate::terminal_theme::ThemeAppearance::Dark => self.global_terminal_dark_accent,
-        }
-    }
-
     pub fn palette_for_theme_mode_with_terminal_accents(
         &self,
         theme_name: &str,
@@ -3979,27 +3992,6 @@ impl AppState {
         }
     }
 
-    pub fn active_group_id(&self) -> &str {
-        self.groups
-            .get(self.active_group)
-            .map(|group| group.id.as_str())
-            .unwrap_or(crate::workspace::DEFAULT_GROUP_ID)
-    }
-
-    pub fn active_group_name(&self) -> &str {
-        self.groups
-            .get(self.active_group)
-            .map(|group| group.name.as_str())
-            .unwrap_or("group 1")
-    }
-
-    pub fn active_group_icon(&self) -> &str {
-        self.groups
-            .get(self.active_group)
-            .map(|group| group.icon.as_str())
-            .unwrap_or(DEFAULT_GROUP_ICON)
-    }
-
     pub fn palette_for_group(&self, group_idx: usize) -> Palette {
         let mut palette = self.palette.clone();
         palette.accent = self.group_accent_color(group_idx);
@@ -4013,7 +4005,7 @@ impl AppState {
             .get(ws_idx)
             .and_then(|workspace| self.group_index_by_id(&workspace.group_id))
             .map(|group_idx| self.group_accent_color(group_idx))
-            .unwrap_or_else(|| self.active_workspace_accent_color());
+            .unwrap_or(self.global_palette.accent);
         palette
     }
 
@@ -4025,69 +4017,8 @@ impl AppState {
             .unwrap_or(self.global_palette.accent)
     }
 
-    pub fn active_workspace_accent_color(&self) -> Color {
-        if !self.group_filter_enabled {
-            if let Some(group_idx) = self
-                .active
-                .and_then(|ws_idx| self.workspaces.get(ws_idx))
-                .and_then(|workspace| self.group_index_by_id(&workspace.group_id))
-            {
-                return self.group_accent_color(group_idx);
-            }
-        }
-
-        self.group_accent_color(self.active_group)
-    }
-
     pub fn group_index_by_id(&self, group_id: &str) -> Option<usize> {
         self.groups.iter().position(|group| group.id == group_id)
-    }
-
-    pub fn workspace_in_active_group(&self, ws_idx: usize) -> bool {
-        let Some(workspace) = self.workspaces.get(ws_idx) else {
-            return false;
-        };
-        !self.group_filter_enabled
-            || self
-                .groups
-                .get(self.active_group)
-                .is_some_and(|group| workspace.group_id == group.id)
-    }
-
-    pub fn workspace_is_visible(&self, ws_idx: usize) -> bool {
-        crate::app::connection_scope::workspace_is_visible(
-            self,
-            ws_idx,
-            self.active_group,
-            self.group_filter_enabled,
-            &self.connection_scope,
-        )
-    }
-
-    pub fn visible_workspace_indices(&self) -> Vec<usize> {
-        crate::app::connection_scope::visible_workspace_indices(
-            self,
-            self.active_group,
-            self.group_filter_enabled,
-            &self.connection_scope,
-        )
-        .collect()
-    }
-
-    pub fn workspace_group_collapsed(&self, group_id: &str) -> bool {
-        self.collapsed_workspace_groups
-            .iter()
-            .any(|id| id == group_id)
-    }
-
-    pub fn agent_section_collapsed(&self, section_key: &str) -> bool {
-        self.collapsed_agent_sections
-            .iter()
-            .any(|key| key == section_key)
-    }
-
-    pub fn toggle_agent_section(&mut self, section_key: String) {
-        toggle_string_key(&mut self.collapsed_agent_sections, section_key);
     }
 
     pub(crate) fn context_bar_is_visible(&self, visibility_override: Option<bool>) -> bool {
@@ -4095,65 +4026,6 @@ impl AppState {
             self.context_bar_visibility,
             crate::config::ContextBarVisibilityConfig::Always
         ))
-    }
-
-    pub fn sidebar_visible_workspace_indices(&self) -> Vec<usize> {
-        if self.sidebar_collapsed || self.group_filter_enabled {
-            return self.visible_workspace_indices();
-        }
-
-        self.workspaces
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, workspace)| {
-                (!self.workspace_group_collapsed(&workspace.group_id)
-                    && crate::app::connection_scope::workspace_matches(
-                        self,
-                        idx,
-                        &self.connection_scope,
-                    ))
-                .then_some(idx)
-            })
-            .collect()
-    }
-
-    pub fn toggle_workspace_group(&mut self, group_idx: usize) {
-        let Some(group_id) = self.groups.get(group_idx).map(|group| group.id.clone()) else {
-            return;
-        };
-        let previous_selected = self.selected;
-        if let Some(idx) = self
-            .collapsed_workspace_groups
-            .iter()
-            .position(|id| id == &group_id)
-        {
-            self.collapsed_workspace_groups.remove(idx);
-        } else {
-            self.collapsed_workspace_groups.push(group_id);
-        }
-        self.workspace_scroll = self
-            .workspace_scroll
-            .min(crate::ui::workspace_list_entry_count(self).saturating_sub(1));
-        if let Some(next) = crate::app::connection_scope::nearest_visible(
-            previous_selected,
-            self.sidebar_visible_workspace_indices(),
-        ) {
-            if next != self.selected {
-                self.selected = next;
-                self.ensure_workspace_visible(next);
-            }
-        }
-        self.mark_session_dirty();
-    }
-
-    pub fn first_visible_workspace(&self) -> Option<usize> {
-        crate::app::connection_scope::visible_workspace_indices(
-            self,
-            self.active_group,
-            self.group_filter_enabled,
-            &self.connection_scope,
-        )
-        .next()
     }
 
     pub(crate) fn mark_session_dirty(&mut self) {
@@ -4189,10 +4061,11 @@ impl AppState {
 
     pub(crate) fn agent_sidebar_section(
         &self,
+        agent_follow_up: &[AgentFollowUpEntry],
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
     ) -> Option<AgentStatusGroup> {
-        if self.is_agent_follow_up(ws_idx, pane_id) {
+        if self.is_agent_follow_up(agent_follow_up, ws_idx, pane_id) {
             return Some(AgentStatusGroup::FollowUp);
         }
         let workspace = self.workspaces.get(ws_idx)?;
@@ -4207,15 +4080,7 @@ impl AppState {
                 },
             );
         }
-        if state == AgentState::Idle
-            && (!pane.seen
-                || self
-                    .triage_hold
-                    .as_ref()
-                    .is_some_and(|(workspace_id, hold_pane)| {
-                        workspace_id == &workspace.id && *hold_pane == pane_id
-                    }))
-        {
+        if state == AgentState::Idle && !pane.seen {
             return Some(AgentStatusGroup::Triage);
         }
         Some(if state == AgentState::Working {
@@ -4225,12 +4090,19 @@ impl AppState {
         })
     }
 
-    pub(crate) fn pane_is_in_triage(&self, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
-        self.agent_sidebar_section(ws_idx, pane_id) == Some(AgentStatusGroup::Triage)
+    pub(crate) fn pane_is_in_triage(
+        &self,
+        agent_follow_up: &[AgentFollowUpEntry],
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> bool {
+        self.agent_sidebar_section(agent_follow_up, ws_idx, pane_id)
+            == Some(AgentStatusGroup::Triage)
     }
 
     pub(crate) fn agent_context_menu_kind(
         &self,
+        agent_follow_up: &[AgentFollowUpEntry],
         ws_idx: usize,
         pane_id: PaneId,
     ) -> Option<ContextMenuKind> {
@@ -4248,7 +4120,7 @@ impl AppState {
         Some(ContextMenuKind::Agent {
             ws_idx,
             pane_id,
-            in_follow_up: self.is_agent_follow_up(ws_idx, pane_id),
+            in_follow_up: self.is_agent_follow_up(agent_follow_up, ws_idx, pane_id),
             review_ref,
         })
     }
@@ -4331,15 +4203,6 @@ impl AppState {
         Some((ws_idx, tab_idx, pane_id))
     }
 
-    pub(crate) fn prune_agent_follow_up(&mut self) {
-        let before = self.agent_follow_up.len();
-        let entries = std::mem::take(&mut self.agent_follow_up);
-        self.agent_follow_up = Self::restored_agent_follow_up(&self.workspaces, entries);
-        if self.agent_follow_up.len() != before {
-            self.mark_session_dirty();
-        }
-    }
-
     pub(crate) fn restored_agent_follow_up(
         workspaces: &[Workspace],
         entries: Vec<AgentFollowUpEntry>,
@@ -4364,22 +4227,28 @@ impl AppState {
         restored
     }
 
-    pub(crate) fn is_agent_follow_up(&self, ws_idx: usize, pane_id: crate::layout::PaneId) -> bool {
+    pub(crate) fn is_agent_follow_up(
+        &self,
+        agent_follow_up: &[AgentFollowUpEntry],
+        ws_idx: usize,
+        pane_id: crate::layout::PaneId,
+    ) -> bool {
         let Some((workspace_id, pane_number)) = self.follow_up_identity(ws_idx, pane_id) else {
             return false;
         };
-        self.agent_follow_up
+        agent_follow_up
             .iter()
             .any(|entry| entry.matches(&workspace_id, pane_number))
     }
 
     pub(crate) fn follow_up_added_at(
         &self,
+        agent_follow_up: &[AgentFollowUpEntry],
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
     ) -> Option<u64> {
         let (workspace_id, pane_number) = self.follow_up_identity(ws_idx, pane_id)?;
-        self.agent_follow_up
+        agent_follow_up
             .iter()
             .find(|entry| entry.matches(&workspace_id, pane_number))
             .map(|entry| entry.added_at_unix_secs)
@@ -4387,6 +4256,7 @@ impl AppState {
 
     pub(crate) fn migrate_agent_follow_up(
         &mut self,
+        agent_follow_up: &mut Vec<AgentFollowUpEntry>,
         old_workspace_id: &str,
         old_pane_number: usize,
         new_workspace_id: String,
@@ -4395,44 +4265,42 @@ impl AppState {
         if old_workspace_id == new_workspace_id && old_pane_number == new_pane_number {
             return false;
         }
-        let Some(idx) = self
-            .agent_follow_up
+        let Some(idx) = agent_follow_up
             .iter()
             .position(|entry| entry.matches(old_workspace_id, old_pane_number))
         else {
             return false;
         };
-        if self
-            .agent_follow_up
+        if agent_follow_up
             .iter()
             .any(|entry| entry.matches(&new_workspace_id, new_pane_number))
         {
-            self.agent_follow_up.remove(idx);
+            agent_follow_up.remove(idx);
             self.mark_session_dirty();
             return true;
         }
-        self.agent_follow_up[idx].workspace_id = new_workspace_id;
-        self.agent_follow_up[idx].pane_number = new_pane_number;
+        agent_follow_up[idx].workspace_id = new_workspace_id;
+        agent_follow_up[idx].pane_number = new_pane_number;
         self.mark_session_dirty();
         true
     }
 
     pub(crate) fn insert_agent_follow_up(
         &mut self,
+        agent_follow_up: &mut Vec<AgentFollowUpEntry>,
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
     ) -> bool {
         let Some((workspace_id, pane_number)) = self.follow_up_identity(ws_idx, pane_id) else {
             return false;
         };
-        if self
-            .agent_follow_up
+        if agent_follow_up
             .iter()
             .any(|entry| entry.matches(&workspace_id, pane_number))
         {
             return false;
         }
-        self.agent_follow_up.push(AgentFollowUpEntry {
+        agent_follow_up.push(AgentFollowUpEntry {
             workspace_id,
             pane_number,
             added_at_unix_secs: Self::current_unix_secs(),
@@ -4443,6 +4311,7 @@ impl AppState {
 
     pub(crate) fn clear_agent_follow_up_for_pane(
         &mut self,
+        agent_follow_up: &mut Vec<AgentFollowUpEntry>,
         workspace_id: &str,
         pane_id: crate::layout::PaneId,
     ) -> bool {
@@ -4456,10 +4325,9 @@ impl AppState {
         let Some(pane_number) = workspace.public_pane_number(pane_id) else {
             return false;
         };
-        let before = self.agent_follow_up.len();
-        self.agent_follow_up
-            .retain(|entry| !entry.matches(workspace_id, pane_number));
-        if self.agent_follow_up.len() != before {
+        let before = agent_follow_up.len();
+        agent_follow_up.retain(|entry| !entry.matches(workspace_id, pane_number));
+        if agent_follow_up.len() != before {
             self.mark_session_dirty();
             true
         } else {
@@ -4635,7 +4503,7 @@ impl AppState {
         let Some(workspace) = self.workspaces.get(ws_idx) else {
             return false;
         };
-        let Some(tab_idx) = view.active_tab_for_workspace(&workspace.id) else {
+        let Some(tab_idx) = view.active_tab_index_for_workspace(self, ws_idx) else {
             return false;
         };
         let Ok(tab) = workspace.terminal_tab(tab_idx) else {
@@ -4643,7 +4511,8 @@ impl AppState {
         };
         let pane_id = view
             .focused_pane_for_tab(&workspace.id, tab.number)
-            .unwrap_or_else(|| tab.layout.focused());
+            .filter(|pane_id| tab.panes.contains_key(pane_id))
+            .unwrap_or(tab.root_pane);
         self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
             .and_then(crate::terminal::TerminalRuntime::input_state)
             .is_some_and(crate::pane::InputState::mouse_reporting_enabled)
@@ -4663,7 +4532,7 @@ impl AppState {
         let Some(workspace) = self.workspaces.get(ws_idx) else {
             return false;
         };
-        let Some(tab_idx) = view.active_tab_for_workspace(&workspace.id) else {
+        let Some(tab_idx) = view.active_tab_index_for_workspace(self, ws_idx) else {
             return false;
         };
         let Ok(tab) = workspace.terminal_tab(tab_idx) else {
@@ -4671,7 +4540,8 @@ impl AppState {
         };
         let pane_id = view
             .focused_pane_for_tab(&workspace.id, tab.number)
-            .unwrap_or_else(|| tab.layout.focused());
+            .filter(|pane_id| tab.panes.contains_key(pane_id))
+            .unwrap_or(tab.root_pane);
         self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
             .and_then(crate::terminal::TerminalRuntime::input_state)
             .is_some_and(crate::pane::InputState::sgr_pixels_enabled)
@@ -4691,11 +4561,7 @@ impl AppState {
     }
 
     pub fn estimate_pane_size(&self) -> (u16, u16) {
-        if let Some(info) = self.view.pane_infos.first() {
-            (info.rect.height, info.rect.width)
-        } else {
-            (self.headless_size.1, self.headless_size.0)
-        }
+        (self.headless_size.1, self.headless_size.0)
     }
 
     /// Returns true when the given (workspace, tab, pane) refers to the
@@ -4744,47 +4610,6 @@ impl AppState {
             terminal_runtimes.get(terminal_id)
         })
     }
-
-    pub(crate) fn focused_runtime_in_workspace<'a>(
-        &'a self,
-        terminal_runtimes: &'a crate::terminal::TerminalRuntimeRegistry,
-        ws_idx: usize,
-    ) -> Option<&'a crate::terminal::TerminalRuntime> {
-        let ws = self.workspaces.get(ws_idx)?;
-        let pane_id = ws.focused_pane_id()?;
-        self.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, pane_id)
-    }
-
-    pub fn is_active_pane(
-        &self,
-        ws_idx: usize,
-        tab_idx: usize,
-        pane_id: crate::layout::PaneId,
-    ) -> bool {
-        let Some(active_ws_idx) = self.active else {
-            return false;
-        };
-        if ws_idx != active_ws_idx {
-            return false;
-        }
-        let Some(ws) = self.workspaces.get(ws_idx) else {
-            return false;
-        };
-        if tab_idx != ws.active_tab_index() {
-            return false;
-        }
-        ws.terminal_tab(tab_idx)
-            .ok()
-            .is_some_and(|tab| tab.layout.focused() == pane_id)
-    }
-}
-
-fn toggle_string_key(keys: &mut Vec<String>, key: String) {
-    if let Some(idx) = keys.iter().position(|existing| existing == &key) {
-        keys.remove(idx);
-    } else {
-        keys.push(key);
-    }
 }
 
 #[allow(dead_code)]
@@ -4809,8 +4634,6 @@ impl AppState {
     pub fn test_new() -> Self {
         Self {
             groups: vec![Group::default_group()],
-            active_group: 0,
-            group_filter_enabled: true,
             terminals: std::collections::HashMap::new(),
             popup_panes: std::collections::HashMap::new(),
             git_repo_summaries: std::collections::HashMap::new(),
@@ -4821,9 +4644,6 @@ impl AppState {
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
             workspaces: Vec::new(),
-            active: None,
-            selected: 0,
-            mode: Mode::Navigate,
             should_quit: false,
             detach_exits: false,
             detach_requested: false,
@@ -4834,92 +4654,12 @@ impl AppState {
             request_reload_config: false,
             request_open_project_command: None,
             request_open_project_command_workspace: None,
-            group_default_execution_host_id: crate::execution_host::ExecutionHostId::local(),
             request_client_config_reload: false,
             request_clipboard_write: None,
-            creating_new_tab: false,
-            creating_new_group: false,
-            group_icon_input: DEFAULT_GROUP_ICON.to_string(),
-            group_default_directory_input: String::new(),
-            group_modal_selected_field: 0,
-            group_icon_picker_open: false,
-            rename_group_target: None,
-            requested_new_tab_name: None,
-            pending_workspace_create_location: None,
             requested_new_workspace_name: None,
-            rename_pane_target: None,
-            confirm_delete_group: None,
-            request_complete_onboarding: false,
-            name_input: String::new(),
-            name_input_replace_on_type: false,
-            release_notes: None,
-            product_announcement: None,
-            keybind_help: KeybindHelpState::default(),
-            config_diagnostics_scroll: 0,
-            command_palette: CommandPaletteState {
-                query: String::new(),
-                list: ModalListState::hidden(0),
-                scroll: 0,
-            },
-            agent_profile_picker: AgentProfilePickerState {
-                ws_idx: 0,
-                query: String::new(),
-                kind_filter: None,
-                list: ModalListState::hidden(0),
-                scroll: 0,
-            },
-            git_repo_picker: GitRepoPickerState {
-                ws_idx: 0,
-                command_kind: ProjectCommandKind::Review,
-                roots: Vec::new(),
-                list: ModalListState::hidden(0),
-                scroll: 0,
-            },
-            navigator: NavigatorState::default(),
-            previous_pane_focus: None,
             command_catalog: Vec::new(),
             command_runs: std::collections::HashMap::new(),
             port_registry: crate::ports::PortRegistry::default(),
-            copy_mode: None,
-            workspace_scroll: 0,
-            agent_panel_scroll: 0,
-            tab_scroll: 0,
-            tab_scroll_follow_active: true,
-            hovered_tab: None,
-            collapsed_sidebar_hover: None,
-            mobile_switcher_scroll: 0,
-            mobile_switcher_level: MobileSwitcherLevel::default(),
-            mobile_switcher_selected: 0,
-            mobile_agents_expanded: false,
-            view: ViewState {
-                layout: ViewLayout::Desktop,
-                sidebar_rect: Rect::default(),
-                right_sidebar_rect: Rect::default(),
-                workspace_card_areas: Vec::new(),
-                workspace_group_header_areas: Vec::new(),
-                workspace_group_empty_areas: Vec::new(),
-                tab_bar_rect: Rect::default(),
-                tab_hit_areas: Vec::new(),
-                tab_close_hit_areas: Vec::new(),
-                tab_scroll_left_hit_area: Rect::default(),
-                tab_scroll_right_hit_area: Rect::default(),
-                new_tab_hit_area: Rect::default(),
-                context_bar: ContextBarView::default(),
-                terminal_area: Rect::default(),
-                mobile_header_rect: Rect::default(),
-                toast_hit_area: Rect::default(),
-                pane_infos: Vec::new(),
-                split_borders: Vec::new(),
-            },
-            drag: None,
-            workspace_press: None,
-            group_press: None,
-            tab_press: None,
-            agent_press: None,
-            agent_follow_up: Vec::new(),
-            selection: None,
-            selection_autoscroll: None,
-            context_menu: None,
             update_available: None,
             update_install: crate::install::UpdateInstallAction::Direct,
             latest_release_notes_available: false,
@@ -4927,6 +4667,7 @@ impl AppState {
             config_diagnostic: None,
             config_issue: None,
             toast: None,
+            copy_feedback: None,
             pending_agent_notifications: std::collections::HashMap::new(),
             agent_notification_outbox: std::collections::VecDeque::new(),
             outer_terminal_focus: None,
@@ -4943,30 +4684,12 @@ impl AppState {
             ),
 
             default_sidebar_width: 26,
-            sidebar_width: 26,
             sidebar_min_width: 18,
             sidebar_max_width: 36,
-            sidebar_width_source: SidebarWidthSource::ConfigDefault,
-            sidebar_width_auto: false,
-            sidebar_collapsed: false,
-            right_sidebar_width: 28,
-            right_sidebar_collapsed: false,
+            mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             sidebar_arrangement: crate::config::SidebarArrangementConfig::Auto,
             context_bar_visibility: crate::config::ContextBarVisibilityConfig::Always,
-            context_bar_visibility_override: None,
-            zen_mode: false,
             sidebar_config: crate::config::SidebarConfig::default(),
-            sidebar_section_split: 0.5,
-            activity_agents_expanded: true,
-            activity_commands_expanded: false,
-            activity_ports_expanded: false,
-            collapsed_agent_sections: Vec::new(),
-            collapsed_command_groups: Vec::new(),
-            collapsed_command_status_groups: Vec::new(),
-            collapsed_workspace_groups: Vec::new(),
-            agent_panel_scope: AgentPanelScope::CurrentWorkspace,
-            connection_scope: crate::app::connection_scope::ConnectionScope::All,
-            triage_hold: None,
             mouse_capture: true,
             pending_pane_mouse_motion: None,
             last_pane_mouse_motion_flush: None,
@@ -4976,7 +4699,6 @@ impl AppState {
             pending_pane_wheel: None,
             copy_on_select: true,
             right_click_passthrough_modifiers: None,
-            right_click_passthrough: None,
             redraw_on_focus_gained: true,
             mouse_scroll_lines: crate::config::DEFAULT_MOUSE_SCROLL_LINES,
             confirm_close: true,
@@ -4988,13 +4710,11 @@ impl AppState {
             hide_tab_bar_when_single_tab: false,
             show_counters: false,
             sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::default(),
-            copy_feedback: None,
             browser_command: "terminal-browser".to_string(),
             review_command: "hunk diff --watch".to_string(),
             editor_command: "fresh .".to_string(),
             pane_border_agent_info: PaneBorderAgentInfoConfig::default(),
             status_indicators: StatusIndicatorStyle::default(),
-            mobile_width_threshold: crate::config::DEFAULT_MOBILE_WIDTH_THRESHOLD,
             pane_history_persistence: true,
             resume_agents_on_restore: true,
             reveal_hidden_cursor_for_cjk_ime: false,
@@ -5032,86 +4752,6 @@ impl AppState {
             global_dark_theme_name: DEFAULT_DARK_THEME_NAME.to_string(),
             global_terminal_light_accent: TerminalAccent::Blue,
             global_terminal_dark_accent: TerminalAccent::Blue,
-            settings: SettingsState {
-                section: SettingsSection::Theme,
-                sidebar_expanded: Some(SettingsSection::Theme),
-                sidebar_selection: SettingsSidebarSelection::section(SettingsSection::Theme),
-                sidebar_focused: false,
-                list: ModalListState::hidden(0),
-                focused_input: None,
-                scroll: 0,
-                original_palette: None,
-                original_theme: None,
-                pending_theme_name: None,
-                pending_theme_mode: None,
-                pending_light_theme_name: None,
-                pending_dark_theme_name: None,
-                pending_terminal_light_accent: None,
-                pending_terminal_dark_accent: None,
-                pending_sound_enabled: None,
-                pending_toast_delivery: None,
-                pending_default_shell: None,
-                pending_shell_mode: None,
-                pending_version_check: None,
-                pending_manifest_check: None,
-                pending_toast_delay: None,
-                pending_toast_gardn_position: None,
-                pending_clipboard_toast_enabled: None,
-                pending_clipboard_toast_position: None,
-                pending_confirm_close: None,
-                pending_prompt_new_tab_name: None,
-                pending_show_counters: None,
-                pending_pane_borders: None,
-                pending_pane_scrollbars: None,
-                pending_pane_gaps: None,
-                pending_hide_tab_bar_when_single_tab: None,
-                pending_copy_on_select: None,
-                pending_prompt_new_workspace_name: None,
-                pending_right_click_passthrough_modifier: None,
-                pending_new_terminal_cwd: None,
-                pending_context_bar_visibility: None,
-                pending_mouse_scroll_lines: None,
-                pending_browser_command: None,
-                pending_review_command: None,
-                pending_editor_command: None,
-                pending_sidebar_width: None,
-                pending_sidebar_arrangement: None,
-                pending_sidebar_initial_state: None,
-                pending_sidebar_initial_agent_scope: None,
-                pending_sidebar_min_width: None,
-                pending_sidebar_max_width: None,
-                pending_pane_border_agent_info: None,
-                pending_status_indicators: None,
-                pending_switch_ascii_input_source_in_prefix: None,
-                pending_resume_agents_on_restore: None,
-                pending_window_title: None,
-                pending_headless_cols: None,
-                pending_headless_rows: None,
-                pending_group_accent_choice: None,
-                pending_group_name: None,
-                pending_group_icon: None,
-                pending_group_github_organization: None,
-
-                pending_group_default_directory: None,
-                pending_group_default_execution_host_id: None,
-
-                pending_workspace_name: None,
-                pending_workspace_default_cwd: None,
-                pending_workspace_default_execution_host_id: None,
-                pending_workspace_github_scope: None,
-                pending_workspace_github_repositories: None,
-                pending_agent_profile_id: None,
-                pending_agent_profile_name: None,
-                pending_agent_profile_kind: None,
-                pending_agent_profile_command: None,
-                pending_agent_profile_enabled: None,
-                agent_profile_kind_filter: None,
-                integration_host_profile_id: None,
-                connection_editor: None,
-                group_settings_target: None,
-                group_icon_picker_open: false,
-                workspace_settings_target: None,
-            },
             integration_recommendations: Vec::new(),
             host_integration_observations: std::collections::HashMap::new(),
             host_integration_request_ids: std::collections::HashMap::new(),
@@ -5128,9 +4768,6 @@ impl AppState {
             plugin_command_logs: Vec::new(),
             next_plugin_command_log_id: 1,
             plugin_commands_in_flight: 0,
-            global_menu: ModalListState::hidden(0),
-            group_menu: ModalListState::hidden(0),
-            agent_menu: ModalListState::hidden(0),
             host_terminal_theme: TerminalTheme::default(),
             session_namespace_id: crate::persist::installation::new_session_namespace_id(),
             remote_termination_tombstones: Vec::new(),

@@ -5,7 +5,8 @@ use ratatui::layout::{Position, Rect, Size};
 
 use crate::app::state::AppState;
 use crate::app::view_state::{
-    apply_terminal_offsets_to_runtimes, capture_terminal_offsets_from_runtimes, ClientViewState,
+    apply_terminal_offsets_to_runtimes, capture_terminal_offsets_from_runtimes, ClientTabContext,
+    ClientTabControl, ClientViewState,
 };
 use crate::app::Mode;
 use crate::protocol::render_ansi::{BlitEncoder, EncodedBlit};
@@ -264,58 +265,6 @@ impl Backend for CursorTrackingBackend {
     }
 }
 
-/// Renders the AppState to an in-memory ratatui Buffer.
-///
-/// This produces the same output as the monolithic binary's terminal draw,
-/// but writes to a `Buffer` instead of stdout. Cursor visibility is captured
-/// from explicit frame cursor intent rather than incidental backend state.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn render_virtual(
-    app_state: &mut AppState,
-    area: Rect,
-    resize_panes: bool,
-) -> (ratatui::buffer::Buffer, Option<CursorState>) {
-    let terminal_runtimes = TerminalRuntimeRegistry::new();
-    render_virtual_with_runtime_registry(
-        app_state,
-        &terminal_runtimes,
-        area,
-        resize_panes,
-        crate::kitty_graphics::HostCellSize::default(),
-    )
-}
-
-pub(crate) fn render_virtual_with_runtime_registry(
-    app_state: &mut AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    area: Rect,
-    resize_panes: bool,
-    cell_size: crate::kitty_graphics::HostCellSize,
-) -> (ratatui::buffer::Buffer, Option<CursorState>) {
-    if resize_panes {
-        crate::ui::compute_view_with_cell_size(app_state, terminal_runtimes, area, cell_size);
-    } else {
-        crate::ui::compute_view_without_resizing_panes(app_state, terminal_runtimes, area);
-    }
-
-    let backend = CursorTrackingBackend::new(area.width, area.height);
-    let mut terminal = ratatui::Terminal::new(backend).expect("TestBackend::new should never fail");
-
-    terminal
-        .draw(|frame| {
-            crate::ui::render_with_runtime_registry(app_state, terminal_runtimes, frame);
-        })
-        .expect("render to TestBackend should never fail");
-    let buffer = terminal.backend().buffer().clone();
-
-    let cursor = if app_state.mode == Mode::Terminal {
-        focused_terminal_cursor(app_state, terminal_runtimes)
-            .or_else(|| terminal.backend().rendered_cursor())
-    } else {
-        terminal.backend().rendered_cursor()
-    };
-    (buffer, cursor)
-}
 fn capture_terminal_offsets(
     app_state: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -377,46 +326,73 @@ pub(crate) fn render_virtual_for_client_view(
     Option<CursorState>,
     RenderedKittyImages,
 ) {
+    render_virtual_for_client_view_with_tab_context(
+        app_state,
+        client_view,
+        terminal_runtimes,
+        ClientTabContext::default(),
+        area,
+        resize_panes,
+        cell_size,
+    )
+}
+
+pub(crate) fn render_virtual_for_client_view_with_tab_context(
+    app_state: &mut AppState,
+    client_view: &mut ClientViewState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    tab_context: ClientTabContext,
+    area: Rect,
+    resize_panes: bool,
+    cell_size: crate::kitty_graphics::HostCellSize,
+) -> (
+    ratatui::buffer::Buffer,
+    Option<CursorState>,
+    RenderedKittyImages,
+) {
     let live_terminal_ids = live_terminal_ids(app_state);
     let shared_offsets = capture_terminal_offsets(app_state, terminal_runtimes);
 
     client_view.reconcile(app_state);
     apply_terminal_offsets_to_runtimes(&live_terminal_ids, terminal_runtimes, client_view);
 
-    if resize_panes {
-        crate::ui::compute_view_for_client_with_cell_size(
-            app_state,
-            client_view,
-            terminal_runtimes,
-            area,
-            cell_size,
-        );
-    } else {
-        crate::ui::compute_view_for_client_without_resizing_panes(
-            app_state,
-            client_view,
-            terminal_runtimes,
-            area,
-        );
-    }
+    crate::ui::compute_view_with_tab_context(
+        app_state,
+        client_view,
+        terminal_runtimes,
+        tab_context,
+        area,
+        cell_size,
+        if resize_panes {
+            crate::ui::PaneResizeAuthority::Granted
+        } else {
+            crate::ui::PaneResizeAuthority::Denied
+        },
+    );
 
     let backend = CursorTrackingBackend::new(area.width, area.height);
     let mut terminal = ratatui::Terminal::new(backend).expect("TestBackend::new should never fail");
 
     terminal
         .draw(|frame| {
-            crate::ui::render_with_runtime_registry_for_view(
+            crate::ui::render_with_tab_context(
                 app_state,
                 client_view,
                 terminal_runtimes,
+                tab_context,
                 frame,
             );
         })
         .expect("render to TestBackend should never fail");
     let buffer = terminal.backend().buffer().clone();
-    let cursor = if client_view.can_mutate_tab() && client_view.mode == Mode::Terminal {
-        focused_terminal_cursor_for_view(app_state, client_view, terminal_runtimes)
-            .or_else(|| terminal.backend().rendered_cursor())
+    let cursor = if tab_context.control.can_mutate_tab() && client_view.mode == Mode::Terminal {
+        focused_terminal_cursor_for_view(
+            app_state,
+            client_view,
+            terminal_runtimes,
+            tab_context.control,
+        )
+        .or_else(|| terminal.backend().rendered_cursor())
     } else {
         terminal.backend().rendered_cursor()
     };
@@ -469,15 +445,14 @@ pub(crate) fn visible_hyperlinks_for_view(
     let Some(tab_idx) = client_view.active_tab_index_for_workspace(app_state, ws_idx) else {
         return Vec::new();
     };
-    let Ok(tab) = workspace.terminal_tab(tab_idx) else {
+    if workspace.terminal_tab(tab_idx).is_err() {
         return Vec::new();
-    };
+    }
 
     let mut links = Vec::new();
     for info in &client_view.computed.pane_infos {
-        let Some(runtime) = tab
-            .terminal_id(info.id)
-            .and_then(|terminal_id| terminal_runtimes.get(terminal_id))
+        let Some(runtime) =
+            app_state.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)
         else {
             continue;
         };
@@ -519,6 +494,7 @@ fn focused_terminal_cursor_for_view(
     app_state: &AppState,
     client_view: &ClientViewState,
     terminal_runtimes: &TerminalRuntimeRegistry,
+    tab_control: ClientTabControl,
 ) -> Option<CursorState> {
     if client_view.mode != Mode::Terminal {
         return None;
@@ -526,7 +502,7 @@ fn focused_terminal_cursor_for_view(
     // Watchers never see a terminal cursor: their keystrokes go nowhere, so
     // the honest caret is a hidden one. This gates the CJK IME reveal path
     // below as well.
-    if client_view.tab_control.is_watching() {
+    if tab_control.is_watching() {
         return None;
     }
 
@@ -538,7 +514,7 @@ fn focused_terminal_cursor_for_view(
         .find(|info| info.is_focused)?;
     let workspace = app_state.workspaces.get(ws_idx)?;
     let terminal_id = workspace.terminal_id(info.id)?;
-    let rt = terminal_runtimes.get(terminal_id)?;
+    let rt = app_state.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)?;
     let scrolled_back = crate::ui::pane_is_scrolled_back(rt);
 
     let reveal = app_state.reveal_hidden_cursor_for_cjk_ime
@@ -579,73 +555,6 @@ fn focused_terminal_cursor_for_view(
     cursor.and_then(|cursor| project_cursor_for_view(client_view, cursor))
 }
 
-fn focused_terminal_cursor(
-    app_state: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-) -> Option<CursorState> {
-    if app_state.mode != Mode::Terminal {
-        return None;
-    }
-
-    let ws_idx = app_state.active?;
-    let info = app_state
-        .view
-        .pane_infos
-        .iter()
-        .find(|info| info.is_focused)?;
-    let rt = app_state.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id)?;
-    let scrolled_back = crate::ui::pane_is_scrolled_back(rt);
-
-    // Determine whether the IME-anchor reveal applies to this focused pane.
-    // The master switch must be on, and either no agent filter is configured
-    // (apply to any pane) or the focused pane's detected agent matches the
-    // allow-list. A configured list with no valid entries reveals nothing.
-    let reveal = app_state.reveal_hidden_cursor_for_cjk_ime
-        && (!app_state.cjk_ime_agent_filter_configured || {
-            let detected = app_state
-                .workspaces
-                .get(ws_idx)
-                .and_then(|ws| ws.terminal_id(info.id))
-                .and_then(|tid| app_state.terminals.get(tid))
-                .and_then(|t| t.detected_agent);
-            detected.is_some_and(|agent| app_state.cjk_ime_agents.contains(&agent))
-        });
-
-    if let Some(cursor) = rt.cursor_state(info.inner_rect, true) {
-        // When the reveal applies, expose the cursor anchor regardless of the
-        // pane's `?25l` request so macOS IMEs keep tracking the candidate
-        // window when TUIs paint their own cursor. Scrollback suppression
-        // still applies.
-        let visible = if reveal {
-            !scrolled_back
-        } else {
-            cursor.visible && !scrolled_back
-        };
-        Some(CursorState {
-            x: cursor.x,
-            y: cursor.y,
-            visible,
-            shape: if reveal && visible {
-                app_state.cjk_ime_cursor_shape
-            } else {
-                cursor.shape
-            },
-        })
-    } else if reveal && !scrolled_back {
-        // cursor_state() returned None — the viewport has no cursor position
-        // (can happen with complex TUIs). Fall back to the pane's top-left so
-        // the outer terminal still exposes a cursor anchor for IME tracking.
-        Some(CursorState {
-            x: info.inner_rect.x,
-            y: info.inner_rect.y,
-            visible: true,
-            shape: app_state.cjk_ime_cursor_shape,
-        })
-    } else {
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -663,13 +572,9 @@ mod tests {
         text
     }
     #[test]
-    fn client_view_rendering_keeps_shared_view_state_isolated() {
+    fn client_view_rendering_keeps_client_views_isolated() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
-        state.active = Some(0);
-        state.selected = 0;
-        crate::ui::compute_view(&mut state, Rect::new(0, 0, 100, 30));
-        let shared_before = ClientViewState::from_default_client_state(&state);
 
         let mut first_client = ClientViewState::from_default_client_state(&state);
         let mut second_client = ClientViewState::from_default_client_state(&state);
@@ -694,19 +599,6 @@ mod tests {
             crate::kitty_graphics::HostCellSize::default(),
         );
 
-        let shared_after = ClientViewState::from_default_client_state(&state);
-        assert_eq!(
-            shared_after.active_workspace,
-            shared_before.active_workspace
-        );
-        assert_eq!(
-            shared_after.selected_workspace,
-            shared_before.selected_workspace
-        );
-        assert_eq!(
-            shared_after.computed.terminal_area,
-            shared_before.computed.terminal_area
-        );
         assert_eq!(first_client.active_workspace, Some(0));
         assert_eq!(second_client.active_workspace, Some(1));
         assert_ne!(
@@ -719,23 +611,23 @@ mod tests {
     fn client_view_rendering_uses_client_workspace_tab_and_sidebar_state() {
         let mut state = AppState::test_new();
         let mut shared_workspace = Workspace::test_new("leftspace");
-        let shared_tab = shared_workspace.test_add_tab(Some("sharedtab"));
-        shared_workspace.switch_tab(shared_tab);
+        shared_workspace.test_add_tab(Some("sharedtab"));
         let mut client_workspace = Workspace::test_new("rightspace");
         client_workspace.test_add_tab(Some("clienttab"));
+        let client_tab_number = client_workspace
+            .public_tab_number(1)
+            .expect("client tab should have a public number");
         let client_workspace_id = client_workspace.id.clone();
 
         state.workspaces = vec![shared_workspace, client_workspace];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
-        state.sidebar_collapsed = false;
 
         let mut client = ClientViewState::from_default_client_state(&state);
         client.active_workspace = Some(1);
         client.selected_workspace = 1;
         client.sidebar_collapsed = true;
-        client.active_tabs.insert(client_workspace_id, 1);
+        client
+            .active_tabs
+            .insert(client_workspace_id, client_tab_number);
 
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         let (buffer, _, _) = render_virtual_for_client_view(
@@ -760,8 +652,6 @@ mod tests {
             !text.contains("leftspace"),
             "client render must respect the invoking client's collapsed sidebar:\n{text}"
         );
-        assert_eq!(state.active, Some(0));
-        assert!(!state.sidebar_collapsed);
     }
 
     #[test]
@@ -771,17 +661,15 @@ mod tests {
             Workspace::test_new("rename-first-space"),
             Workspace::test_new("rename-second-space"),
         ];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::RenameWorkspace;
-        state.name_input = "shared-rename-default".to_string();
 
         let mut first_client = ClientViewState::from_default_client_state(&state);
+        first_client.mode = crate::app::Mode::RenameWorkspace;
         first_client.name_input = "first-client-rename".to_string();
         let mut second_client = ClientViewState::from_default_client_state(&state);
         second_client.active_workspace = Some(1);
         second_client.selected_workspace = 1;
         second_client.name_input = "second-client-rename".to_string();
+        second_client.mode = crate::app::Mode::RenameWorkspace;
 
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         let (first_buffer, _, _) = render_virtual_for_client_view(
@@ -808,8 +696,7 @@ mod tests {
             "first client should see its rename text input:\n{first_text}"
         );
         assert!(
-            !first_text.contains("shared-rename-default")
-                && !first_text.contains("second-client-rename"),
+            !first_text.contains("second-client-rename"),
             "first client must not see another client's or the shared rename text input:\n{first_text}"
         );
         assert!(
@@ -817,8 +704,7 @@ mod tests {
             "second client should see its rename text input:\n{second_text}"
         );
         assert!(
-            !second_text.contains("shared-rename-default")
-                && !second_text.contains("first-client-rename"),
+            !second_text.contains("first-client-rename"),
             "second client must not see another client's or the shared rename text input:\n{second_text}"
         );
     }
@@ -830,17 +716,15 @@ mod tests {
             Workspace::test_new("navigator-first-space"),
             Workspace::test_new("navigator-second-space"),
         ];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Navigator;
-        state.navigator.query = "shared-navigator-default".to_string();
 
         let mut first_client = ClientViewState::from_default_client_state(&state);
+        first_client.mode = crate::app::Mode::Navigator;
         first_client.navigator.query = "first-client-navigator".to_string();
         let mut second_client = ClientViewState::from_default_client_state(&state);
         second_client.active_workspace = Some(1);
         second_client.selected_workspace = 1;
         second_client.navigator.query = "second-client-navigator".to_string();
+        second_client.mode = crate::app::Mode::Navigator;
 
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         let (first_buffer, _, _) = render_virtual_for_client_view(
@@ -867,8 +751,7 @@ mod tests {
             "first client should see its navigator search query:\n{first_text}"
         );
         assert!(
-            !first_text.contains("shared-navigator-default")
-                && !first_text.contains("second-client-navigator"),
+            !first_text.contains("second-client-navigator"),
             "first client must not see another client's or the shared navigator query:\n{first_text}"
         );
         assert!(
@@ -876,8 +759,7 @@ mod tests {
             "second client should see its navigator search query:\n{second_text}"
         );
         assert!(
-            !second_text.contains("shared-navigator-default")
-                && !second_text.contains("first-client-navigator"),
+            !second_text.contains("first-client-navigator"),
             "second client must not see another client's or the shared navigator query:\n{second_text}"
         );
     }
@@ -890,9 +772,6 @@ mod tests {
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         state.workspaces = vec![workspace];
         state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let mut client = ClientViewState::from_default_client_state(&state);
         client.mode = crate::app::Mode::Copy;
@@ -930,10 +809,6 @@ mod tests {
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         state.workspaces = vec![workspace];
         state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
-        state.copy_mode = None;
 
         let mut client = ClientViewState::from_default_client_state(&state);
         client.mode = crate::app::Mode::Copy;
@@ -970,7 +845,7 @@ mod tests {
         let cell = &buffer[(cursor_x, cursor_y)];
         assert_eq!(
             cell.style().bg,
-            Some(state.active_workspace_accent_color()),
+            Some(client.active_workspace_accent_color(&state)),
             "client copy mode should draw the visible cursor with the active workspace accent"
         );
         assert!(
@@ -992,9 +867,6 @@ mod tests {
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         state.workspaces = vec![workspace];
         state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
         let mut terminal_runtimes = TerminalRuntimeRegistry::new();
         terminal_runtimes.insert(
             terminal_id,
@@ -1005,11 +877,13 @@ mod tests {
             ),
         );
         let mut client = ClientViewState::from_default_client_state(&state);
-        crate::ui::compute_view_for_client_without_resizing_panes(
+        crate::ui::compute_view(
             &state,
             &mut client,
             &terminal_runtimes,
             Rect::new(0, 0, 100, 20),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::ui::PaneResizeAuthority::Denied,
         );
         (state, client, terminal_runtimes)
     }
@@ -1032,11 +906,15 @@ mod tests {
             "full controller render should preserve the visible backend cursor"
         );
 
-        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
-        let (_, watcher_cursor, _) = render_virtual_for_client_view(
+        let watcher_context = ClientTabContext {
+            control: ClientTabControl::WatchingControlled { epoch: 1 },
+            canvas_size: None,
+        };
+        let (_, watcher_cursor, _) = render_virtual_for_client_view_with_tab_context(
             &mut state,
             &mut client,
             &terminal_runtimes,
+            watcher_context,
             area,
             false,
             crate::kitty_graphics::HostCellSize::default(),
@@ -1118,24 +996,38 @@ mod tests {
 
     #[tokio::test]
     async fn watching_clients_have_no_terminal_cursor() {
-        let (state, mut client, terminal_runtimes) = watcher_cursor_fixture();
+        let (state, client, terminal_runtimes) = watcher_cursor_fixture();
 
         // The controller keeps the focused terminal cursor.
         assert!(
-            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes).is_some(),
+            focused_terminal_cursor_for_view(
+                &state,
+                &client,
+                &terminal_runtimes,
+                ClientTabControl::Controlling { epoch: 1 },
+            )
+            .is_some(),
             "controller should keep the terminal cursor"
         );
 
-        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
         assert_eq!(
-            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes),
+            focused_terminal_cursor_for_view(
+                &state,
+                &client,
+                &terminal_runtimes,
+                ClientTabControl::WatchingControlled { epoch: 1 },
+            ),
             None,
             "watching an occupied tab hides the cursor"
         );
 
-        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
         assert_eq!(
-            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes),
+            focused_terminal_cursor_for_view(
+                &state,
+                &client,
+                &terminal_runtimes,
+                ClientTabControl::WatchingFree { epoch: 1 },
+            ),
             None,
             "watching a free tab hides the cursor"
         );
@@ -1143,25 +1035,39 @@ mod tests {
 
     #[tokio::test]
     async fn cjk_ime_reveal_does_not_leak_cursor_to_watchers() {
-        let (mut state, mut client, terminal_runtimes) = watcher_cursor_fixture();
+        let (mut state, client, terminal_runtimes) = watcher_cursor_fixture();
         state.reveal_hidden_cursor_for_cjk_ime = true;
 
         // The reveal still applies to the controller.
         assert!(
-            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes).is_some(),
+            focused_terminal_cursor_for_view(
+                &state,
+                &client,
+                &terminal_runtimes,
+                ClientTabControl::Controlling { epoch: 1 },
+            )
+            .is_some(),
             "controller keeps the revealed cursor"
         );
 
-        client.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
         assert_eq!(
-            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes),
+            focused_terminal_cursor_for_view(
+                &state,
+                &client,
+                &terminal_runtimes,
+                ClientTabControl::WatchingControlled { epoch: 1 },
+            ),
             None,
             "reveal must not leak a cursor to watchers"
         );
 
-        client.set_tab_control(ClientTabControl::WatchingFree { epoch: 1 });
         assert_eq!(
-            focused_terminal_cursor_for_view(&state, &client, &terminal_runtimes),
+            focused_terminal_cursor_for_view(
+                &state,
+                &client,
+                &terminal_runtimes,
+                ClientTabControl::WatchingFree { epoch: 1 },
+            ),
             None,
             "reveal must not leak a cursor to watchers"
         );
@@ -1175,19 +1081,26 @@ mod tests {
         workspace.custom_name = Some("website".into());
         workspace.tabs[0].set_custom_name("release".into());
         state.workspaces = vec![workspace];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let mut watcher = ClientViewState::from_default_client_state(&state);
-        watcher.set_tab_control(ClientTabControl::WatchingControlled { epoch: 4 });
+        watcher.active_workspace = Some(0);
+        watcher.selected_workspace = 0;
+        watcher.mode = crate::app::Mode::Terminal;
+        let watcher_context = ClientTabContext {
+            control: ClientTabControl::WatchingControlled { epoch: 4 },
+            canvas_size: None,
+        };
         let mut controller = ClientViewState::from_default_client_state(&state);
+        controller.active_workspace = Some(0);
+        controller.selected_workspace = 0;
+        controller.mode = crate::app::Mode::Terminal;
 
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let (watcher_buffer, _, _) = render_virtual_for_client_view(
+        let (watcher_buffer, _, _) = render_virtual_for_client_view_with_tab_context(
             &mut state,
             &mut watcher,
             &terminal_runtimes,
+            watcher_context,
             Rect::new(0, 0, 100, 20),
             false,
             crate::kitty_graphics::HostCellSize::default(),
@@ -1233,16 +1146,19 @@ mod tests {
             ),
         );
         state.workspaces = vec![workspace];
-        state.active = Some(0);
+        let mut client_view = ClientViewState::from_default_client_state(&state);
+        client_view.active_workspace = Some(0);
         let _ = crate::pane::take_aggregate_input_state_reads();
         let terminal_runtimes = TerminalRuntimeRegistry::new();
-        let infos = crate::ui::panes::compute_pane_infos(
+        crate::ui::compute_view(
             &state,
+            &mut client_view,
             &terminal_runtimes,
             Rect::new(0, 0, 80, 24),
-            false,
             crate::kitty_graphics::HostCellSize::default(),
+            crate::ui::PaneResizeAuthority::Denied,
         );
+        let infos = &client_view.computed.pane_infos;
         assert!(!infos.is_empty());
         assert_eq!(crate::pane::take_aggregate_input_state_reads(), 0);
     }

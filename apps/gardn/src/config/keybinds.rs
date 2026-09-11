@@ -225,26 +225,6 @@ impl ActionKeybinds {
             Some(labels.join(" / "))
         }
     }
-
-    pub fn prefix_rhs_label(&self) -> Option<String> {
-        let labels: Vec<String> = self
-            .bindings
-            .iter()
-            .filter(|binding| binding.trigger.is_prefix())
-            .map(|binding| {
-                binding
-                    .label
-                    .strip_prefix("prefix+")
-                    .unwrap_or(&binding.label)
-                    .to_string()
-            })
-            .collect();
-        if labels.is_empty() {
-            None
-        } else {
-            Some(labels.join(" / "))
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1585,7 +1565,6 @@ next_tab = ["prefix+n", "ctrl+alt+]"]
                 )),
             ]
         );
-        assert_eq!(kb.next_tab.prefix_rhs_label().as_deref(), Some("n"));
     }
 
     #[test]

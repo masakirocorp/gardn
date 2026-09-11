@@ -109,7 +109,7 @@ pub enum PendingFocusMarker {
     },
     Tab {
         workspace_id: String,
-        tab_idx: usize,
+        tab_number: usize,
     },
     Pane {
         workspace_id: String,
@@ -130,7 +130,7 @@ pub struct DeferredRemoteCreate {
     /// Whether the requester asked to focus the created resource after ACK.
     pub focus: bool,
     /// Originating client view when routed through a view-aware invocation.
-    /// `None` means ambient/default (shared) create — focus applies to AppState.
+    /// `None` means ambient/default create; focus applies to the durable default view.
     pub client_view_id: Option<u64>,
     /// Exact pending focus marker installed for this create when focus=true.
     /// Used to clear only this marker on failure/cancel without touching replacements.

@@ -5,23 +5,31 @@ use crate::api::schema::{
     PANE_GRAPHICS_STREAM_MAX_BYTES,
 };
 use crate::app::pane_graphics::{Key as PaneGraphicsKey, Layer, Slot};
-use crate::app::App;
+use crate::app::{App, ClientViewState};
 use crate::layout::PaneId;
 use base64::Engine;
 
 impl App {
-    fn pane_graphics_visible(&self, ws_idx: usize, pane_id: PaneId) -> bool {
-        if self.state.active != Some(ws_idx) {
+    fn pane_graphics_visible_for_view(
+        &self,
+        view: &ClientViewState,
+        ws_idx: usize,
+        pane_id: PaneId,
+    ) -> bool {
+        if view.active_workspace != Some(ws_idx) {
             return false;
         }
-        let Some(tab) = self.state.workspaces[ws_idx]
-            .active_tab()
-            .and_then(|entry| entry.as_terminal())
-        else {
+        let Some(workspace) = self.state.workspaces.get(ws_idx) else {
             return false;
         };
-        if tab.zoomed {
-            tab.layout.focused() == pane_id
+        let Some(tab_idx) = view.active_tab_index_for_workspace(&self.state, ws_idx) else {
+            return false;
+        };
+        let Ok(tab) = workspace.terminal_tab(tab_idx) else {
+            return false;
+        };
+        if view.tab_is_zoomed(&workspace.id, tab.number) {
+            view.focused_pane_for_tab(&workspace.id, tab.number) == Some(pane_id)
         } else {
             tab.layout.pane_ids().contains(&pane_id)
         }
@@ -41,6 +49,17 @@ impl App {
         id: String,
         target: crate::api::schema::PaneTarget,
     ) -> String {
+        self.with_default_client_view(|app, view| {
+            app.handle_pane_graphics_info_for_view(view, id, target)
+        })
+    }
+
+    fn handle_pane_graphics_info_for_view(
+        &mut self,
+        view: &ClientViewState,
+        id: String,
+        target: crate::api::schema::PaneTarget,
+    ) -> String {
         if let Err(response) = require_enabled(self, &id) {
             return response;
         }
@@ -50,7 +69,7 @@ impl App {
         if !self.terminal_pane_exists(ws_idx, pane_id) {
             return pane_not_found(id, &target.pane_id);
         }
-        let pane_visible = self.pane_graphics_visible(ws_idx, pane_id);
+        let pane_visible = self.pane_graphics_visible_for_view(view, ws_idx, pane_id);
         let cell_size = self
             .state
             .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
@@ -645,8 +664,9 @@ mod tests {
     #[test]
     fn info_reports_visibility_for_terminal_surface_workspace_tab_and_zoom() {
         let (mut app, pane_id) = app();
-        app.state.mode = crate::app::Mode::Terminal;
-        app.state.active = Some(0);
+        app.default_client_view.mode = crate::app::Mode::Terminal;
+        app.default_client_view
+            .focus_tab_in_workspace(&app.state, 0, 0);
         let visible = app.handle_pane_graphics_info(
             "visible".into(),
             crate::api::schema::PaneTarget {
@@ -681,8 +701,14 @@ mod tests {
         );
         assert!(!pane_visible(&hidden_tab));
 
-        app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
-        app.state.workspaces[0].terminal_tab_mut(0).unwrap().zoomed = true;
+        let zoomed_focus =
+            app.state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        app.default_client_view
+            .focus_pane_in_workspace(&app.state, 0, 0, zoomed_focus);
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let tab_number = app.state.workspaces[0].tabs[0].number();
+        app.default_client_view
+            .set_tab_zoomed(&workspace_id, tab_number, true);
         let zoomed_away = app.handle_pane_graphics_info(
             "zoomed-away".into(),
             crate::api::schema::PaneTarget {
@@ -691,8 +717,9 @@ mod tests {
         );
         assert!(!pane_visible(&zoomed_away));
 
-        app.state.workspaces[0].terminal_tab_mut(0).unwrap().zoomed = false;
-        app.state.mode = crate::app::Mode::Navigate;
+        app.default_client_view
+            .set_tab_zoomed(&workspace_id, tab_number, false);
+        app.default_client_view.mode = crate::app::Mode::Navigate;
         let short_lived_mode = app.handle_pane_graphics_info(
             "navigate".into(),
             crate::api::schema::PaneTarget { pane_id },

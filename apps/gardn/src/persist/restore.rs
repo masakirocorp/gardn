@@ -388,7 +388,6 @@ fn restore_workspace(
         .unwrap_or(1)
         .max(snap.next_public_tab_number);
     let mut failed_imports = 0;
-    let mut restored_active_tab = None;
 
     for (idx, tab_snap) in snap.tabs.iter().enumerate() {
         let tab_number = snap.public_tab_numbers.get(idx).copied().unwrap_or(idx + 1);
@@ -407,9 +406,6 @@ fn restore_workspace(
                 custom_name: custom_name.clone(),
             });
             next_public_tab_number = next_public_tab_number.max(tab_number + 1);
-            if idx == snap.legacy_active_tab {
-                restored_active_tab = Some(tabs.len());
-            }
             tabs.push(tab);
             continue;
         }
@@ -434,9 +430,6 @@ fn restore_workspace(
             continue;
         };
         next_public_tab_number = next_public_tab_number.max(tab.number() + 1);
-        if idx == snap.legacy_active_tab {
-            restored_active_tab = Some(tabs.len());
-        }
         for pane_id in tab
             .as_terminal()
             .into_iter()
@@ -486,7 +479,6 @@ fn restore_workspace(
                     public_pane_numbers,
                     next_public_pane_number,
                     next_public_tab_number,
-                    active_tab: 0,
                     tabs,
                     #[cfg(test)]
                     test_runtimes: HashMap::new(),
@@ -520,8 +512,6 @@ fn restore_workspace(
             public_pane_numbers,
             next_public_pane_number,
             next_public_tab_number,
-            active_tab: restored_active_tab
-                .unwrap_or_else(|| snap.legacy_active_tab.min(tabs.len().saturating_sub(1))),
             tabs,
             #[cfg(test)]
             test_runtimes: HashMap::new(),
@@ -879,16 +869,11 @@ fn restore_tab(
         );
         return (None, failed_imports);
     };
-    let pane_ids = collect_pane_ids(&node);
-    let Some(focus) = resolve_restored_pane(snap.legacy_focused, &id_map, &surviving, &pane_ids)
-    else {
-        return (None, failed_imports);
-    };
     let Some(root_pane) = resolve_restored_pane(snap.root_pane, &id_map, &surviving, &pane_ids)
     else {
         return (None, failed_imports);
     };
-    let layout = TileLayout::from_saved(node, focus);
+    let layout = TileLayout::from_saved(node);
 
     (
         Some((
@@ -900,7 +885,6 @@ fn restore_tab(
                 panes,
                 #[cfg(test)]
                 runtimes: HashMap::new(),
-                zoomed: snap.legacy_zoomed,
                 events: runtime_context.events.clone(),
                 render_notify: runtime_context.render_notify.clone(),
                 render_dirty: runtime_context.render_dirty.clone(),
@@ -1222,11 +1206,8 @@ mod tests {
                             terminal_semantics: None,
                         },
                     )]),
-                    legacy_zoomed: false,
-                    legacy_focused: Some(10),
                     root_pane: Some(10),
                 })],
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::from([(3, 10)]),
@@ -1337,11 +1318,8 @@ mod tests {
                             terminal_semantics: None,
                         },
                     )]),
-                    legacy_zoomed: false,
-                    legacy_focused: Some(7),
                     root_pane: Some(7),
                 })],
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
@@ -1403,7 +1381,6 @@ mod tests {
                     custom_name: None,
                     legacy_pane_ids: vec![10, 20],
                 }],
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
@@ -1459,11 +1436,8 @@ mod tests {
                     second: Box::new(LayoutSnapshot::Pane(20)),
                 },
                 panes: HashMap::new(),
-                legacy_zoomed: false,
-                legacy_focused: Some(10),
                 root_pane: Some(10),
             })],
-            legacy_active_tab: 0,
         };
         let mut next_public_pane_number = 1;
 
@@ -1757,11 +1731,8 @@ mod tests {
                             terminal_semantics: None,
                         },
                     )]),
-                    legacy_zoomed: false,
-                    legacy_focused: Some(7),
                     root_pane: Some(7),
                 })],
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
@@ -2040,7 +2011,6 @@ mod tests {
                 public_tab_numbers: Vec::new(),
                 next_public_tab_number: 0,
                 tabs: Vec::new(),
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
@@ -2125,11 +2095,8 @@ mod tests {
                             terminal_semantics: None,
                         },
                     )]),
-                    legacy_zoomed: false,
-                    legacy_focused: Some(0),
                     root_pane: Some(0),
                 })],
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
@@ -2228,11 +2195,8 @@ mod tests {
                             terminal_semantics: None,
                         },
                     )]),
-                    legacy_zoomed: false,
-                    legacy_focused: Some(0),
                     root_pane: Some(0),
                 })],
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),
@@ -2540,11 +2504,8 @@ mod tests {
                     custom_name: None,
                     layout: LayoutSnapshot::Pane(0),
                     panes,
-                    legacy_zoomed: false,
-                    legacy_focused: Some(0),
                     root_pane: Some(0),
                 })],
-                legacy_active_tab: 0,
             }],
             agent_follow_up: Vec::new(),
             pane_id_aliases: HashMap::new(),

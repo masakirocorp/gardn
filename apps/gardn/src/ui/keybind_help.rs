@@ -364,10 +364,6 @@ pub(crate) fn keybind_help_scrollbar_rect(
     modal_scroll_area(body, metrics).track
 }
 
-pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
-    render_keybind_help_overlay_from(app, frame, frame.area(), &app.keybind_help);
-}
-
 pub(super) fn render_keybind_help_overlay_for_view(
     app: &AppState,
     view: &ClientViewState,

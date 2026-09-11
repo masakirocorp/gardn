@@ -45,11 +45,6 @@ impl App {
         self.state.global_terminal_dark_accent = terminal_dark_accent;
         self.state.refresh_global_palette();
         self.state.apply_effective_theme();
-        self.state.settings.pending_light_theme_name = Some(light.to_string());
-        self.state.settings.pending_dark_theme_name = Some(dark.to_string());
-        self.state.settings.pending_theme_mode = Some(mode);
-        self.state.settings.pending_terminal_light_accent = Some(terminal_light_accent);
-        self.state.settings.pending_terminal_dark_accent = Some(terminal_dark_accent);
         if self.update_config_file("theme", |content| {
             let content = crate::config::remove_section_key(content, "theme", "name");
             let content = crate::config::upsert_section_value(
@@ -95,7 +90,6 @@ impl App {
 
     pub(super) fn save_sound(&mut self, enabled: bool) {
         self.state.sound.enabled = enabled;
-        self.state.settings.pending_sound_enabled = Some(enabled);
         if self.update_config_file("sound setting", |content| {
             crate::config::upsert_section_bool(content, "ui.sound", "enabled", enabled)
         }) {
@@ -105,7 +99,6 @@ impl App {
 
     pub(super) fn save_new_terminal_cwd(&mut self, policy: &crate::config::NewTerminalCwdConfig) {
         self.state.new_terminal_cwd = policy.clone();
-        self.state.settings.pending_new_terminal_cwd = Some(policy.clone());
         let value = match policy {
             crate::config::NewTerminalCwdConfig::Follow => "\"follow\"".to_string(),
             crate::config::NewTerminalCwdConfig::Home => "\"home\"".to_string(),
@@ -121,7 +114,6 @@ impl App {
     pub(super) fn save_mouse_scroll_lines(&mut self, lines: usize) {
         let lines = lines.max(1);
         self.state.mouse_scroll_lines = lines;
-        self.state.settings.pending_mouse_scroll_lines = Some(lines);
         if self.update_config_file("mouse scroll lines", |content| {
             crate::config::upsert_section_value(
                 content,
@@ -135,7 +127,6 @@ impl App {
     }
     pub(super) fn save_resume_agents_on_restore(&mut self, enabled: bool) {
         self.state.resume_agents_on_restore = enabled;
-        self.state.settings.pending_resume_agents_on_restore = Some(enabled);
         if self.update_config_file("agent session restore", |content| {
             crate::config::upsert_section_bool(
                 content,
@@ -150,7 +141,6 @@ impl App {
 
     pub(super) fn save_window_title(&mut self, template: &str) {
         self.state.window_title_template = template.to_string();
-        self.state.settings.pending_window_title = Some(template.to_string());
         let value = toml::Value::String(template.to_string()).to_string();
         if self.update_config_file("window title", |content| {
             crate::config::upsert_section_value(content, "ui", "window_title", &value)
@@ -164,8 +154,6 @@ impl App {
             return;
         }
         self.state.headless_size = (cols, rows);
-        self.state.settings.pending_headless_cols = Some(cols.to_string());
-        self.state.settings.pending_headless_rows = Some(rows.to_string());
         if self.update_config_file("headless terminal size", |content| {
             let content = crate::config::upsert_section_value(
                 content,
@@ -193,9 +181,6 @@ impl App {
         self.state.browser_command.clone_from(&commands.browser);
         self.state.review_command.clone_from(&commands.review);
         self.state.editor_command.clone_from(&commands.editor);
-        self.state.settings.pending_browser_command = Some(commands.browser.clone());
-        self.state.settings.pending_review_command = Some(commands.review.clone());
-        self.state.settings.pending_editor_command = Some(commands.editor.clone());
         if self.update_config_file("project commands", |content| {
             let content = crate::config::remove_section_key(content, "commands", "git");
             let content = crate::config::remove_section_key(&content, "commands", "diff");
@@ -228,15 +213,15 @@ impl App {
             .unwrap_or((self.state.sidebar_min_width, self.state.sidebar_max_width));
         let width = width.clamp(min, max);
         self.state.default_sidebar_width = width;
-        if self.state.sidebar_width_source == crate::app::state::SidebarWidthSource::ConfigDefault {
-            self.state.sidebar_width = width;
+        if self.default_client_view.sidebar_width_source
+            == crate::app::state::SidebarWidthSource::ConfigDefault
+        {
+            self.default_client_view.sidebar_width = width;
         }
         self.state.sidebar_min_width = min;
         self.state.sidebar_max_width = max;
-        self.state.sidebar_width = self.state.sidebar_width.clamp(min, max);
-        self.state.settings.pending_sidebar_width = Some(width);
-        self.state.settings.pending_sidebar_min_width = Some(min);
-        self.state.settings.pending_sidebar_max_width = Some(max);
+        self.default_client_view.sidebar_width =
+            self.default_client_view.sidebar_width.clamp(min, max);
         if self.update_config_file("sidebar widths", |content| {
             let content = crate::config::upsert_section_value(
                 content,
@@ -265,7 +250,6 @@ impl App {
         arrangement: crate::config::SidebarArrangementConfig,
     ) {
         self.state.sidebar_arrangement = arrangement;
-        self.state.settings.pending_sidebar_arrangement = Some(arrangement);
         if self.update_config_file("sidebar arrangement", |content| {
             crate::config::upsert_section_value(
                 content,
@@ -282,7 +266,6 @@ impl App {
         visibility: crate::config::ContextBarVisibilityConfig,
     ) {
         self.state.context_bar_visibility = visibility;
-        self.state.settings.pending_context_bar_visibility = Some(visibility);
         if self.update_config_file("context bar visibility", |content| {
             crate::config::upsert_section_value(
                 content,
@@ -302,8 +285,6 @@ impl App {
     ) {
         self.state.sidebar_config.initial_state = initial_state;
         self.state.sidebar_config.initial_agent_scope = initial_agent_scope;
-        self.state.settings.pending_sidebar_initial_state = Some(initial_state);
-        self.state.settings.pending_sidebar_initial_agent_scope = Some(initial_agent_scope);
         if self.update_config_file("initial sidebar view", |content| {
             let content = crate::config::upsert_section_value(
                 content,
@@ -323,7 +304,6 @@ impl App {
     }
     pub(super) fn save_toast_delivery(&mut self, delivery: crate::config::ToastDelivery) {
         self.state.toast_config.delivery = delivery;
-        self.state.settings.pending_toast_delivery = Some(delivery);
         let value = match delivery {
             crate::config::ToastDelivery::Off => "\"off\"",
             crate::config::ToastDelivery::Gardn => "\"gardn\"",
@@ -340,7 +320,6 @@ impl App {
     }
 
     pub(super) fn save_default_shell(&mut self, shell: &str) {
-        self.state.settings.pending_default_shell = Some(shell.to_string());
         let value = toml::Value::String(shell.to_string()).to_string();
         if self.update_config_file("default shell", |content| {
             crate::config::upsert_section_value(content, "terminal", "default_shell", &value)
@@ -350,7 +329,6 @@ impl App {
     }
 
     pub(super) fn save_shell_mode(&mut self, mode: crate::config::ShellModeConfig) {
-        self.state.settings.pending_shell_mode = Some(mode);
         let value = match mode {
             crate::config::ShellModeConfig::Auto => "\"auto\"",
             crate::config::ShellModeConfig::Login => "\"login\"",
@@ -364,7 +342,6 @@ impl App {
     }
 
     pub(super) fn save_version_check(&mut self, enabled: bool) {
-        self.state.settings.pending_version_check = Some(enabled);
         if self.update_config_file("version check", |content| {
             crate::config::upsert_section_bool(content, "update", "version_check", enabled)
         }) {
@@ -373,7 +350,6 @@ impl App {
     }
 
     pub(super) fn save_manifest_check(&mut self, enabled: bool) {
-        self.state.settings.pending_manifest_check = Some(enabled);
         if self.update_config_file("manifest check", |content| {
             crate::config::upsert_section_bool(content, "update", "manifest_check", enabled)
         }) {
@@ -385,7 +361,6 @@ impl App {
         if seconds > crate::config::MAX_TOAST_DELAY_SECONDS {
             return;
         }
-        self.state.settings.pending_toast_delay = Some(seconds.to_string());
         if self.update_config_file("toast delay", |content| {
             crate::config::upsert_section_value(
                 content,
@@ -402,7 +377,6 @@ impl App {
         &mut self,
         position: crate::config::ToastGardnPosition,
     ) {
-        self.state.settings.pending_toast_gardn_position = Some(position);
         let value = match position {
             crate::config::ToastGardnPosition::TopLeft => "\"top-left\"",
             crate::config::ToastGardnPosition::TopRight => "\"top-right\"",
@@ -417,7 +391,6 @@ impl App {
     }
 
     pub(super) fn save_clipboard_toast_enabled(&mut self, enabled: bool) {
-        self.state.settings.pending_clipboard_toast_enabled = Some(enabled);
         if self.update_config_file("clipboard toast", |content| {
             crate::config::upsert_section_bool(content, "ui.toast.clipboard", "enabled", enabled)
         }) {
@@ -429,7 +402,6 @@ impl App {
         &mut self,
         position: crate::config::ToastClipboardPosition,
     ) {
-        self.state.settings.pending_clipboard_toast_position = Some(position);
         let value = match position {
             crate::config::ToastClipboardPosition::TopLeft => "\"top-left\"",
             crate::config::ToastClipboardPosition::TopCenter => "\"top-center\"",
@@ -446,7 +418,6 @@ impl App {
     }
     pub(super) fn save_confirm_close(&mut self, enabled: bool) {
         self.state.confirm_close = enabled;
-        self.state.settings.pending_confirm_close = Some(enabled);
         if self.update_config_file("close confirmation", |content| {
             crate::config::upsert_section_bool(content, "ui", "confirm_close", enabled)
         }) {
@@ -456,7 +427,6 @@ impl App {
 
     pub(super) fn save_prompt_new_tab_name(&mut self, enabled: bool) {
         self.state.prompt_new_tab_name = enabled;
-        self.state.settings.pending_prompt_new_tab_name = Some(enabled);
         if self.update_config_file("new tab name prompt", |content| {
             crate::config::upsert_section_bool(content, "ui", "prompt_new_tab_name", enabled)
         }) {
@@ -465,7 +435,6 @@ impl App {
     }
     pub(super) fn save_show_counters(&mut self, enabled: bool) {
         self.state.show_counters = enabled;
-        self.state.settings.pending_show_counters = Some(enabled);
         if self.update_config_file("counter visibility", |content| {
             crate::config::upsert_section_bool(content, "ui", "show_counters", enabled)
         }) {
@@ -484,11 +453,6 @@ impl App {
         self.state.pane_scrollbars = pane_scrollbars;
         self.state.pane_gaps = pane_gaps;
         self.state.hide_tab_bar_when_single_tab = hide_tab_bar_when_single_tab;
-        self.state.settings.pending_pane_borders = Some(pane_borders);
-        self.state.settings.pending_pane_scrollbars = Some(pane_scrollbars);
-        self.state.settings.pending_pane_gaps = Some(pane_gaps);
-        self.state.settings.pending_hide_tab_bar_when_single_tab =
-            Some(hide_tab_bar_when_single_tab);
         if self.update_config_file("pane appearance", |content| {
             let content =
                 crate::config::upsert_section_bool(content, "ui", "pane_borders", pane_borders);
@@ -520,10 +484,6 @@ impl App {
         self.state.copy_on_select = copy_on_select;
         self.state.prompt_new_workspace_name = prompt_new_workspace_name;
         self.state.right_click_passthrough_modifiers = right_click_passthrough_modifier.modifiers();
-        self.state.settings.pending_copy_on_select = Some(copy_on_select);
-        self.state.settings.pending_prompt_new_workspace_name = Some(prompt_new_workspace_name);
-        self.state.settings.pending_right_click_passthrough_modifier =
-            Some(right_click_passthrough_modifier);
         if self.update_config_file("selection behavior", |content| {
             let content =
                 crate::config::upsert_section_bool(content, "ui", "copy_on_select", copy_on_select);
@@ -549,7 +509,6 @@ impl App {
         level: crate::config::PaneBorderAgentInfoConfig,
     ) {
         self.state.pane_border_agent_info = level;
-        self.state.settings.pending_pane_border_agent_info = Some(level);
         if self.update_config_file("pane border agent info", |content| {
             let content = crate::config::upsert_section_value(
                 content,
@@ -565,7 +524,6 @@ impl App {
 
     pub(super) fn save_status_indicators(&mut self, style: crate::config::StatusIndicatorStyle) {
         self.state.status_indicators = style;
-        self.state.settings.pending_status_indicators = Some(style);
         if self.update_config_file("status indicator style", |content| {
             crate::config::upsert_section_value(
                 content,
@@ -580,9 +538,6 @@ impl App {
 
     pub(super) fn save_switch_ascii_input_source_in_prefix(&mut self, enabled: bool) {
         self.state.switch_ascii_input_source_in_prefix = enabled;
-        self.state
-            .settings
-            .pending_switch_ascii_input_source_in_prefix = Some(enabled);
         if self.update_config_file("prefix ascii input source", |content| {
             crate::config::upsert_section_bool(
                 content,
@@ -640,14 +595,6 @@ impl App {
             }
         }
         self.state.mark_session_dirty();
-        self.state.settings.pending_agent_profile_id = None;
-        self.state.settings.pending_agent_profile_name = None;
-        self.state.settings.pending_agent_profile_kind =
-            Some(crate::agent_profiles::AgentKind::Omp);
-        self.state.settings.pending_agent_profile_command = None;
-        self.state.settings.pending_agent_profile_enabled = None;
-        self.state.settings.list.selected = 0;
-        self.state.settings.scroll = 0;
     }
 
     fn current_agent_profiles_config(&self) -> crate::agent_profiles::AgentProfilesConfig {
@@ -824,18 +771,16 @@ mod tests {
                 }],
             },
         );
-        app.state.settings.pending_agent_profile_id = Some("user:omp-mk".to_string());
-        app.state.settings.pending_agent_profile_name = Some("omp mk".to_string());
-        app.state.settings.pending_agent_profile_command = Some("omp-mk".to_string());
-        app.state.settings.list.selected = 12;
+        app.default_client_view.settings.pending_agent_profile_id = Some("user:omp-mk".to_string());
+        app.default_client_view.settings.pending_agent_profile_name = Some("omp mk".to_string());
+        app.default_client_view
+            .settings
+            .pending_agent_profile_command = Some("omp-mk".to_string());
+        app.default_client_view.settings.list.selected = 12;
 
         app.delete_agent_profile("user:omp-mk");
 
         assert!(app.state.agent_profiles.get("user:omp-mk").is_none());
-        assert_eq!(app.state.settings.pending_agent_profile_id, None);
-        assert_eq!(app.state.settings.pending_agent_profile_name, None);
-        assert_eq!(app.state.settings.pending_agent_profile_command, None);
-        assert_eq!(app.state.settings.list.selected, 0);
         assert!(app.state.session_dirty);
         let _ = std::fs::remove_file(path);
     }
@@ -1039,12 +984,6 @@ mod tests {
             app.state.toast_config.clipboard.position,
             original_clipboard_position
         );
-        assert_eq!(
-            app.state.settings.pending_default_shell.as_deref(),
-            Some("/bin/zsh")
-        );
-        assert_eq!(app.state.settings.pending_version_check, Some(false));
-        assert_eq!(app.state.settings.pending_toast_delay.as_deref(), Some("2"));
         let _ = std::fs::remove_dir_all(path);
     }
 

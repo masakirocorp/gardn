@@ -84,11 +84,14 @@ mod tests {
 
     #[test]
     fn stale_profile_selection_resolves_to_local() {
-        let mut state = AppState::test_new();
-        state.settings.integration_host_profile_id = Some("deleted".to_string());
+        let state = AppState::test_new();
+        let settings = crate::app::state::SettingsState {
+            integration_host_profile_id: Some("deleted".to_string()),
+            ..Default::default()
+        };
 
         assert!(matches!(
-            resolve(&state, &state.settings),
+            resolve(&state, &settings),
             IntegrationHostSelection::Local
         ));
     }
@@ -105,9 +108,12 @@ mod tests {
         .unwrap();
         let expected_host_id = profile.execution_host_id();
         state.ssh_connection_profiles.push(profile);
-        state.settings.integration_host_profile_id = Some("workbox".to_string());
+        let settings = crate::app::state::SettingsState {
+            integration_host_profile_id: Some("workbox".to_string()),
+            ..Default::default()
+        };
 
-        let selection = resolve(&state, &state.settings);
+        let selection = resolve(&state, &settings);
         assert_eq!(selection.label(&state).to_string(), "Work box");
         assert_eq!(selection.host_id(), Some(&expected_host_id));
     }

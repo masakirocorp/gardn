@@ -61,7 +61,6 @@ pub struct Tab {
     pub panes: HashMap<PaneId, PaneState>,
     #[cfg(test)]
     pub runtimes: HashMap<PaneId, TerminalRuntime>,
-    pub zoomed: bool,
     pub events: mpsc::Sender<AppEvent>,
     pub(crate) render_notify: Arc<Notify>,
     pub(crate) render_dirty: Arc<crate::render_signal::RenderSignal>,
@@ -77,7 +76,6 @@ impl Clone for Tab {
             panes: self.panes.clone(),
             #[cfg(test)]
             runtimes: HashMap::new(),
-            zoomed: self.zoomed,
             events: self.events.clone(),
             render_notify: self.render_notify.clone(),
             render_dirty: self.render_dirty.clone(),
@@ -236,7 +234,6 @@ impl Tab {
             panes,
             #[cfg(test)]
             runtimes: HashMap::new(),
-            zoomed: false,
             events,
             render_notify,
             render_dirty,
@@ -373,7 +370,6 @@ impl Tab {
                 panes,
                 #[cfg(test)]
                 runtimes: HashMap::new(),
-                zoomed: false,
                 events,
                 render_notify,
                 render_dirty,
@@ -408,25 +404,21 @@ impl Tab {
             custom_name,
             number,
             root_pane: pane_id,
-            layout: TileLayout::from_saved(Node::Pane(pane_id), pane_id),
+            layout: TileLayout::from_saved(Node::Pane(pane_id)),
             panes,
             #[cfg(test)]
             runtimes: HashMap::new(),
-            zoomed: false,
             events,
             render_notify,
             render_dirty,
         }
     }
 
-    /// Split `target` with a shell pane. Focus moves to the new pane only when
-    /// `focus_new_pane` is set; a spawn failure rolls the layout back without
-    /// touching focus or its history.
+    /// Split `target` with a shell pane. A spawn failure rolls the layout back.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn split_pane_shell(
         &mut self,
         target: PaneId,
-        focus_new_pane: bool,
         direction: Direction,
         ratio: Option<f32>,
         rows: u16,
@@ -439,7 +431,6 @@ impl Tab {
     ) -> std::io::Result<NewPane> {
         self.split_pane_with_runtime(
             target,
-            focus_new_pane,
             direction,
             ratio,
             rows,
@@ -453,13 +444,11 @@ impl Tab {
         )
     }
 
-    /// Split `target` with a custom-command pane. Same focus contract as
-    /// `split_pane_shell`.
+    /// Split `target` with a custom-command pane.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn split_pane_custom(
         &mut self,
         target: PaneId,
-        focus_new_pane: bool,
         direction: Direction,
         rows: u16,
         cols: u16,
@@ -471,7 +460,6 @@ impl Tab {
     ) -> std::io::Result<NewPane> {
         self.split_pane_with_runtime(
             target,
-            focus_new_pane,
             direction,
             None,
             rows,
@@ -488,13 +476,11 @@ impl Tab {
         )
     }
 
-    /// Split `target` with an argv-command pane. Same focus contract as
-    /// `split_pane_shell`.
+    /// Split `target` with an argv-command pane.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn split_pane_argv(
         &mut self,
         target: PaneId,
-        focus_new_pane: bool,
         direction: Direction,
         ratio: Option<f32>,
         rows: u16,
@@ -507,7 +493,6 @@ impl Tab {
     ) -> std::io::Result<NewPane> {
         self.split_pane_with_runtime(
             target,
-            focus_new_pane,
             direction,
             ratio,
             rows,
@@ -525,7 +510,6 @@ impl Tab {
     fn split_pane_with_runtime(
         &mut self,
         target: PaneId,
-        focus_new_pane: bool,
         direction: Direction,
         ratio: Option<f32>,
         rows: u16,
@@ -615,22 +599,13 @@ impl Tab {
         if !recorded_env.is_empty() {
             terminal = terminal.with_launch_env(recorded_env);
         }
-        if focus_new_pane {
-            self.layout.focus_pane(new_id);
-        }
         self.panes
             .insert(new_id, PaneState::new_with_env_pane_id(terminal_id, new_id));
-        self.zoomed = false;
         Ok(NewPane {
             pane_id: new_id,
             terminal,
             runtime,
         })
-    }
-
-    pub fn close_focused(&mut self) -> Option<DetachedPane> {
-        let pane_id = self.layout.focused();
-        self.detach_pane(pane_id)
     }
 
     pub fn close_pane(&mut self, pane_id: PaneId) -> Option<DetachedPane> {
@@ -650,7 +625,6 @@ impl Tab {
             }
         }
         let pane_state = self.panes.remove(&pane_id)?;
-        self.zoomed = false;
         Some(MovedPane {
             pane_id,
             pane_state,
@@ -665,17 +639,15 @@ impl Tab {
         moved: MovedPane,
         direction: Direction,
         ratio: f32,
-        focus: bool,
     ) -> Result<PaneId, MovedPane> {
         let pane_id = moved.pane_id;
         if !self
             .layout
-            .insert_pane_near(target_pane_id, pane_id, direction, ratio, focus)
+            .insert_pane_near(target_pane_id, pane_id, direction, ratio)
         {
             return Err(moved);
         }
         self.panes.insert(pane_id, moved.pane_state);
-        self.zoomed = false;
         Ok(pane_id)
     }
 
@@ -689,7 +661,6 @@ impl Tab {
 
         let pane = self.panes.remove(&pane_id)?;
         let terminal_id = pane.terminal_id_cloned()?;
-        self.zoomed = false;
         if let Some(next_root) = next_root {
             self.root_pane = next_root;
         }

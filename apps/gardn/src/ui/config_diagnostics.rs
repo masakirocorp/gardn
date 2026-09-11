@@ -146,10 +146,6 @@ pub(crate) fn config_diagnostics_action_at(
         })
 }
 
-pub(super) fn render_config_diagnostics_overlay(app: &AppState, frame: &mut Frame) {
-    render_config_diagnostics_overlay_from(app, frame, frame.area(), app.config_diagnostics_scroll);
-}
-
 pub(super) fn render_config_diagnostics_overlay_for_view(
     app: &AppState,
     view: &ClientViewState,

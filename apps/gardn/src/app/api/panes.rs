@@ -29,26 +29,7 @@ const METADATA_TTL_MAX_MS: u64 = 86_400_000;
 
 impl App {
     pub(super) fn handle_pane_focus(&mut self, id: String, target: PaneTarget) -> String {
-        let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
-            return pane_not_found(id, &target.pane_id);
-        };
-        let Some(tab_idx) = self
-            .state
-            .workspaces
-            .get(ws_idx)
-            .and_then(|ws| ws.find_tab_index_for_pane(pane_id))
-        else {
-            return pane_not_found(id, &target.pane_id);
-        };
-        self.state.focus_pane_in_workspace(ws_idx, pane_id);
-        self.state.mark_active_tab_seen();
-        self.state.switch_workspace_tab(ws_idx, tab_idx);
-        self.state.mode = Mode::Terminal;
-        self.schedule_session_save();
-        let Some(pane) = self.pane_info(ws_idx, pane_id) else {
-            return pane_not_found(id, &target.pane_id);
-        };
-        encode_success(id, ResponseResult::PaneInfo { pane })
+        self.with_default_client_view(|app, view| app.handle_pane_focus_for_view(view, id, target))
     }
 
     pub(super) fn handle_pane_focus_for_view(
@@ -75,7 +56,8 @@ impl App {
         view.active_workspace = Some(ws_idx);
         view.selected_workspace = ws_idx;
         view.mode = Mode::Terminal;
-        let Some(pane) = self.pane_info(ws_idx, pane_id) else {
+        self.state.mark_active_tab_seen_for_view(view);
+        let Some(pane) = self.pane_info_for_view(view, ws_idx, pane_id) else {
             return pane_not_found(id, &target.pane_id);
         };
         encode_success(id, ResponseResult::PaneInfo { pane })
@@ -173,7 +155,6 @@ impl App {
             crate::api::schema::SplitDirection::Down => ratatui::layout::Direction::Vertical,
         };
         let client_local = invocation.is_client_local();
-        let begin_focus = false;
         if !location.is_local() {
             match self.begin_remote_split(
                 ws_idx,
@@ -181,7 +162,7 @@ impl App {
                 direction,
                 params.ratio,
                 location,
-                begin_focus,
+                false,
                 None,
                 extra_env,
             ) {
@@ -249,7 +230,6 @@ impl App {
                 host_terminal_theme,
                 shell_config,
                 extra_env,
-                begin_focus,
             ),
             None => ws.split_pane(
                 target_pane_id,
@@ -261,7 +241,6 @@ impl App {
                 host_terminal_theme,
                 shell_config,
                 extra_env,
-                begin_focus,
             ),
         };
         let (target_tab_idx, new_pane) = match split_result {
@@ -298,9 +277,14 @@ impl App {
             invocation.view_mut().reconcile(&self.state);
         }
         self.schedule_session_save();
-        let pane = self
-            .pane_info_for_view(invocation.view(), ws_idx, new_pane.pane_id)
-            .expect("new pane should have API state");
+        let Some(pane) = self.pane_info_for_view(invocation.view(), ws_idx, new_pane.pane_id)
+        else {
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "pane_create_failed",
+                "new pane API state unavailable",
+            ));
+        };
         self.emit_event(EventEnvelope {
             event: EventKind::PaneCreated,
             data: EventData::PaneCreated { pane: pane.clone() },
@@ -316,10 +300,7 @@ impl App {
     }
 
     pub(super) fn handle_pane_list(&mut self, id: String, params: PaneListParams) -> String {
-        match self.collect_panes_for_workspace(params.workspace_id.as_deref()) {
-            Ok(panes) => encode_success(id, ResponseResult::PaneList { panes }),
-            Err((code, message)) => encode_error(id, &code, message),
-        }
+        self.with_default_client_view(|app, view| app.handle_pane_list_for_view(view, id, params))
     }
 
     pub(super) fn handle_pane_list_for_view(
@@ -371,48 +352,16 @@ impl App {
     }
 
     pub(super) fn handle_pane_current(&mut self, id: String, params: PaneCurrentParams) -> String {
-        let target = match params.caller_pane_id.as_deref() {
-            Some(caller_pane_id) => self.parse_pane_id(caller_pane_id),
-            None => self.resolve_optional_pane(None),
-        };
-        let Some((ws_idx, pane_id)) = target else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(pane) = self.pane_info(ws_idx, pane_id) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-
-        encode_success(id, ResponseResult::PaneCurrent { pane })
+        self.with_default_client_view(|app, view| {
+            app.handle_pane_current_for_view(view, id, params)
+        })
     }
-
     pub(super) fn handle_pane_get(&mut self, id: String, target: PaneTarget) -> String {
-        let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
-            return pane_not_found(id, &target.pane_id);
-        };
-        let Some(pane) = self.pane_info(ws_idx, pane_id) else {
-            return pane_not_found(id, &target.pane_id);
-        };
-
-        encode_success(id, ResponseResult::PaneInfo { pane })
+        self.with_default_client_view(|app, view| app.handle_pane_get_for_view(view, id, target))
     }
-
     pub(super) fn handle_pane_layout(&mut self, id: String, params: PaneLayoutParams) -> String {
-        let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id) else {
-            return pane_not_found(
-                id,
-                &self.public_pane_id(ws_idx, pane_id).unwrap_or_default(),
-            );
-        };
-        let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
-            return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
-        };
-
-        encode_success(id, ResponseResult::PaneLayout { layout })
+        self.with_default_client_view(|app, view| app.handle_pane_layout_for_view(view, id, params))
     }
-
     pub(super) fn handle_pane_layout_for_view(
         &mut self,
         view: &ClientViewState,
@@ -647,38 +596,10 @@ impl App {
         id: String,
         params: PaneNeighborParams,
     ) -> String {
-        let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id) else {
-            return pane_not_found(
-                id,
-                &self.public_pane_id(ws_idx, pane_id).unwrap_or_default(),
-            );
-        };
-        let Some(source_public_id) = self.public_pane_id(ws_idx, pane_id) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let neighbor_pane_id = self
-            .directional_pane_target(ws_idx, tab_idx, pane_id, params.direction)
-            .and_then(|pane_id| self.public_pane_id(ws_idx, pane_id));
-        let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
-            return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
-        };
-
-        encode_success(
-            id,
-            ResponseResult::PaneNeighbor {
-                neighbor: PaneNeighborResult {
-                    pane_id: source_public_id,
-                    direction: params.direction,
-                    neighbor_pane_id,
-                    layout,
-                },
-            },
-        )
+        self.with_default_client_view(|app, view| {
+            app.handle_pane_neighbor_for_view(view, id, params)
+        })
     }
-
     pub(super) fn handle_pane_neighbor_for_view(
         &mut self,
         view: &ClientViewState,
@@ -700,7 +621,7 @@ impl App {
             return encode_error(id, "pane_not_found", "pane not found");
         };
         let neighbor_pane_id = self
-            .directional_pane_target(ws_idx, tab_idx, pane_id, params.direction)
+            .directional_pane_target(view, ws_idx, tab_idx, pane_id, params.direction)
             .and_then(|pane_id| self.public_pane_id(ws_idx, pane_id));
         let Some(layout) = self.pane_layout_snapshot_for_view(view, ws_idx, tab_idx) else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
@@ -720,55 +641,7 @@ impl App {
     }
 
     pub(super) fn handle_pane_edges(&mut self, id: String, params: PaneEdgesParams) -> String {
-        let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id) else {
-            return pane_not_found(
-                id,
-                &self.public_pane_id(ws_idx, pane_id).unwrap_or_default(),
-            );
-        };
-        let Some(tab) = self
-            .state
-            .workspaces
-            .get(ws_idx)
-            .and_then(|ws| ws.terminal_tab(tab_idx).ok())
-        else {
-            return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
-        };
-        let area = self.default_client_view.computed.terminal_area;
-        let Some(info) = tab
-            .layout
-            .panes(area)
-            .into_iter()
-            .find(|info| info.id == pane_id)
-        else {
-            return pane_not_found(
-                id,
-                &self.public_pane_id(ws_idx, pane_id).unwrap_or_default(),
-            );
-        };
-        let Some(pane_public_id) = self.public_pane_id(ws_idx, pane_id) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
-            return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
-        };
-
-        encode_success(
-            id,
-            ResponseResult::PaneEdges {
-                edges: PaneEdgesResult {
-                    pane_id: pane_public_id,
-                    left: info.rect.x <= area.x,
-                    right: info.rect.x + info.rect.width >= area.x + area.width,
-                    up: info.rect.y <= area.y,
-                    down: info.rect.y + info.rect.height >= area.y + area.height,
-                    layout,
-                },
-            },
-        )
+        self.with_default_client_view(|app, view| app.handle_pane_edges_for_view(view, id, params))
     }
 
     pub(super) fn handle_pane_edges_for_view(
@@ -799,7 +672,7 @@ impl App {
         let area = normalized_terminal_area(view.computed.terminal_area);
         let Some(info) = tab
             .layout
-            .panes(area)
+            .panes(area, pane_id)
             .into_iter()
             .find(|info| info.id == pane_id)
         else {
@@ -835,59 +708,9 @@ impl App {
         id: String,
         params: PaneFocusDirectionParams,
     ) -> String {
-        let Some((ws_idx, source_pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref())
-        else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(source_pane_id)
-        else {
-            return pane_not_found(
-                id,
-                &self
-                    .public_pane_id(ws_idx, source_pane_id)
-                    .unwrap_or_default(),
-            );
-        };
-        let Some(source_public_id) = self.public_pane_id(ws_idx, source_pane_id) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let target =
-            self.directional_pane_target(ws_idx, tab_idx, source_pane_id, params.direction);
-        let reason = target
-            .is_none()
-            .then_some(PaneFocusDirectionReason::NoNeighbor);
-
-        if let Some(target_pane_id) = target {
-            self.state.focus_pane_in_workspace(ws_idx, target_pane_id);
-            self.state.switch_workspace_tab(ws_idx, tab_idx);
-            self.state.mode = Mode::Terminal;
-        }
-        let focused_pane_id = self
-            .state
-            .workspaces
-            .get(ws_idx)
-            .and_then(|ws| ws.terminal_tab(tab_idx).ok())
-            .map(|tab| tab.layout.focused())
-            .and_then(|pane_id| self.public_pane_id(ws_idx, pane_id));
-        let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
-            return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
-        };
-
-        if target.is_some() {
-            self.emit_layout_updated_snapshot(layout.clone());
-        }
-        encode_success(
-            id,
-            ResponseResult::PaneFocusDirection {
-                focus: PaneFocusDirectionResult {
-                    changed: target.is_some(),
-                    reason,
-                    source_pane_id: source_public_id,
-                    focused_pane_id,
-                    layout,
-                },
-            },
-        )
+        self.with_default_client_view(|app, view| {
+            app.handle_pane_focus_direction_for_view(view, id, params)
+        })
     }
 
     pub(super) fn handle_pane_focus_direction_for_view(
@@ -918,7 +741,7 @@ impl App {
             return encode_error(id, "pane_not_found", "pane not found");
         };
         let target =
-            self.directional_pane_target(ws_idx, tab_idx, source_pane_id, params.direction);
+            self.directional_pane_target(view, ws_idx, tab_idx, source_pane_id, params.direction);
         let reason = target
             .is_none()
             .then_some(PaneFocusDirectionReason::NoNeighbor);
@@ -949,67 +772,8 @@ impl App {
     }
 
     pub(super) fn handle_pane_resize(&mut self, id: String, params: PaneResizeParams) -> String {
-        let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id) else {
-            return pane_not_found(
-                id,
-                &self.public_pane_id(ws_idx, pane_id).unwrap_or_default(),
-            );
-        };
-        let Some(pane_public_id) = self.public_pane_id(ws_idx, pane_id) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-
-        let amount = params
-            .amount
-            .filter(|amount| amount.is_finite())
-            .unwrap_or(0.05)
-            .abs()
-            .min(0.5);
-        let direction: NavDirection = params.direction.into();
-        let area = normalized_terminal_area(self.default_client_view.computed.terminal_area);
-        let changed = self
-            .state
-            .workspaces
-            .get_mut(ws_idx)
-            .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())
-            .is_some_and(|tab| {
-                if tab.layout.pane_count() <= 1 {
-                    return false;
-                }
-                let before = layout_split_ratios(tab.layout.root());
-                tab.layout.focus_pane(pane_id);
-                tab.layout.resize_focused(direction, amount, area);
-                before != layout_split_ratios(tab.layout.root())
-            });
-        if changed {
-            self.schedule_session_save();
-        }
-
-        let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
-            return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
-        };
-        let focused_pane_id = layout.focused_pane_id.clone();
-        if changed {
-            self.emit_layout_updated_snapshot(layout.clone());
-        }
-
-        encode_success(
-            id,
-            ResponseResult::PaneResize {
-                resize: PaneResizeResult {
-                    changed,
-                    reason: (!changed).then_some(PaneResizeReason::Unchanged),
-                    pane_id: pane_public_id,
-                    focused_pane_id,
-                    layout,
-                },
-            },
-        )
+        self.with_default_client_view(|app, view| app.handle_pane_resize_for_view(view, id, params))
     }
-
     pub(super) fn handle_pane_resize_for_view(
         &mut self,
         view: &ClientViewState,
@@ -1076,6 +840,15 @@ impl App {
     }
 
     pub(super) fn handle_pane_swap(&mut self, id: String, params: PaneSwapParams) -> String {
+        self.with_default_client_view(|app, view| app.handle_pane_swap_for_view(view, id, params))
+    }
+
+    pub(super) fn handle_pane_swap_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        params: PaneSwapParams,
+    ) -> String {
         let directional = params.direction.is_some();
         let explicit = params.source_pane_id.is_some() || params.target_pane_id.is_some();
         if directional == explicit {
@@ -1090,7 +863,7 @@ impl App {
             params.direction
         {
             let Some((ws_idx, source_pane_id)) =
-                self.resolve_swap_source(params.pane_id.as_deref())
+                self.resolve_optional_pane_for_view(view, params.pane_id.as_deref())
             else {
                 return encode_error(id, "pane_not_found", "source pane not found");
             };
@@ -1104,7 +877,8 @@ impl App {
                         .unwrap_or_default(),
                 );
             };
-            let target = self.directional_pane_target(ws_idx, tab_idx, source_pane_id, direction);
+            let target =
+                self.directional_pane_target(view, ws_idx, tab_idx, source_pane_id, direction);
             match target {
                 Some(target_pane_id) => {
                     (ws_idx, tab_idx, source_pane_id, Some(target_pane_id), None)
@@ -1140,8 +914,8 @@ impl App {
                 .map(|(ws_idx, tab_idx, _)| (ws_idx, tab_idx))
                 .or_else(|| target.map(|(ws_idx, tab_idx, _)| (ws_idx, tab_idx)))
                 .or_else(|| {
-                    let ws_idx = self.state.active?;
-                    let tab_idx = self.state.workspaces.get(ws_idx)?.active_tab_index();
+                    let ws_idx = view.active_workspace?;
+                    let tab_idx = view.active_tab_index_for_workspace(&self.state, ws_idx)?;
                     Some((ws_idx, tab_idx))
                 });
             let Some((ws_idx, tab_idx)) = response_context else {
@@ -1150,12 +924,9 @@ impl App {
             let source_pane_id = source
                 .map(|(_, _, pane_id)| pane_id)
                 .or_else(|| {
-                    self.state
-                        .workspaces
-                        .get(ws_idx)?
-                        .terminal_tab(tab_idx)
-                        .ok()
-                        .map(|tab| tab.layout.focused())
+                    let ws = self.state.workspaces.get(ws_idx)?;
+                    let tab = ws.terminal_tab(tab_idx).ok()?;
+                    view.focused_pane_for_tab(&ws.id, tab.number)
                 })
                 .unwrap_or(PaneId::from_raw(0));
             let target_pane_id = target.map(|(_, _, pane_id)| pane_id);
@@ -1177,7 +948,6 @@ impl App {
         let mut changed = false;
         if reason.is_none() {
             if let Some(target_pane_id) = target_pane_id {
-                let previous_focus = self.state.current_pane_focus_target();
                 if let Some(tab) = self
                     .state
                     .workspaces
@@ -1191,13 +961,13 @@ impl App {
                     );
                     changed = has_source && has_target;
                     if changed {
-                        tab.layout = TileLayout::from_saved(root, source_pane_id);
-                        self.state.switch_workspace_tab(ws_idx, tab_idx);
-                        self.state
-                            .record_pane_focus_change(previous_focus, ws_idx, source_pane_id);
-                        self.state.mark_session_dirty();
-                        self.schedule_session_save();
+                        tab.layout = TileLayout::from_saved(root);
                     }
+                }
+                if changed {
+                    view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, source_pane_id);
+                    self.state.mark_session_dirty();
+                    self.schedule_session_save();
                 }
             }
         }
@@ -1230,7 +1000,7 @@ impl App {
                 .or(Some(raw)),
             None => target_pane_id.and_then(|pane_id| self.public_pane_id(ws_idx, pane_id)),
         };
-        let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
+        let Some(layout) = self.pane_layout_snapshot_for_view(view, ws_idx, tab_idx) else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
         let focused_pane_id = layout.focused_pane_id.clone();
@@ -1254,59 +1024,8 @@ impl App {
     }
 
     pub(super) fn handle_pane_zoom(&mut self, id: String, params: PaneZoomParams) -> String {
-        let Some((ws_idx, pane_id)) = self.resolve_optional_pane(params.pane_id.as_deref()) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let Some(tab_idx) = self.state.workspaces[ws_idx].find_tab_index_for_pane(pane_id) else {
-            return pane_not_found(
-                id,
-                &self.public_pane_id(ws_idx, pane_id).unwrap_or_default(),
-            );
-        };
-        let Some(pane_public_id) = self.public_pane_id(ws_idx, pane_id) else {
-            return encode_error(id, "pane_not_found", "pane not found");
-        };
-        let command = match params.mode {
-            PaneZoomMode::Toggle => PaneZoomCommand::Toggle,
-            PaneZoomMode::On => PaneZoomCommand::On,
-            PaneZoomMode::Off => PaneZoomCommand::Off,
-        };
-        let Some(outcome) = self.apply_pane_zoom(ws_idx, pane_id, command) else {
-            return pane_not_found(id, &pane_public_id);
-        };
-        if outcome.changed || outcome.focus_changed {
-            self.schedule_session_save();
-        }
-        self.state.mode = Mode::Terminal;
-        let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) else {
-            return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
-        };
-        let focused_pane_id = layout.focused_pane_id.clone();
-
-        if outcome.changed || outcome.focus_changed {
-            self.emit_layout_updated_snapshot(layout.clone());
-        }
-        encode_success(
-            id,
-            ResponseResult::PaneZoom {
-                zoom: PaneZoomResult {
-                    changed: outcome.changed || outcome.focus_changed,
-                    zoom_changed: outcome.changed,
-                    focus_changed: outcome.focus_changed,
-                    reason: outcome.reason.map(|reason| match reason {
-                        PaneZoomNoopReason::SinglePane => PaneZoomReason::SinglePane,
-                        PaneZoomNoopReason::AlreadyZoomed => PaneZoomReason::AlreadyZoomed,
-                        PaneZoomNoopReason::AlreadyUnzoomed => PaneZoomReason::AlreadyUnzoomed,
-                    }),
-                    pane_id: pane_public_id,
-                    focused_pane_id,
-                    zoomed: outcome.zoomed,
-                    layout,
-                },
-            },
-        )
+        self.with_default_client_view(|app, view| app.handle_pane_zoom_for_view(view, id, params))
     }
-
     pub(super) fn handle_pane_zoom_for_view(
         &mut self,
         view: &mut ClientViewState,
@@ -1377,6 +1096,10 @@ impl App {
             view.set_tab_zoomed(&workspace_id, tab_number, zoomed);
         }
         let focus_changed = view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+        view.mode = Mode::Terminal;
+        if zoom_changed || focus_changed {
+            self.schedule_session_save();
+        }
         let Some(layout) = self.pane_layout_snapshot_for_view(view, ws_idx, tab_idx) else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
@@ -1404,6 +1127,15 @@ impl App {
     }
 
     pub(super) fn handle_pane_rename(&mut self, id: String, params: PaneRenameParams) -> String {
+        self.with_default_client_view(|app, view| app.handle_pane_rename_for_view(view, id, params))
+    }
+
+    pub(super) fn handle_pane_rename_for_view(
+        &mut self,
+        view: &ClientViewState,
+        id: String,
+        params: PaneRenameParams,
+    ) -> String {
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
@@ -1424,7 +1156,9 @@ impl App {
             _ => terminal.clear_manual_label(),
         }
         self.state.mark_session_dirty();
-        let pane = self.pane_info(ws_idx, pane_id).unwrap();
+        let Some(pane) = self.pane_info_for_view(view, ws_idx, pane_id) else {
+            return pane_not_found(id, &params.pane_id);
+        };
 
         encode_success(id, ResponseResult::PaneInfo { pane })
     }
@@ -1450,14 +1184,16 @@ impl App {
             params.format,
             params.lines,
         );
-
+        let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) else {
+            return pane_not_found(id, &params.pane_id);
+        };
         encode_success(
             id,
             ResponseResult::PaneRead {
                 read: PaneReadResult {
                     pane_id: params.pane_id,
                     workspace_id,
-                    tab_id: self.public_tab_id(ws_idx, tab_idx).unwrap(),
+                    tab_id,
                     source: params.source,
                     format: params.format,
                     text: snapshot.text,
@@ -1764,6 +1500,15 @@ impl App {
     }
 
     pub(super) fn handle_pane_move(&mut self, id: String, params: PaneMoveParams) -> String {
+        self.with_default_client_view(|app, view| app.handle_pane_move_for_view(view, id, params))
+    }
+
+    pub(super) fn handle_pane_move_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        params: PaneMoveParams,
+    ) -> String {
         let PaneMoveParams {
             pane_id,
             destination,
@@ -1793,15 +1538,19 @@ impl App {
             return pane_not_found(id, &pane_id);
         };
 
-        if self.state.workspaces[source_ws_idx]
+        let Some(source_tab) = self.state.workspaces[source_ws_idx]
             .terminal_tab(source_tab_idx)
             .ok()
-            .is_some_and(|tab| tab.zoomed)
-        {
-            let Some(layout) = self.pane_layout_snapshot(source_ws_idx, source_tab_idx) else {
+        else {
+            return encode_error(id, "pane_layout_unavailable", "source tab is not terminal");
+        };
+        if view.tab_is_zoomed(&self.state.workspaces[source_ws_idx].id, source_tab.number) {
+            let Some(layout) =
+                self.pane_layout_snapshot_for_view(view, source_ws_idx, source_tab_idx)
+            else {
                 return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
             };
-            let Some(pane) = self.pane_info(source_ws_idx, source_pane_id) else {
+            let Some(pane) = self.pane_info_for_view(view, source_ws_idx, source_pane_id) else {
                 return pane_not_found(id, &pane_id);
             };
             return encode_unchanged_pane_move(
@@ -1839,7 +1588,8 @@ impl App {
                     );
                 };
                 if source_ws_idx == target_ws_idx && source_tab_idx == target_tab_idx {
-                    let Some(layout) = self.pane_layout_snapshot(source_ws_idx, source_tab_idx)
+                    let Some(layout) =
+                        self.pane_layout_snapshot_for_view(view, source_ws_idx, source_tab_idx)
                     else {
                         return encode_error(
                             id,
@@ -1847,7 +1597,8 @@ impl App {
                             "pane layout unavailable",
                         );
                     };
-                    let Some(pane) = self.pane_info(source_ws_idx, source_pane_id) else {
+                    let Some(pane) = self.pane_info_for_view(view, source_ws_idx, source_pane_id)
+                    else {
                         return pane_not_found(id, &pane_id);
                     };
                     return encode_unchanged_pane_move(
@@ -1861,9 +1612,9 @@ impl App {
                         layout,
                     );
                 }
-                if target_tab.zoomed {
+                if view.tab_is_zoomed(&self.state.workspaces[target_ws_idx].id, target_tab.number) {
                     let Some(source_layout) =
-                        self.pane_layout_snapshot(source_ws_idx, source_tab_idx)
+                        self.pane_layout_snapshot_for_view(view, source_ws_idx, source_tab_idx)
                     else {
                         return encode_error(
                             id,
@@ -1872,7 +1623,7 @@ impl App {
                         );
                     };
                     let Some(target_layout) =
-                        self.pane_layout_snapshot(target_ws_idx, target_tab_idx)
+                        self.pane_layout_snapshot_for_view(view, target_ws_idx, target_tab_idx)
                     else {
                         return encode_error(
                             id,
@@ -1880,7 +1631,8 @@ impl App {
                             "pane layout unavailable",
                         );
                     };
-                    let Some(pane) = self.pane_info(source_ws_idx, source_pane_id) else {
+                    let Some(pane) = self.pane_info_for_view(view, source_ws_idx, source_pane_id)
+                    else {
                         return pane_not_found(id, &pane_id);
                     };
                     return encode_unchanged_pane_move(
@@ -1916,7 +1668,12 @@ impl App {
                         }
                         target_pane_id
                     }
-                    None => target_tab.layout.focused(),
+                    None => view
+                        .focused_pane_for_tab(
+                            &self.state.workspaces[target_ws_idx].id,
+                            target_tab.number,
+                        )
+                        .unwrap_or(target_tab.root_pane),
                 };
                 let Some(public_tab_id) = self.public_tab_id(target_ws_idx, target_tab_idx) else {
                     return encode_error(id, "tab_not_found", format!("tab {tab_id} not found"));
@@ -1958,7 +1715,6 @@ impl App {
         let source_follow_up_workspace_id = self.state.workspaces[source_ws_idx].id.clone();
         let source_follow_up_pane_number =
             self.state.workspaces[source_ws_idx].public_pane_number(source_pane_id);
-        let previous_focus = self.state.current_pane_focus_target();
         let taken = match self.state.workspaces[source_ws_idx].take_pane_for_move(source_pane_id) {
             Some(taken) => taken,
             None => return encode_error(id, "pane_move_failed", "source pane could not be moved"),
@@ -1977,7 +1733,7 @@ impl App {
         };
         let mut closed_workspace_id = None;
         let closed_workspace_info = if source_workspace_empty && cross_workspace {
-            Some(self.workspace_info(source_ws_idx))
+            Some(self.workspace_info_for_view(view, source_ws_idx))
         } else {
             None
         };
@@ -1992,24 +1748,6 @@ impl App {
         if source_workspace_empty && cross_workspace {
             self.state.workspaces.remove(source_ws_idx);
             closed_workspace_id = Some(previous_workspace_id.clone());
-            if self.state.workspaces.is_empty() {
-                self.state.active = None;
-                self.state.selected = 0;
-            } else {
-                if let Some(active) = self.state.active {
-                    if active == source_ws_idx {
-                        self.state.active =
-                            Some(source_ws_idx.min(self.state.workspaces.len() - 1));
-                    } else if active > source_ws_idx {
-                        self.state.active = Some(active - 1);
-                    }
-                }
-                if self.state.selected == source_ws_idx {
-                    self.state.selected = source_ws_idx.min(self.state.workspaces.len() - 1);
-                } else if self.state.selected > source_ws_idx {
-                    self.state.selected -= 1;
-                }
-            }
         }
 
         let mut created_workspace = false;
@@ -2032,7 +1770,6 @@ impl App {
                         moved,
                         split_direction_to_layout(split),
                         ratio,
-                        focus,
                     ) {
                     Ok(pane_id) => pane_id,
                     Err(_) => {
@@ -2065,19 +1802,14 @@ impl App {
                 (target_ws_idx, target_tab_idx, moved_pane_id)
             }
             ResolvedPaneMoveDestination::NewWorkspace { label, tab_label } => {
-                let (identity_cwd, default_location) = self
+                let Some((identity_cwd, default_location)) = self
                     .state
                     .terminals
                     .get(&source_terminal_id)
                     .map(|terminal| (terminal.cwd.clone(), terminal.location.clone()))
-                    .unwrap_or_else(|| {
-                        let cwd = std::env::current_dir().unwrap_or_else(|_| "/".into());
-                        let location = crate::execution_host::ResourceLocation::local(cwd.clone())
-                            .unwrap_or_else(|_| {
-                                crate::execution_host::ResourceLocation::local("/").expect("root")
-                            });
-                        (cwd, location)
-                    });
+                else {
+                    return encode_error(id, "pane_move_failed", "source terminal is unavailable");
+                };
                 let moved_pane_id = moved.pane_id;
                 let workspace = crate::workspace::Workspace::from_existing_pane(
                     label,
@@ -2096,13 +1828,6 @@ impl App {
             }
         };
 
-        if focus || self.state.active.is_none() {
-            self.state.switch_workspace(target_ws_idx);
-            self.state.switch_tab(target_tab_idx);
-            self.state
-                .record_pane_focus_change(previous_focus, target_ws_idx, moved_pane_id);
-            self.state.mode = Mode::Terminal;
-        }
         self.state.remove_alias_shadowed_by_new_pane(moved_pane_id);
         if cross_workspace {
             if let (Some(old_pane_number), Some(new_pane_number)) = (
@@ -2111,6 +1836,7 @@ impl App {
             ) {
                 let new_workspace_id = self.state.workspaces[target_ws_idx].id.clone();
                 self.state.migrate_agent_follow_up(
+                    &mut view.agent_follow_up,
                     &source_follow_up_workspace_id,
                     old_pane_number,
                     new_workspace_id,
@@ -2118,29 +1844,39 @@ impl App {
                 );
             }
         }
+        if focus || view.active_workspace.is_none() {
+            view.focus_pane_in_workspace(&self.state, target_ws_idx, target_tab_idx, moved_pane_id);
+            view.mode = Mode::Terminal;
+        } else {
+            view.reconcile(&self.state);
+        }
         self.state.mark_session_dirty();
         self.schedule_session_save();
 
-        let Some(pane) = self.pane_info(target_ws_idx, moved_pane_id) else {
+        let Some(pane) = self.pane_info_for_view(view, target_ws_idx, moved_pane_id) else {
             return encode_error(id, "pane_move_failed", "moved pane is unavailable");
         };
         let source_layout = if closed_workspace_id.is_none() {
             self.parse_tab_id(&previous_tab_id)
-                .and_then(|(ws_idx, tab_idx)| self.pane_layout_snapshot(ws_idx, tab_idx))
+                .and_then(|(ws_idx, tab_idx)| {
+                    self.pane_layout_snapshot_for_view(view, ws_idx, tab_idx)
+                })
         } else {
             None
         };
-        let Some(target_layout) = self.pane_layout_snapshot(target_ws_idx, target_tab_idx) else {
+        let Some(target_layout) =
+            self.pane_layout_snapshot_for_view(view, target_ws_idx, target_tab_idx)
+        else {
             return encode_error(id, "pane_layout_unavailable", "pane layout unavailable");
         };
         let focused_pane_id = target_layout.focused_pane_id.clone();
         let created_workspace_info = if created_workspace {
-            Some(self.workspace_info(target_ws_idx))
+            Some(self.workspace_info_for_view(view, target_ws_idx))
         } else {
             None
         };
         let created_tab_info = if created_tab {
-            self.tab_info(target_ws_idx, target_tab_idx)
+            self.tab_info_for_view(view, target_ws_idx, target_tab_idx)
         } else {
             None
         };
@@ -2218,46 +1954,7 @@ impl App {
         ws_idx: usize,
         tab_idx: usize,
     ) -> Option<PaneLayoutSnapshot> {
-        let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.terminal_tab(tab_idx).ok()?;
-        let mut area = self.default_client_view.computed.terminal_area;
-        if area.width == 0 || area.height == 0 {
-            area = ratatui::layout::Rect::new(0, 0, 80, 24);
-        }
-        let focused_pane_id = self.public_pane_id(ws_idx, tab.layout.focused())?;
-        let panes = tab
-            .layout
-            .panes(area)
-            .into_iter()
-            .filter_map(|pane| {
-                Some(PaneLayoutPane {
-                    pane_id: self.public_pane_id(ws_idx, pane.id)?,
-                    focused: pane.is_focused,
-                    rect: layout_rect(pane.rect),
-                })
-            })
-            .collect();
-        let splits = tab
-            .layout
-            .splits(area)
-            .into_iter()
-            .enumerate()
-            .map(|(index, split)| PaneLayoutSplit {
-                id: format!("split-{index}"),
-                direction: split_direction(split.direction),
-                ratio: split_ratio(tab.layout.root(), &split.path).unwrap_or(0.5),
-                rect: layout_rect(split.area),
-            })
-            .collect();
-        Some(PaneLayoutSnapshot {
-            workspace_id: self.public_workspace_id(ws_idx),
-            tab_id: self.public_tab_id(ws_idx, tab_idx)?,
-            zoomed: tab.zoomed,
-            area: layout_rect(area),
-            focused_pane_id,
-            panes,
-            splits,
-        })
+        self.pane_layout_snapshot_for_view(&self.default_client_view, ws_idx, tab_idx)
     }
 
     pub(crate) fn emit_layout_updated_event(&mut self, ws_idx: usize, tab_idx: usize) {
@@ -2294,7 +1991,7 @@ impl App {
         (pane_count > 1).then_some((ws_idx, tab_idx))
     }
 
-    fn pane_layout_snapshot_for_view(
+    pub(super) fn pane_layout_snapshot_for_view(
         &self,
         view: &ClientViewState,
         ws_idx: usize,
@@ -2306,11 +2003,11 @@ impl App {
         let focused = view
             .focused_pane_for_tab(&ws.id, tab.number)
             .filter(|pane_id| tab.panes.contains_key(pane_id))
-            .unwrap_or_else(|| tab.layout.focused());
+            .unwrap_or(tab.root_pane);
         let focused_pane_id = self.public_pane_id(ws_idx, focused)?;
         let panes = tab
             .layout
-            .panes(area)
+            .panes(area, focused)
             .into_iter()
             .filter_map(|pane| {
                 Some(PaneLayoutPane {
@@ -2344,14 +2041,7 @@ impl App {
     }
 
     fn resolve_optional_pane(&self, pane_id: Option<&str>) -> Option<(usize, PaneId)> {
-        match pane_id {
-            Some(pane_id) => self.parse_pane_id(pane_id),
-            None => {
-                let ws_idx = self.state.active?;
-                let pane_id = self.state.workspaces.get(ws_idx)?.focused_pane_id()?;
-                Some((ws_idx, pane_id))
-            }
-        }
+        self.resolve_optional_pane_for_view(&self.default_client_view, pane_id)
     }
 
     fn resolve_optional_pane_for_view(
@@ -2369,12 +2059,9 @@ impl App {
         }
     }
 
-    fn resolve_swap_source(&self, pane_id: Option<&str>) -> Option<(usize, PaneId)> {
-        self.resolve_optional_pane(pane_id)
-    }
-
     fn directional_pane_target(
         &self,
+        view: &ClientViewState,
         ws_idx: usize,
         tab_idx: usize,
         pane_id: PaneId,
@@ -2386,71 +2073,25 @@ impl App {
             .get(ws_idx)?
             .terminal_tab(tab_idx)
             .ok()?;
-        let panes = tab.layout.panes(normalized_terminal_area(
-            self.default_client_view.computed.terminal_area,
-        ));
+        let panes = tab.layout.panes(
+            normalized_terminal_area(view.computed.terminal_area),
+            pane_id,
+        );
         let focused = panes.iter().find(|info| info.id == pane_id)?;
         find_in_direction(focused, direction.into(), &panes)
     }
 
-    fn apply_pane_zoom(
-        &mut self,
-        ws_idx: usize,
-        pane_id: PaneId,
-        command: PaneZoomCommand,
-    ) -> Option<PaneZoomOutcome> {
-        let tab_idx = self
-            .state
-            .workspaces
-            .get(ws_idx)?
-            .find_tab_index_for_pane(pane_id)?;
-        let focus_changed = self.state.focus_pane_in_workspace(ws_idx, pane_id);
-        let tab = self
-            .state
-            .workspaces
-            .get_mut(ws_idx)
-            .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())?;
-        let pane_count = tab.layout.pane_count();
-        let mut zoom_changed = false;
-        let mut reason = None;
-
-        match command {
-            PaneZoomCommand::Toggle if pane_count <= 1 => {
-                reason = Some(PaneZoomNoopReason::SinglePane);
-            }
-            PaneZoomCommand::Toggle => {
-                tab.zoomed = !tab.zoomed;
-                zoom_changed = true;
-            }
-            PaneZoomCommand::On if pane_count <= 1 => {
-                reason = Some(PaneZoomNoopReason::SinglePane);
-            }
-            PaneZoomCommand::On if tab.zoomed => {
-                reason = Some(PaneZoomNoopReason::AlreadyZoomed);
-            }
-            PaneZoomCommand::On => {
-                tab.zoomed = true;
-                zoom_changed = true;
-            }
-            PaneZoomCommand::Off if !tab.zoomed => {
-                reason = Some(PaneZoomNoopReason::AlreadyUnzoomed);
-            }
-            PaneZoomCommand::Off => {
-                tab.zoomed = false;
-                zoom_changed = true;
-            }
-        }
-
-        Some(PaneZoomOutcome {
-            changed: zoom_changed,
-            focus_changed,
-            reason,
-            zoomed: tab.zoomed,
-        })
+    pub(super) fn handle_pane_close(&mut self, id: String, target: PaneTarget) -> String {
+        self.with_default_client_view(|app, view| app.handle_pane_close_for_view(view, id, target))
     }
 
-    pub(super) fn handle_pane_close(&mut self, id: String, target: PaneTarget) -> String {
-        match self.close_pane(id.clone(), &target) {
+    pub(super) fn handle_pane_close_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        target: PaneTarget,
+    ) -> String {
+        match self.close_pane_for_view(view, id.clone(), &target) {
             Ok(()) => encode_success(id, ResponseResult::Ok {}),
             Err(response) => response,
         }
@@ -2458,6 +2099,15 @@ impl App {
 
     /// Close a pane; `Err` carries the encoded error response.
     pub(super) fn close_pane(&mut self, id: String, target: &PaneTarget) -> Result<(), String> {
+        self.with_default_client_view(|app, view| app.close_pane_for_view(view, id, target))
+    }
+
+    pub(super) fn close_pane_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        target: &PaneTarget,
+    ) -> Result<(), String> {
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&target.pane_id) else {
             return Err(pane_not_found(id, &target.pane_id));
         };
@@ -2468,7 +2118,8 @@ impl App {
         let workspace_id = self.public_workspace_id(ws_idx);
         let layout_update_target = self.layout_update_target_after_pane_removal(ws_idx, pane_id);
         let closing_workspace = self.state.close_pane_would_close_workspace(ws_idx, pane_id);
-        let workspace_snapshot = closing_workspace.then(|| self.workspace_info(ws_idx));
+        let workspace_snapshot =
+            closing_workspace.then(|| self.workspace_info_for_view(view, ws_idx));
 
         let terminal_id = self.state.terminal_id_for_pane(ws_idx, pane_id);
         let should_close_workspace = {
@@ -2479,8 +2130,7 @@ impl App {
         };
         self.state.plugin_panes.remove(&pane_id);
         if should_close_workspace {
-            self.state.selected = ws_idx;
-            self.state.close_selected_workspace();
+            self.close_workspace_for_client_view(view, ws_idx);
             self.shutdown_detached_terminal_runtimes();
             self.emit_event(EventEnvelope {
                 event: EventKind::PaneClosed,
@@ -2498,6 +2148,7 @@ impl App {
             });
         } else {
             self.state.remove_unattached_terminal_ids(terminal_id);
+            view.reconcile(&self.state);
             self.shutdown_detached_terminal_runtimes();
             self.schedule_session_save();
             self.emit_event(EventEnvelope {
@@ -2508,7 +2159,9 @@ impl App {
                 },
             });
             if let Some((ws_idx, tab_idx)) = layout_update_target {
-                self.emit_layout_updated_event(ws_idx, tab_idx);
+                if let Some(layout) = self.pane_layout_snapshot_for_view(view, ws_idx, tab_idx) {
+                    self.emit_layout_updated_snapshot(layout);
+                }
             }
         }
 
@@ -2550,13 +2203,6 @@ enum PaneZoomNoopReason {
     SinglePane,
     AlreadyZoomed,
     AlreadyUnzoomed,
-}
-
-struct PaneZoomOutcome {
-    changed: bool,
-    focus_changed: bool,
-    reason: Option<PaneZoomNoopReason>,
-    zoomed: bool,
 }
 
 enum ResolvedPaneMoveDestination {
@@ -3046,13 +2692,11 @@ mod tests {
         assert_eq!(move_result.closed_workspace_id, None);
         assert_eq!(move_result.target_layout.panes.len(), 2);
         assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        let workspace = &app.state.workspaces[0];
         assert_eq!(
-            app.state.workspaces[0]
-                .terminal_tab(0)
-                .unwrap()
-                .layout
-                .focused(),
-            source
+            app.default_client_view
+                .focused_pane_for_tab(&workspace.id, workspace.tabs[0].number()),
+            Some(source)
         );
         assert_eq!(
             app.state.workspaces[0]
@@ -3114,8 +2758,12 @@ mod tests {
         let old_workspace_id = app.state.workspaces[0].id.clone();
         let old_pane_number = app.state.workspaces[0].public_pane_number(source).unwrap();
         let added_at = 1_700_000_000;
-        assert!(app.state.insert_agent_follow_up(0, source));
-        app.state.agent_follow_up[0].added_at_unix_secs = added_at;
+        assert!(app.state.insert_agent_follow_up(
+            &mut app.default_client_view.agent_follow_up,
+            0,
+            source
+        ));
+        app.default_client_view.agent_follow_up[0].added_at_unix_secs = added_at;
         let target_pane = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
         let dest_workspace_id = app.state.workspaces[1].id.clone();
         let previous_pane_id = app.public_pane_id(0, source).unwrap();
@@ -3140,8 +2788,8 @@ mod tests {
             panic!("expected pane move response");
         };
         assert!(move_result.changed);
-        assert_eq!(app.state.agent_follow_up.len(), 1);
-        let entry = &app.state.agent_follow_up[0];
+        assert_eq!(app.default_client_view.agent_follow_up.len(), 1);
+        let entry = &app.default_client_view.agent_follow_up[0];
         assert_ne!(
             (entry.workspace_id.as_str(), entry.pane_number),
             (old_workspace_id.as_str(), old_pane_number)
@@ -3163,8 +2811,8 @@ mod tests {
     #[test]
     fn api_pane_focus_marks_repeated_done_focus_seen() {
         let mut app = test_app();
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         app.state.outer_terminal_focus = Some(false);
 
         let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
@@ -3179,11 +2827,6 @@ mod tests {
             .get_mut(&pane_id)
             .unwrap()
             .seen = false;
-        app.state.workspaces[0]
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(pane_id);
         let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
 
         let response = app.handle_pane_focus(
@@ -3201,9 +2844,6 @@ mod tests {
     #[tokio::test]
     async fn deferred_remote_pane_split_focus_true_only_initiator_after_ack() {
         let mut app = test_app();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
         app.state.ensure_test_terminals();
 
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:focus-split").unwrap();
@@ -3313,24 +2953,14 @@ mod tests {
             "other client keeps prior focus"
         );
         assert!(initiator.pending_focused_panes.is_empty());
-        // Shared layout focus must not flip for view-scoped focus=true.
-        assert_eq!(
-            app.state.workspaces[0]
-                .terminal_tab(0)
-                .unwrap()
-                .layout
-                .focused(),
-            root_pane,
-            "shared tab layout focus stays on the source pane"
-        );
     }
 
     #[tokio::test]
     async fn deferred_remote_pane_split_focus_false_changes_neither_client() {
         let mut app = test_app();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = Mode::Terminal;
         app.state.ensure_test_terminals();
 
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:nofocus-split").unwrap();
@@ -3414,23 +3044,14 @@ mod tests {
             other.focused_pane_for_tab(&app.state.workspaces[0].id, 1),
             other_focus_before
         );
-        app.default_client_view.reconcile(&app.state);
-        assert_eq!(
-            app.state.workspaces[0]
-                .terminal_tab(0)
-                .unwrap()
-                .layout
-                .focused(),
-            root_pane
-        );
     }
 
     #[tokio::test]
     async fn deferred_remote_pane_split_failure_clears_only_initiator_marker() {
         let mut app = test_app();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = Mode::Terminal;
         app.state.ensure_test_terminals();
 
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:fail-split").unwrap();

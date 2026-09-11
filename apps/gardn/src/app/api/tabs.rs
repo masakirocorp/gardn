@@ -182,15 +182,16 @@ impl App {
                 Ok(terminal_id) => {
                     let mut pending_focus = None;
                     if focus && self.pending_remote_creation_target(&terminal_id).is_some() {
-                        let workspace_id = self.state.workspaces[ws_idx].id.clone();
-                        let pending_tab_idx = self.state.workspaces[ws_idx].tabs.len();
+                        let workspace = &self.state.workspaces[ws_idx];
+                        let workspace_id = workspace.id.clone();
+                        let pending_tab_number = workspace.next_remote_tab_number();
                         invocation
                             .view_mut()
                             .pending_active_tabs
-                            .insert(workspace_id.clone(), pending_tab_idx);
+                            .insert(workspace_id.clone(), pending_tab_number);
                         pending_focus = Some(crate::api::PendingFocusMarker::Tab {
                             workspace_id,
-                            tab_idx: pending_tab_idx,
+                            tab_number: pending_tab_number,
                         });
                     }
                     return crate::api::ApiRequestDisposition::Deferred(
@@ -302,14 +303,7 @@ impl App {
     }
 
     pub(super) fn handle_tab_focus(&mut self, id: String, target: TabTarget) -> String {
-        let Some((ws_idx, tab_idx)) = self.parse_tab_id(&target.tab_id) else {
-            return tab_not_found(id, &target.tab_id);
-        };
-        self.state.switch_workspace(ws_idx);
-        self.state.switch_tab(tab_idx);
-        let tab = self.tab_info(ws_idx, tab_idx).unwrap();
-
-        encode_success(id, ResponseResult::TabInfo { tab })
+        self.with_default_client_view(|app, view| app.handle_tab_focus_for_view(view, id, target))
     }
 
     pub(super) fn handle_tab_focus_for_view(
@@ -607,9 +601,9 @@ mod tests {
             crate::api::EventHub::default(),
         );
         app.state.workspaces = vec![Workspace::test_new("tab-focus")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
         app.state.ensure_test_terminals();
         app
     }
@@ -649,7 +643,7 @@ mod tests {
             crate::api::ApiRequestDisposition::Deferred(deferred) => deferred,
             other => panic!("expected deferred remote create, got {other:?}"),
         };
-        let pending_idx = *initiator
+        let pending_tab_number = *initiator
             .pending_active_tabs
             .get(&workspace_id)
             .expect("initiator pending tab");
@@ -657,13 +651,13 @@ mod tests {
             deferred.pending_focus,
             Some(crate::api::PendingFocusMarker::Tab {
                 workspace_id: workspace_id.clone(),
-                tab_idx: pending_idx,
+                tab_number: pending_tab_number,
             })
         );
-        // Newer replacement index must survive exact cleanup.
+        // A newer replacement identity must survive exact cleanup.
         initiator
             .pending_active_tabs
-            .insert(workspace_id.clone(), pending_idx + 5);
+            .insert(workspace_id.clone(), pending_tab_number + 5);
 
         let (respond_to, response_rx) = std::sync::mpsc::channel();
         let (terminal_id, pending) =
@@ -681,7 +675,7 @@ mod tests {
         }
         assert_eq!(
             initiator.pending_active_tabs.get(&workspace_id).copied(),
-            Some(pending_idx + 5),
+            Some(pending_tab_number + 5),
             "newer replacement tab marker must survive"
         );
         assert_eq!(

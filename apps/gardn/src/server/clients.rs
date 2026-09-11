@@ -35,6 +35,8 @@ pub(crate) struct ClientConnection {
     pub(crate) keybindings: Option<Box<crate::config::LiveKeybindConfig>>,
     /// Client-local app view/navigation state. Direct attach clients do not own normal app view.
     pub(crate) view_state: Option<ClientViewState>,
+    /// Current Tab Control and canonical canvas projection from the coordinator.
+    pub(crate) tab_context: crate::app::ClientTabContext,
     /// The client's terminal size after clamping.
     pub(crate) terminal_size: (u16, u16),
     /// Pixel size of one client terminal cell.
@@ -117,6 +119,10 @@ impl ClientConnection {
             outer_terminal_focus,
             last_activity,
             view_state,
+            tab_context: crate::app::ClientTabContext {
+                control: crate::app::ClientTabControl::Unavailable,
+                canvas_size: None,
+            },
             render_state: ClientRenderState::new(render_encoding),
             graphics_cache: crate::kitty_graphics::HostGraphicsCache::default(),
             graphics_surface_reset_pending: false,

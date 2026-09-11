@@ -911,11 +911,8 @@ mod tests {
                         terminal_semantics: None,
                     },
                 )]),
-                legacy_zoomed: false,
-                legacy_focused: Some(0),
                 root_pane: Some(0),
             })],
-            legacy_active_tab: 0,
         }
     }
 

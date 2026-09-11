@@ -57,10 +57,6 @@ pub(crate) fn workspace_agent_profile_ids(
         .map(|entry| entry.profile_id)
 }
 
-pub(crate) fn agent_profile_picker_entries(state: &AppState) -> Vec<AgentProfilePickerEntry> {
-    agent_profile_picker_entries_for_workspace(state, state.agent_profile_picker.ws_idx)
-}
-
 pub(crate) fn agent_profile_picker_entries_for_picker(
     state: &AppState,
     picker: &super::state::AgentProfilePickerState,
@@ -84,7 +80,7 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
         .workspaces
         .get(ws_idx)
         .and_then(|workspace| state.group_index_by_id(&workspace.group_id))
-        .unwrap_or(state.active_group);
+        .unwrap_or(0);
     let favorites = state
         .groups
         .get(group_idx)
@@ -117,18 +113,6 @@ pub(crate) fn agent_profile_picker_entries_for_workspace(
                     integration_badge: crate::integration::agent_profile_integration_badge(profile),
                 }),
         )
-        .collect()
-}
-
-pub(crate) fn agent_profile_picker_filtered_entries(
-    state: &AppState,
-) -> Vec<AgentProfilePickerEntry> {
-    let query = state.agent_profile_picker.query.as_str();
-    let kind_filter = state.agent_profile_picker.kind_filter;
-    agent_profile_picker_entries(state)
-        .into_iter()
-        .filter(|entry| kind_filter.is_none_or(|kind| entry.kind == kind))
-        .filter(|entry| entry.matches(query))
         .collect()
 }
 

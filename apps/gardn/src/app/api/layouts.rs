@@ -6,7 +6,7 @@ use crate::api::schema::{
     EventData, EventEnvelope, EventKind, LayoutApplyParams, LayoutDescription, LayoutExportParams,
     LayoutNode, LayoutPane, ResponseResult, SplitDirection,
 };
-use crate::app::{App, Mode};
+use crate::app::{App, ClientViewState};
 use crate::layout::{Node, PaneId};
 use crate::workspace::NewPane;
 
@@ -21,10 +21,21 @@ impl App {
         id: String,
         params: LayoutExportParams,
     ) -> String {
-        let Some((ws_idx, tab_idx)) = self.resolve_layout_export_target(&params) else {
+        self.with_default_client_view(|app, view| {
+            app.handle_layout_export_for_view(view, id, params)
+        })
+    }
+
+    pub(super) fn handle_layout_export_for_view(
+        &mut self,
+        view: &ClientViewState,
+        id: String,
+        params: LayoutExportParams,
+    ) -> String {
+        let Some((ws_idx, tab_idx)) = self.resolve_layout_export_target(view, &params) else {
             return encode_error(id, "layout_not_found", "layout target not found");
         };
-        let Some(layout) = self.layout_description(ws_idx, tab_idx) else {
+        let Some(layout) = self.layout_description(view, ws_idx, tab_idx) else {
             return encode_error(id, "layout_not_found", "layout unavailable");
         };
 
@@ -32,6 +43,18 @@ impl App {
     }
 
     pub(super) fn handle_layout_apply(&mut self, id: String, params: LayoutApplyParams) -> String {
+        self.with_default_client_view(|app, view| {
+            app.handle_layout_apply_for_view(view, id, params)
+        })
+    }
+
+    pub(super) fn handle_layout_apply_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        params: LayoutApplyParams,
+    ) -> String {
+        view.reconcile(&self.state);
         let replace_target = match params.tab_id.as_deref() {
             Some(tab_id) => match self.parse_tab_id(tab_id) {
                 Some(target) => Some(target),
@@ -70,7 +93,7 @@ impl App {
                 );
             };
             ws_idx
-        } else if let Some(active) = self.state.active {
+        } else if let Some(active) = view.active_workspace {
             active
         } else {
             return encode_error(id, "workspace_not_found", "no active workspace");
@@ -90,15 +113,11 @@ impl App {
                 .map(str::to_owned)
         });
         let replace_was_active = replace_target.is_some_and(|(target_ws, target_tab)| {
-            self.state.active == Some(target_ws)
-                && self
-                    .state
-                    .workspaces
-                    .get(target_ws)
-                    .is_some_and(|ws| ws.active_tab_index() == target_tab)
+            view.active_workspace == Some(target_ws)
+                && view.active_tab_index_for_workspace(&self.state, target_ws) == Some(target_tab)
         });
         let root_leaf = first_layout_leaf(&params.root);
-        let first_cwd = self.layout_root_cwd(ws_idx, replace_target, root_leaf);
+        let first_cwd = self.layout_root_cwd(view, ws_idx, replace_target, root_leaf);
         let (rows, cols) = self.state.estimate_pane_size();
         let default_shell = self.state.default_shell.clone();
         let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
@@ -150,11 +169,13 @@ impl App {
             Ok(result) => result,
             Err(err) => return encode_error(id, "layout_apply_failed", err.to_string()),
         };
-        let new_root_pane = self.state.workspaces[ws_idx]
+        let Some(new_root_pane) = self.state.workspaces[ws_idx]
             .terminal_tab(new_tab_idx)
-            .map_err(|error| error.to_string())
+            .ok()
             .map(|tab| tab.root_pane)
-            .unwrap();
+        else {
+            return encode_error(id, "layout_apply_failed", "new layout tab disappeared");
+        };
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
         self.state.remove_alias_shadowed_by_new_pane(new_root_pane);
         self.state.terminals.insert(terminal.id.clone(), terminal);
@@ -164,7 +185,7 @@ impl App {
         self.apply_layout_pane_label(ws_idx, new_root_pane, root_leaf);
 
         if let Err(message) = self.apply_layout_node_to_pane(ws_idx, new_root_pane, &params.root) {
-            self.rollback_layout_tab(ws_idx, new_root_pane);
+            self.rollback_layout_tab(view, ws_idx, new_root_pane);
             return encode_error(id, "layout_apply_failed", message);
         }
 
@@ -180,7 +201,7 @@ impl App {
                 });
             if self
                 .state
-                .close_workspace_tab(target_ws_idx, target_tab_idx)
+                .close_workspace_tab(view, target_ws_idx, target_tab_idx)
             {
                 self.emit_event(EventEnvelope {
                     event: EventKind::TabClosed,
@@ -190,6 +211,7 @@ impl App {
                     },
                 });
             }
+            view.reconcile(&self.state);
         }
 
         let Some(new_tab_idx) = self.state.workspaces[ws_idx]
@@ -201,39 +223,52 @@ impl App {
         };
 
         if params.focus || replace_was_active {
-            self.state.switch_workspace_tab(ws_idx, new_tab_idx);
-            self.state.mode = Mode::Terminal;
+            let root_pane = self.state.workspaces[ws_idx]
+                .terminal_tab(new_tab_idx)
+                .ok()
+                .map(|tab| tab.root_pane);
+            if let Some(root_pane) = root_pane {
+                view.focus_pane_in_workspace(&self.state, ws_idx, new_tab_idx, root_pane);
+            }
+        } else {
+            view.reconcile(&self.state);
         }
         self.schedule_session_save();
-        if let Some(tab) = self.tab_info(ws_idx, new_tab_idx) {
+        if let Some(tab) = self.tab_info_for_view(view, ws_idx, new_tab_idx) {
             self.emit_event(EventEnvelope {
                 event: EventKind::TabCreated,
                 data: EventData::TabCreated { tab },
             });
         }
-        for pane_id in self.state.workspaces[ws_idx]
-            .terminal_tab(new_tab_idx)
-            .map_err(|error| error.to_string())
-            .unwrap()
-            .layout
-            .pane_ids()
-        {
-            if let Some(pane) = self.pane_info(ws_idx, pane_id) {
+        let pane_ids = match self.state.workspaces[ws_idx].terminal_tab(new_tab_idx) {
+            Ok(tab) => tab.layout.pane_ids(),
+            Err(_) => {
+                return encode_error(id, "layout_apply_failed", "new layout tab disappeared");
+            }
+        };
+        for pane_id in pane_ids {
+            if let Some(pane) = self.pane_info_for_view(view, ws_idx, pane_id) {
                 self.emit_event(EventEnvelope {
                     event: EventKind::PaneCreated,
                     data: EventData::PaneCreated { pane },
                 });
             }
         }
-        self.emit_layout_updated_event(ws_idx, new_tab_idx);
+        if let Some(layout) = self.pane_layout_snapshot_for_view(view, ws_idx, new_tab_idx) {
+            self.emit_layout_updated_snapshot(layout);
+        }
 
-        let Some(layout) = self.layout_description(ws_idx, new_tab_idx) else {
+        let Some(layout) = self.layout_description(view, ws_idx, new_tab_idx) else {
             return encode_error(id, "layout_apply_failed", "new layout unavailable");
         };
         encode_success(id, ResponseResult::LayoutApply { layout })
     }
 
-    fn resolve_layout_export_target(&self, params: &LayoutExportParams) -> Option<(usize, usize)> {
+    fn resolve_layout_export_target(
+        &self,
+        view: &ClientViewState,
+        params: &LayoutExportParams,
+    ) -> Option<(usize, usize)> {
         match (params.tab_id.as_deref(), params.pane_id.as_deref()) {
             (Some(_), Some(_)) => None,
             (Some(tab_id), None) => self.parse_tab_id(tab_id),
@@ -247,21 +282,30 @@ impl App {
                 Some((ws_idx, tab_idx))
             }
             (None, None) => {
-                let ws_idx = self.state.active?;
-                let tab_idx = self.state.workspaces.get(ws_idx)?.active_tab_index();
+                let ws_idx = view.active_workspace?;
+                let tab_idx = view.active_tab_index_for_workspace(&self.state, ws_idx)?;
                 Some((ws_idx, tab_idx))
             }
         }
     }
 
-    fn layout_description(&self, ws_idx: usize, tab_idx: usize) -> Option<LayoutDescription> {
+    fn layout_description(
+        &self,
+        view: &ClientViewState,
+        ws_idx: usize,
+        tab_idx: usize,
+    ) -> Option<LayoutDescription> {
         let ws = self.state.workspaces.get(ws_idx)?;
         let tab = ws.terminal_tab(tab_idx).ok()?;
+        let focused_pane = view
+            .focused_pane_for_tab(&ws.id, tab.number)
+            .filter(|pane_id| tab.panes.contains_key(pane_id))
+            .unwrap_or(tab.root_pane);
         Some(LayoutDescription {
             workspace_id: self.public_workspace_id(ws_idx),
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
-            zoomed: tab.zoomed,
-            focused_pane_id: self.public_pane_id(ws_idx, tab.layout.focused())?,
+            zoomed: view.tab_is_zoomed(&ws.id, tab.number),
+            focused_pane_id: self.public_pane_id(ws_idx, focused_pane)?,
             root: self.layout_node_description(ws_idx, tab_idx, tab.layout.root())?,
         })
     }
@@ -316,6 +360,7 @@ impl App {
 
     fn layout_root_cwd(
         &self,
+        view: &ClientViewState,
         ws_idx: usize,
         replace_target: Option<(usize, usize)>,
         pane: &LayoutPane,
@@ -326,15 +371,15 @@ impl App {
         let follow_cwd = replace_target.and_then(|(_, tab_idx)| {
             let ws = self.state.workspaces.get(ws_idx)?;
             let tab = ws.terminal_tab(tab_idx).ok()?;
-            tab.cwd_for_pane(
-                tab.layout.focused(),
-                &self.state.terminals,
-                &self.terminal_runtimes,
-            )
+            let pane_id = view
+                .focused_pane_for_tab(&ws.id, tab.number)
+                .unwrap_or(tab.root_pane);
+            tab.cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
         });
         self.resolve_new_terminal_cwd(follow_cwd.or_else(|| {
+            let (_, pane_id) = view.focused_pane_for_workspace(&self.state, ws_idx)?;
             self.state
-                .focused_runtime_in_workspace(&self.terminal_runtimes, ws_idx)
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
                 .and_then(|runtime| runtime.cwd())
         }))
     }
@@ -415,7 +460,6 @@ impl App {
                     extra_env,
                     scrollback_limit_bytes,
                     host_terminal_theme,
-                    false,
                 )
             } else {
                 ws.split_pane_with_ratio(
@@ -429,7 +473,6 @@ impl App {
                     host_terminal_theme,
                     crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode),
                     extra_env,
-                    false,
                 )
             }
         };
@@ -475,7 +518,12 @@ impl App {
         }
     }
 
-    fn rollback_layout_tab(&mut self, ws_idx: usize, root_pane: PaneId) {
+    fn rollback_layout_tab(
+        &mut self,
+        view: &mut ClientViewState,
+        ws_idx: usize,
+        root_pane: PaneId,
+    ) {
         let Some(tab_idx) = self.state.workspaces.get(ws_idx).and_then(|ws| {
             ws.terminal_tabs()
                 .find(|(_, tab)| tab.root_pane == root_pane)
@@ -483,7 +531,7 @@ impl App {
         }) else {
             return;
         };
-        self.state.close_workspace_tab(ws_idx, tab_idx);
+        self.state.close_workspace_tab(view, ws_idx, tab_idx);
     }
 }
 
@@ -585,9 +633,8 @@ mod tests {
             crate::api::EventHub::default(),
         );
         app.state.workspaces = vec![Workspace::test_new("layout")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
         app.state.ensure_test_terminals();
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
         app
     }
 
@@ -597,11 +644,8 @@ mod tests {
         let root = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let right = app.state.workspaces[0].test_split(Direction::Horizontal);
         app.state.ensure_test_terminals();
-        app.state.workspaces[0]
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(root);
+        app.default_client_view
+            .focus_pane_in_workspace(&app.state, 0, 0, root);
         app.state.workspaces[0]
             .terminal_tab_mut(0)
             .unwrap()

@@ -18,9 +18,10 @@ mod tabs;
 mod workspaces;
 
 use super::ClientViewState;
+#[cfg(test)]
+use super::Mode;
 use super::{
-    api_helpers::pane_agent_status, App, Mode, OverlayPaneOwner, OverlayPaneState, ToastKind,
-    API_NOTIFICATION_RATE_LIMIT,
+    api_helpers::pane_agent_status, App, OverlayPaneState, ToastKind, API_NOTIFICATION_RATE_LIMIT,
 };
 use crate::events::AppEvent;
 
@@ -271,25 +272,7 @@ impl App {
         };
         let overlay_state = if let AppEvent::PaneDied { pane_id, .. } = &ev {
             self.state.client_overlay_owners.remove(pane_id);
-            self.overlay_panes.remove(pane_id).map(|overlay| {
-                let was_overlay_active =
-                    self.state
-                        .is_active_pane(overlay.ws_idx, overlay.tab_idx, *pane_id);
-                let tab_before_exit = self
-                    .state
-                    .workspaces
-                    .get(overlay.ws_idx)
-                    .and_then(|ws| ws.terminal_tab(overlay.tab_idx).ok());
-                let was_overlay_focused_in_tab =
-                    tab_before_exit.is_some_and(|tab| tab.layout.focused() == *pane_id);
-                let tab_zoomed_before_exit = tab_before_exit.map(|tab| tab.zoomed);
-                (
-                    overlay,
-                    was_overlay_active,
-                    was_overlay_focused_in_tab,
-                    tab_zoomed_before_exit,
-                )
-            })
+            self.overlay_panes.remove(pane_id)
         } else {
             None
         };
@@ -364,19 +347,9 @@ impl App {
             self.emit_pane_state_update(update);
         }
         self.sync_agent_metadata_deadline();
-        if let Some((
-            overlay,
-            was_overlay_active,
-            was_overlay_focused_in_tab,
-            tab_zoomed_before_exit,
-        )) = overlay_state
-        {
-            self.restore_overlay_after_exit(
-                overlay,
-                was_overlay_active,
-                was_overlay_focused_in_tab,
-                tab_zoomed_before_exit,
-            );
+        if let Some(overlay) = overlay_state {
+            Self::cleanup_overlay_after_exit(overlay);
+            self.default_client_view.reconcile(&self.state);
         }
         if let Some((ws_idx, tab_idx)) = pane_exit_layout_target {
             self.emit_layout_updated_event(ws_idx, tab_idx);
@@ -517,51 +490,9 @@ impl App {
         self.copy_feedback_deadline = Some(Instant::now() + super::COPY_FEEDBACK_DURATION);
     }
 
-    fn restore_overlay_after_exit(
-        &mut self,
-        overlay: OverlayPaneState,
-        was_overlay_active: bool,
-        was_overlay_focused_in_tab: bool,
-        tab_zoomed_before_exit: Option<bool>,
-    ) {
+    fn cleanup_overlay_after_exit(overlay: OverlayPaneState) {
         for temp_file in &overlay.temp_files {
             let _ = std::fs::remove_file(temp_file);
-        }
-
-        let OverlayPaneOwner::Shared {
-            previous_focus,
-            previous_zoomed,
-        } = overlay.owner
-        else {
-            return;
-        };
-        let Some(ws) = self.state.workspaces.get_mut(overlay.ws_idx) else {
-            return;
-        };
-        if ws.terminal_tab(overlay.tab_idx).is_err() {
-            return;
-        }
-        if was_overlay_active {
-            ws.active_tab = overlay.tab_idx;
-        }
-        let Some(tab) = ws.terminal_tab_mut(overlay.tab_idx).ok() else {
-            return;
-        };
-
-        if !was_overlay_focused_in_tab {
-            if let Some(tab_zoomed_before_exit) = tab_zoomed_before_exit {
-                tab.zoomed = tab_zoomed_before_exit;
-            }
-            return;
-        }
-
-        if tab.panes.contains_key(&previous_focus) {
-            tab.layout.focus_pane(previous_focus);
-        }
-        tab.zoomed = previous_zoomed;
-
-        if was_overlay_active && self.state.active == Some(overlay.ws_idx) {
-            self.state.mode = Mode::Terminal;
         }
     }
 
@@ -640,7 +571,16 @@ impl App {
         if let Some(terminal) = self.state.terminals.get_mut(&terminal_id) {
             terminal.clear_agent_runtime_identity_after_respawn();
         }
-        self.state.focus_pane_in_workspace(ws_idx, pane_id);
+        if let Some(tab_idx) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.find_tab_index_for_pane(pane_id))
+        {
+            self.default_client_view
+                .focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+            self.default_client_view.reconcile(&self.state);
+        }
         self.schedule_session_save();
         true
     }
@@ -885,11 +825,6 @@ impl App {
         self.sync_focus_events_for_view(&view);
     }
 
-    pub(super) fn send_outer_focus_event(&mut self, event: crate::ghostty::FocusEvent) {
-        let view = self.default_client_view.clone_reconciled(&self.state);
-        self.send_outer_focus_event_for_view(&view, event);
-    }
-
     pub(super) fn send_outer_focus_event_for_view(
         &mut self,
         view: &ClientViewState,
@@ -907,16 +842,15 @@ impl App {
         view: &ClientViewState,
         outer_event: Option<crate::ghostty::FocusEvent>,
     ) {
-        let current_focus = view.active_workspace.and_then(|idx| {
-            self.state.workspaces.get(idx).and_then(|ws| {
-                let tab_idx = view
-                    .active_tab_for_workspace(&ws.id)
-                    .unwrap_or(ws.active_tab);
-                let tab = ws.terminal_tab(tab_idx).ok()?;
+        let current_focus = view.active_workspace.and_then(|ws_idx| {
+            self.state.workspaces.get(ws_idx).and_then(|workspace| {
+                let tab_idx = view.active_tab_index_for_workspace(&self.state, ws_idx)?;
+                let tab = workspace.terminal_tab(tab_idx).ok()?;
                 let pane_id = view
-                    .focused_pane_for_tab(&ws.id, tab_idx + 1)
-                    .unwrap_or_else(|| tab.layout.focused());
-                Some((idx, pane_id))
+                    .focused_pane_for_tab(&workspace.id, tab.number)
+                    .filter(|pane_id| tab.panes.contains_key(pane_id))
+                    .unwrap_or(tab.root_pane);
+                Some((ws_idx, pane_id))
             })
         });
         if current_focus == self.last_focus {
@@ -944,17 +878,16 @@ impl App {
                     workspace_id: self.public_workspace_id(ws_idx),
                 },
             });
-            let tab_idx = view
-                .active_tab_for_workspace(&self.state.workspaces[ws_idx].id)
-                .unwrap_or(self.state.workspaces[ws_idx].active_tab);
-            if let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) {
-                self.emit_event(crate::api::schema::EventEnvelope {
-                    event: crate::api::schema::EventKind::TabFocused,
-                    data: crate::api::schema::EventData::TabFocused {
-                        tab_id,
-                        workspace_id: self.public_workspace_id(ws_idx),
-                    },
-                });
+            if let Some(tab_idx) = view.active_tab_index_for_workspace(&self.state, ws_idx) {
+                if let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) {
+                    self.emit_event(crate::api::schema::EventEnvelope {
+                        event: crate::api::schema::EventKind::TabFocused,
+                        data: crate::api::schema::EventData::TabFocused {
+                            tab_id,
+                            workspace_id: self.public_workspace_id(ws_idx),
+                        },
+                    });
+                }
             }
             if let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) {
                 self.emit_event(crate::api::schema::EventEnvelope {
@@ -1012,6 +945,87 @@ impl App {
         }
     }
 
+    fn handle_group_list_for_view(&self, view: &ClientViewState, id: String) -> String {
+        let groups = self
+            .state
+            .groups
+            .iter()
+            .enumerate()
+            .map(|(index, _)| self.group_info_for_view(view, index))
+            .collect();
+        responses::encode_success(id, crate::api::schema::ResponseResult::GroupList { groups })
+    }
+
+    fn handle_group_create_for_view(
+        &mut self,
+        view: &ClientViewState,
+        id: String,
+        params: crate::api::schema::GroupCreateParams,
+    ) -> String {
+        let default_location = match params.default_location {
+            Some(location) => match crate::execution_host::ResourceLocation::try_from(location) {
+                Ok(location) => Some(location),
+                Err(message) => return responses::encode_error(id, "invalid_params", message),
+            },
+            None => None,
+        };
+        let index = self.state.create_group_with_icon_and_default_location(
+            params.name,
+            crate::app::state::DEFAULT_GROUP_ICON.to_string(),
+            default_location,
+        );
+        self.schedule_session_save();
+        responses::encode_success(
+            id,
+            crate::api::schema::ResponseResult::GroupInfo {
+                group: self.group_info_for_view(view, index),
+            },
+        )
+    }
+
+    fn handle_group_rename_for_view(
+        &mut self,
+        view: &ClientViewState,
+        id: String,
+        params: crate::api::schema::GroupRenameParams,
+    ) -> String {
+        let Some(index) = self.parse_group_id(&params.group_id) else {
+            return responses::encode_error(
+                id,
+                "group_not_found",
+                format!("group {} not found", params.group_id),
+            );
+        };
+        self.state.rename_group(index, params.name);
+        self.schedule_session_save();
+        responses::encode_success(
+            id,
+            crate::api::schema::ResponseResult::GroupInfo {
+                group: self.group_info_for_view(view, index),
+            },
+        )
+    }
+
+    fn handle_group_delete_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        target: crate::api::schema::GroupTarget,
+    ) -> String {
+        let Some(index) = self.parse_group_id(&target.group_id) else {
+            return responses::encode_error(
+                id,
+                "group_not_found",
+                format!("group {} not found", target.group_id),
+            );
+        };
+        if let Err(message) = self.state.delete_group(view, index) {
+            return responses::encode_error(id, "group_delete_failed", message);
+        }
+        self.schedule_session_save();
+        responses::encode_success(id, crate::api::schema::ResponseResult::Ok {})
+    }
+
     pub(crate) fn handle_api_request_disposition(
         &mut self,
         request: crate::api::schema::Request,
@@ -1066,6 +1080,28 @@ impl App {
                 self.drain_internal_events();
                 let response =
                     self.handle_agent_view_clear_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::AgentList(_) => {
+                let response = self.handle_agent_list_for_view(client_view, request.id);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::AgentGet(target) => {
+                let response = self.handle_agent_get_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::AgentFollowUpAdd(target) => {
+                let response =
+                    self.handle_agent_follow_up_add_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::AgentFollowUpRemove(target) => {
+                let response =
+                    self.handle_agent_follow_up_remove_for_view(client_view, request.id, target);
                 client_view.reconcile(&self.state);
                 crate::api::ApiRequestDisposition::Respond(response)
             }
@@ -1279,6 +1315,48 @@ impl App {
                 client_view.reconcile(&self.state);
                 crate::api::ApiRequestDisposition::Respond(response)
             }
+            crate::api::schema::Method::PaneSwap(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_pane_swap_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::PaneMove(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_pane_move_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::PaneRename(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_pane_rename_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::PaneClose(target) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_pane_close_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::LayoutExport(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_layout_export_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::LayoutApply(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                let response = self.handle_layout_apply_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
             crate::api::schema::Method::PluginPaneOpen(params) => {
                 self.drain_internal_events();
                 let disposition =
@@ -1288,23 +1366,54 @@ impl App {
             }
             crate::api::schema::Method::PluginPaneFocus(params) => {
                 self.drain_internal_events();
-                let response = if self.parse_popup_public_pane_id(&params.pane_id).is_some() {
-                    self.focus_plugin_popup_pane_for_view(client_view, request.id, params)
-                } else {
-                    self.handle_plugin_pane_focus(request.id, params)
-                };
+                let response =
+                    self.handle_plugin_pane_focus_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
                 crate::api::ApiRequestDisposition::Respond(response)
             }
             crate::api::schema::Method::PluginPaneClose(params) => {
                 self.drain_internal_events();
-                let response = if self.parse_popup_public_pane_id(&params.pane_id).is_some() {
-                    self.close_plugin_popup_pane_for_view(client_view, request.id, params)
-                } else {
-                    self.handle_plugin_pane_close(request.id, params)
-                };
+                let response =
+                    self.handle_plugin_pane_close_for_view(client_view, request.id, params);
                 client_view.reconcile(&self.state);
                 crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::GroupList(_) => {
+                let response = self.handle_group_list_for_view(client_view, request.id);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::GroupCreate(params) => {
+                let response = self.handle_group_create_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::GroupRename(params) => {
+                let response = self.handle_group_rename_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::GroupDelete(target) => {
+                let response = self.handle_group_delete_for_view(client_view, request.id, target);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
+            crate::api::schema::Method::GroupFocus(target) => {
+                let Some(index) = self.parse_group_id(&target.group_id) else {
+                    return crate::api::ApiRequestDisposition::Respond(responses::encode_error(
+                        request.id,
+                        "group_not_found",
+                        format!("group {} not found", target.group_id),
+                    ));
+                };
+                self.switch_client_view_group(client_view, index);
+                self.schedule_session_save();
+                let mut group = self.group_info_for_view(client_view, index);
+                group.focused = true;
+                crate::api::ApiRequestDisposition::Respond(responses::encode_success(
+                    request.id,
+                    crate::api::schema::ResponseResult::GroupInfo { group },
+                ))
             }
             crate::api::schema::Method::ConnectionTest(target) => {
                 let owner = crate::execution_host::auth::AuthenticationOwner::new(client_view.id());
@@ -1505,127 +1614,6 @@ impl App {
                     self.handle_notification_show(request.id, params),
                 );
             }
-            Method::GroupList(_) => SuccessResponse {
-                id: request.id,
-                result: ResponseResult::GroupList {
-                    groups: self
-                        .state
-                        .groups
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, _)| self.group_info(idx))
-                        .collect(),
-                },
-            },
-            Method::GroupCreate(params) => {
-                let default_location = match params.default_location {
-                    Some(location) => {
-                        match crate::execution_host::ResourceLocation::try_from(location) {
-                            Ok(location) => Some(location),
-                            Err(message) => {
-                                return crate::api::ApiRequestDisposition::Respond(
-                                    serde_json::to_string(&ErrorResponse {
-                                        id: request.id,
-                                        error: ErrorBody {
-                                            code: "invalid_params".into(),
-                                            message,
-                                        },
-                                    })
-                                    .unwrap_or_else(|_| "{}".to_string()),
-                                );
-                            }
-                        }
-                    }
-                    None => None,
-                };
-                let index = self.state.create_group_with_icon_and_default_location(
-                    params.name,
-                    crate::app::state::DEFAULT_GROUP_ICON.to_string(),
-                    default_location,
-                );
-                self.schedule_session_save();
-                SuccessResponse {
-                    id: request.id,
-                    result: ResponseResult::GroupInfo {
-                        group: self.group_info(index),
-                    },
-                }
-            }
-            Method::GroupFocus(target) => {
-                let Some(index) = self.parse_group_id(&target.group_id) else {
-                    return crate::api::ApiRequestDisposition::Respond(
-                        serde_json::to_string(&ErrorResponse {
-                            id: request.id,
-                            error: ErrorBody {
-                                code: "group_not_found".into(),
-                                message: format!("group {} not found", target.group_id),
-                            },
-                        })
-                        .unwrap_or_else(|_| "{}".to_string()),
-                    );
-                };
-                self.state.switch_group(index);
-                self.schedule_session_save();
-                SuccessResponse {
-                    id: request.id,
-                    result: ResponseResult::GroupInfo {
-                        group: self.group_info(index),
-                    },
-                }
-            }
-            Method::GroupRename(params) => {
-                let Some(index) = self.parse_group_id(&params.group_id) else {
-                    return crate::api::ApiRequestDisposition::Respond(
-                        serde_json::to_string(&ErrorResponse {
-                            id: request.id,
-                            error: ErrorBody {
-                                code: "group_not_found".into(),
-                                message: format!("group {} not found", params.group_id),
-                            },
-                        })
-                        .unwrap_or_else(|_| "{}".to_string()),
-                    );
-                };
-                self.state.rename_group(index, params.name);
-                self.schedule_session_save();
-                SuccessResponse {
-                    id: request.id,
-                    result: ResponseResult::GroupInfo {
-                        group: self.group_info(index),
-                    },
-                }
-            }
-            Method::GroupDelete(target) => {
-                let Some(index) = self.parse_group_id(&target.group_id) else {
-                    return crate::api::ApiRequestDisposition::Respond(
-                        serde_json::to_string(&ErrorResponse {
-                            id: request.id,
-                            error: ErrorBody {
-                                code: "group_not_found".into(),
-                                message: format!("group {} not found", target.group_id),
-                            },
-                        })
-                        .unwrap_or_else(|_| "{}".to_string()),
-                    );
-                };
-                if let Err(message) = self.state.delete_group(index) {
-                    return crate::api::ApiRequestDisposition::Respond(
-                        serde_json::to_string(&ErrorResponse {
-                            id: request.id,
-                            error: ErrorBody {
-                                code: "group_delete_failed".into(),
-                                message: message.to_string(),
-                            },
-                        })
-                        .unwrap_or_else(|_| "{}".to_string()),
-                    );
-                }
-                self.schedule_session_save();
-                SuccessResponse {
-                    id: request.id,
-                    result: ResponseResult::Ok {},
-                }
-            }
             Method::ClientWindowTitleSet(_) | Method::ClientWindowTitleClear(_) => {
                 return crate::api::ApiRequestDisposition::Respond(responses::encode_success(
                     request.id,
@@ -1706,34 +1694,9 @@ impl App {
                     self.handle_agent_view_clear(request.id, params),
                 );
             }
-            Method::AgentList(_) => {
-                return crate::api::ApiRequestDisposition::Respond(
-                    self.handle_agent_list(request.id),
-                )
-            }
             Method::PaneFocus(target) => {
                 return crate::api::ApiRequestDisposition::Respond(
                     self.handle_pane_focus(request.id, target),
-                )
-            }
-            Method::AgentGet(target) => {
-                return crate::api::ApiRequestDisposition::Respond(
-                    self.handle_agent_get(request.id, target),
-                )
-            }
-            Method::AgentFocus(target) => {
-                return crate::api::ApiRequestDisposition::Respond(
-                    self.handle_agent_focus(request.id, target),
-                )
-            }
-            Method::AgentFollowUpAdd(target) => {
-                return crate::api::ApiRequestDisposition::Respond(
-                    self.handle_agent_follow_up_add(request.id, target),
-                )
-            }
-            Method::AgentFollowUpRemove(target) => {
-                return crate::api::ApiRequestDisposition::Respond(
-                    self.handle_agent_follow_up_remove(request.id, target),
                 )
             }
             Method::AgentRename(params) => {
@@ -2213,18 +2176,19 @@ mod tests {
         );
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
+        app.default_client_view = ClientViewState::from_default_client_state(&app.state);
+        app.default_client_view
+            .focus_pane_in_workspace(&app.state, 0, 0, previous_focus);
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let tab_number = app.state.workspaces[0].terminal_tab(0).unwrap().number;
+        app.default_client_view
+            .set_tab_zoomed(&workspace_id, tab_number, previous_zoomed);
+        app.default_client_view
+            .focus_client_overlay(&app.state, 0, 0, overlay_pane);
+        app.default_client_view.mode = Mode::Terminal;
         app.overlay_panes.insert(
             overlay_pane,
             OverlayPaneState {
-                ws_idx: 0,
-                tab_idx: 0,
-                owner: OverlayPaneOwner::Shared {
-                    previous_focus,
-                    previous_zoomed,
-                },
                 temp_files: Vec::new(),
             },
         );
@@ -2236,10 +2200,14 @@ mod tests {
         let mut workspace = crate::workspace::Workspace::test_new("overlay");
         let previous_focus = workspace.terminal_tab(0).unwrap().root_pane;
         let overlay_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.terminal_tab_mut(0).unwrap().zoomed = true;
+        let overlay_tab_number = workspace.terminal_tab(0).unwrap().number;
         let new_tab = workspace.test_add_tab(Some("new"));
-        workspace.switch_tab(new_tab);
+        let new_tab_number = workspace.tabs[new_tab].number();
+        let new_tab_root = workspace.terminal_tab(new_tab).unwrap().root_pane;
+        let workspace_id = workspace.id.clone();
         let mut app = app_with_overlay(workspace, overlay_pane, previous_focus, true);
+        app.default_client_view
+            .focus_tab_in_workspace(&app.state, 0, new_tab);
 
         app.handle_internal_event(AppEvent::PaneDied {
             pane_id: overlay_pane,
@@ -2249,10 +2217,19 @@ mod tests {
             exit_signal: None,
         });
 
-        let overlay_tab = app.state.workspaces[0].terminal_tab(0).unwrap();
-        assert_eq!(app.state.workspaces[0].active_tab, new_tab);
-        assert_eq!(overlay_tab.layout.focused(), previous_focus);
-        assert!(overlay_tab.zoomed);
+        assert_eq!(
+            app.default_client_view
+                .active_tab_for_workspace(&workspace_id),
+            Some(new_tab_number)
+        );
+        assert_eq!(
+            app.default_client_view
+                .focused_pane_for_tab(&workspace_id, new_tab_number),
+            Some(new_tab_root)
+        );
+        assert!(app
+            .default_client_view
+            .tab_is_zoomed(&workspace_id, overlay_tab_number));
         assert!(app.overlay_panes.is_empty());
     }
 
@@ -2261,7 +2238,8 @@ mod tests {
         let mut workspace = crate::workspace::Workspace::test_new("overlay");
         let previous_focus = workspace.terminal_tab(0).unwrap().root_pane;
         let overlay_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        workspace.terminal_tab_mut(0).unwrap().zoomed = true;
+        let tab_number = workspace.terminal_tab(0).unwrap().number;
+        let workspace_id = workspace.id.clone();
         let mut app = app_with_overlay(workspace, overlay_pane, previous_focus, false);
 
         app.handle_internal_event(AppEvent::PaneDied {
@@ -2272,10 +2250,19 @@ mod tests {
             exit_signal: None,
         });
 
-        let tab = app.state.workspaces[0].terminal_tab(0).unwrap();
-        assert_eq!(app.state.workspaces[0].active_tab, 0);
-        assert_eq!(tab.layout.focused(), previous_focus);
-        assert!(!tab.zoomed);
+        assert_eq!(
+            app.default_client_view
+                .active_tab_for_workspace(&workspace_id),
+            Some(tab_number)
+        );
+        assert_eq!(
+            app.default_client_view
+                .focused_pane_for_tab(&workspace_id, tab_number),
+            Some(previous_focus)
+        );
+        assert!(!app
+            .default_client_view
+            .tab_is_zoomed(&workspace_id, tab_number));
         assert!(app.overlay_panes.is_empty());
     }
 
@@ -2732,9 +2719,9 @@ mod tests {
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.terminals.get_mut(&terminal_id).unwrap().cwd = stale_cwd;
-        app.state.active = None;
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
+        app.default_client_view.active_workspace = None;
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = Mode::Terminal;
         app.state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
         app.state.toast_config.delay_seconds = 0;
 
@@ -2826,9 +2813,9 @@ mod tests {
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.terminals.get_mut(&terminal_id).unwrap().cwd = stale_cwd;
-        app.state.active = None;
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
+        app.default_client_view.active_workspace = None;
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = Mode::Terminal;
         app.state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
         app.state.toast_config.delay_seconds = 1;
 
@@ -2966,9 +2953,9 @@ mod tests {
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
         app.state.terminals.get_mut(&terminal_id).unwrap().cwd = "/__gardn_projects__".into();
-        app.state.active = None;
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
+        app.default_client_view.active_workspace = None;
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = Mode::Terminal;
         app.state.toast_config.delivery = crate::config::ToastDelivery::Terminal;
 
         app.handle_internal_event(AppEvent::StateChanged {

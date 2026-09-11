@@ -4,10 +4,7 @@ use tracing::error;
 
 use std::collections::HashSet;
 
-use super::{
-    api_helpers::{pane_agent_status, tab_attention_priority},
-    App, ClientViewState, Mode,
-};
+use super::{api_helpers::pane_agent_status, App, ClientViewState, Mode};
 use crate::{
     config::NewTerminalCwdConfig,
     workspace::{derive_label_from_cwd, Workspace},
@@ -169,8 +166,16 @@ impl App {
     }
 
     pub(super) fn seed_cwd_from_workspace(&self, ws_idx: usize) -> Option<std::path::PathBuf> {
+        let pane_id = self
+            .default_client_view
+            .focused_pane_for_workspace(&self.state, ws_idx)
+            .map(|(_, pane_id)| pane_id);
         self.state.workspaces.get(ws_idx).map(|workspace| {
-            workspace.effective_default_cwd_from(&self.state.terminals, &self.terminal_runtimes)
+            workspace.effective_default_cwd_from(
+                pane_id,
+                &self.state.terminals,
+                &self.terminal_runtimes,
+            )
         })
     }
 
@@ -178,8 +183,9 @@ impl App {
         &self,
         ws_idx: usize,
     ) -> Option<crate::execution_host::ResourceLocation> {
+        let view = self.default_client_view.clone_reconciled(&self.state);
+        let (_, pane_id) = view.focused_pane_for_workspace(&self.state, ws_idx)?;
         let workspace = self.state.workspaces.get(ws_idx)?;
-        let pane_id = workspace.focused_pane_id()?;
         let terminal_id = workspace.terminal_id(pane_id)?;
         self.terminal_runtimes.get(terminal_id)?;
         self.state
@@ -205,22 +211,27 @@ impl App {
     }
 
     pub(super) fn workspace_creation_source(&self) -> Option<usize> {
-        if self.state.mode == Mode::Navigate
-            && self.state.workspaces.get(self.state.selected).is_some()
-            && self.state.workspace_in_active_group(self.state.selected)
-        {
-            return Some(self.state.selected);
+        let view = &self.default_client_view;
+        let active_group_id = self
+            .state
+            .groups
+            .get(view.active_group)
+            .map(|group| group.id.as_str())
+            .unwrap_or(crate::workspace::DEFAULT_GROUP_ID);
+        let workspace_is_visible = |idx: usize| {
+            self.state.workspaces.get(idx).is_some_and(|workspace| {
+                !view.group_filter_enabled || workspace.group_id == active_group_id
+            })
+        };
+
+        if view.mode == Mode::Navigate && workspace_is_visible(view.selected_workspace) {
+            return Some(view.selected_workspace);
         }
 
-        self.state
-            .active
-            .filter(|idx| self.state.workspace_in_active_group(*idx))
+        view.active_workspace
+            .filter(|idx| workspace_is_visible(*idx))
             .or_else(|| {
-                self.state
-                    .workspaces
-                    .get(self.state.selected)
-                    .filter(|_| self.state.workspace_in_active_group(self.state.selected))
-                    .map(|_| self.state.selected)
+                workspace_is_visible(view.selected_workspace).then_some(view.selected_workspace)
             })
     }
 
@@ -228,7 +239,13 @@ impl App {
         source
             .and_then(|ws_idx| self.state.workspaces.get(ws_idx))
             .map(|ws| ws.group_id.clone())
-            .unwrap_or_else(|| self.state.active_group_id().to_string())
+            .or_else(|| {
+                self.state
+                    .groups
+                    .get(self.default_client_view.active_group)
+                    .map(|group| group.id.clone())
+            })
+            .unwrap_or_else(|| crate::workspace::DEFAULT_GROUP_ID.to_string())
     }
 
     pub(super) fn group_default_location(
@@ -260,7 +277,12 @@ impl App {
                 self.group_default_location(&group_id),
                 local_fallback,
             );
-            super::input::open_new_workspace_dialog_at_location(&mut self.state, location);
+            let group_idx = self.state.group_index_by_id(&group_id).unwrap_or(0);
+            Self::open_client_view_new_workspace_dialog(
+                &mut self.default_client_view,
+                location,
+                group_idx,
+            );
             return;
         }
 
@@ -276,7 +298,7 @@ impl App {
                 },
             ),
         );
-        self.state.mode = if self.state.active.is_some() {
+        self.default_client_view.mode = if self.default_client_view.active_workspace.is_some() {
             Mode::Terminal
         } else {
             Mode::Navigate
@@ -294,12 +316,14 @@ impl App {
             Ok(location) => location,
             Err(error) => {
                 error!(%error, "failed to resolve local workspace location");
-                self.state.mode = Mode::Navigate;
+                self.default_client_view.mode = Mode::Navigate;
                 return;
             }
         };
         let location = crate::execution_host::placement::resolve_workspace_creation(
-            self.state.pending_workspace_create_location.take(),
+            self.default_client_view
+                .pending_workspace_create_location
+                .take(),
             self.group_default_location(&group_id),
             local_fallback,
         );
@@ -319,13 +343,13 @@ impl App {
             }
             Err(error) => {
                 error!(%error, "failed to create workspace");
-                self.state.mode = Mode::Navigate;
+                self.default_client_view.mode = Mode::Navigate;
             }
         }
     }
     pub(crate) fn create_tab(&mut self) {
-        let custom_name = self.state.requested_new_tab_name.take();
-        let Some(ws_idx) = self.state.active else {
+        let custom_name = self.default_client_view.requested_new_tab_name.take();
+        let Some(ws_idx) = self.default_client_view.active_workspace else {
             let initial_cwd = self.resolve_new_terminal_cwd(None);
             if let Err(error) = self.create_workspace_with_options(initial_cwd, true) {
                 error!(%error, "failed to create workspace for tab");
@@ -337,7 +361,7 @@ impl App {
             return;
         };
         let result = if location.is_local() {
-            self.create_tab_with_options(location.path.as_path().to_path_buf(), true)
+            self.create_tab_with_options(ws_idx, location.path.as_path().to_path_buf(), true)
                 .map(TabCreation::Committed)
                 .map_err(|error| error.to_string())
         } else {
@@ -372,14 +396,11 @@ impl App {
         ws_idx: usize,
         custom_name: Option<String>,
     ) -> Result<TabCreation, String> {
-        let previous_active = self.state.active;
-        let previous_mode = self.state.mode;
         let location = self
             .tab_creation_location(ws_idx)
             .ok_or_else(|| "workspace not found".to_string())?;
-        self.state.active = Some(ws_idx);
         let result = if location.is_local() {
-            self.create_tab_with_options(location.path.as_path().to_path_buf(), false)
+            self.create_tab_with_options(ws_idx, location.path.as_path().to_path_buf(), false)
                 .map(TabCreation::Committed)
                 .map_err(|error| error.to_string())
         } else {
@@ -407,19 +428,18 @@ impl App {
             }
             Err(_) => {}
         }
-        self.state.active = previous_active;
-        self.state.mode = previous_mode;
         result
     }
 
     pub(super) fn create_tab_with_options(
         &mut self,
+        ws_idx: usize,
         initial_cwd: PathBuf,
         focus: bool,
     ) -> std::io::Result<usize> {
-        let Some(ws_idx) = self.state.active else {
+        if self.state.workspaces.get(ws_idx).is_none() {
             return self.create_workspace_with_options(initial_cwd, focus);
-        };
+        }
         let (rows, cols) = self.state.estimate_pane_size();
         let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
         let host_terminal_theme = self.state.host_terminal_theme;
@@ -451,8 +471,9 @@ impl App {
         self.state.terminals.insert(terminal.id.clone(), terminal);
         self.state.remove_alias_shadowed_by_new_pane(root_pane);
         if focus {
-            self.state.workspaces[ws_idx].switch_tab(idx);
-            self.state.mode = Mode::Terminal;
+            self.default_client_view
+                .focus_tab_in_workspace(&self.state, ws_idx, idx);
+            self.default_client_view.mode = Mode::Terminal;
         }
         let workspace_id = self.state.workspaces[ws_idx].id.clone();
         let tab_id = self
@@ -521,9 +542,9 @@ impl App {
         self.terminal_runtimes.insert(terminal.id.clone(), runtime);
         self.state.terminals.insert(terminal.id.clone(), terminal);
         self.state.remove_alias_shadowed_by_new_pane(root_pane);
-        self.state.workspaces[ws_idx].switch_tab(idx);
-        self.state.active = Some(ws_idx);
-        self.state.mode = Mode::Terminal;
+        self.default_client_view
+            .focus_tab_in_workspace(&self.state, ws_idx, idx);
+        self.default_client_view.mode = Mode::Terminal;
         let workspace_id = self.state.workspaces[ws_idx].id.clone();
         let tab_id = self
             .public_tab_id(ws_idx, idx)
@@ -538,7 +559,10 @@ impl App {
         initial_cwd: PathBuf,
         focus: bool,
     ) -> std::io::Result<usize> {
-        let group_id = self.state.active_group_id().to_string();
+        let group_id = self
+            .default_client_view
+            .active_group_id(&self.state)
+            .to_string();
         self.create_workspace_with_launch_env_in_group(initial_cwd, focus, group_id, Vec::new())
     }
 
@@ -584,9 +608,12 @@ impl App {
             .root_pane
             .raw();
         crate::logging::workspace_created(&workspace_id, root_pane);
-        if focus || self.state.active.is_none() {
-            self.state.switch_workspace(idx);
-            self.state.mode = Mode::Terminal;
+        if focus || self.default_client_view.active_workspace.is_none() {
+            self.default_client_view.active_workspace = Some(idx);
+            self.default_client_view.selected_workspace = idx;
+            self.default_client_view
+                .focus_tab_in_workspace(&self.state, idx, 0);
+            self.default_client_view.mode = Mode::Terminal;
         }
         self.schedule_session_save();
         Ok(idx)
@@ -971,9 +998,12 @@ impl App {
                 let ws_idx = self.state.workspaces.len() - 1;
                 self.state.remove_alias_shadowed_by_new_pane(root_pane);
                 crate::logging::workspace_created(&workspace_id, root_pane.raw());
-                if focus || self.state.active.is_none() {
-                    self.state.switch_workspace(ws_idx);
-                    self.state.mode = Mode::Terminal;
+                if focus || self.default_client_view.active_workspace.is_none() {
+                    self.default_client_view.active_workspace = Some(ws_idx);
+                    self.default_client_view.selected_workspace = ws_idx;
+                    self.default_client_view
+                        .focus_tab_in_workspace(&self.state, ws_idx, 0);
+                    self.default_client_view.mode = Mode::Terminal;
                 }
                 self.schedule_session_save();
                 Ok(CommittedRemoteCreation::Workspace { ws_idx })
@@ -1003,9 +1033,9 @@ impl App {
                 self.state.terminals.insert(terminal_id, *terminal);
                 self.state.remove_alias_shadowed_by_new_pane(root_pane);
                 if focus {
-                    self.state.workspaces[ws_idx].switch_tab(tab_idx);
-                    self.state.active = Some(ws_idx);
-                    self.state.mode = Mode::Terminal;
+                    self.default_client_view
+                        .focus_tab_in_workspace(&self.state, ws_idx, tab_idx);
+                    self.default_client_view.mode = Mode::Terminal;
                 }
                 self.schedule_session_save();
                 Ok(CommittedRemoteCreation::Tab { ws_idx, tab_idx })
@@ -1014,11 +1044,10 @@ impl App {
                 workspace_id,
                 target_pane_id,
                 new_pane_id,
-                tab_number: _,
                 direction,
                 ratio,
                 mut terminal,
-                focus,
+                ..
             } => {
                 let Some(ws_idx) = self
                     .state
@@ -1038,7 +1067,6 @@ impl App {
                     new_pane_id,
                     direction,
                     ratio,
-                    focus,
                     *terminal,
                     runtime,
                 ) else {
@@ -1057,43 +1085,6 @@ impl App {
                     pane_id: new_pane_id,
                 })
             }
-        }
-    }
-
-    pub(super) fn collect_panes_for_workspace(
-        &self,
-        workspace_id: Option<&str>,
-    ) -> Result<Vec<crate::api::schema::PaneInfo>, (String, String)> {
-        if let Some(workspace_id) = workspace_id {
-            let Some(ws_idx) = self.parse_workspace_id(workspace_id) else {
-                return Err((
-                    "workspace_not_found".into(),
-                    format!("workspace {workspace_id} not found"),
-                ));
-            };
-            let Some(ws) = self.state.workspaces.get(ws_idx) else {
-                return Err((
-                    "workspace_not_found".into(),
-                    format!("workspace {workspace_id} not found"),
-                ));
-            };
-            Ok(ws
-                .terminal_tabs()
-                .flat_map(|(_, tab)| tab.layout.pane_ids().into_iter())
-                .filter_map(|pane_id| self.pane_info(ws_idx, pane_id))
-                .collect())
-        } else {
-            Ok(self
-                .state
-                .workspaces
-                .iter()
-                .enumerate()
-                .flat_map(|(ws_idx, ws)| {
-                    ws.terminal_tabs()
-                        .flat_map(|(_, tab)| tab.layout.pane_ids().into_iter())
-                        .filter_map(move |pane_id| self.pane_info(ws_idx, pane_id))
-                })
-                .collect())
         }
     }
 
@@ -1140,36 +1131,7 @@ impl App {
         ws_idx: usize,
         tab_idx: usize,
     ) -> Option<crate::api::schema::TabInfo> {
-        let ws = self.state.workspaces.get(ws_idx)?;
-        let entry = ws.tabs.get(tab_idx)?;
-        let (agg_state, seen, pane_count) = match entry {
-            crate::workspace::WorkspaceTab::Terminal(tab) => {
-                let (state, seen) = tab
-                    .panes
-                    .values()
-                    .filter_map(|pane| {
-                        self.state
-                            .terminals
-                            .get(&pane.attached_terminal_id)
-                            .map(|terminal| (terminal.state, pane.seen))
-                    })
-                    .max_by_key(|(state, seen)| tab_attention_priority(*state, *seen))
-                    .unwrap_or((crate::detect::AgentState::Unknown, true));
-                (state, seen, tab.panes.len())
-            }
-            crate::workspace::WorkspaceTab::Github(_) => {
-                (crate::detect::AgentState::Unknown, true, 0)
-            }
-        };
-        Some(crate::api::schema::TabInfo {
-            tab_id: self.public_tab_id(ws_idx, tab_idx)?,
-            workspace_id: self.public_workspace_id(ws_idx),
-            number: entry.number(),
-            label: ws.tab_display_name(tab_idx)?,
-            focused: self.state.active == Some(ws_idx) && ws.active_tab == tab_idx,
-            pane_count,
-            agent_status: pane_agent_status(agg_state, seen),
-        })
+        self.tab_info_for_view(&self.default_client_view, ws_idx, tab_idx)
     }
 
     #[cfg(test)]
@@ -1200,9 +1162,7 @@ impl App {
         ws_idx: usize,
         tab_idx: usize,
     ) -> Option<crate::api::schema::PaneInfo> {
-        let ws = self.state.workspaces.get(ws_idx)?;
-        let tab = ws.terminal_tab(tab_idx).ok()?;
-        self.pane_info(ws_idx, tab.root_pane)
+        self.root_pane_info_for_view(&self.default_client_view, ws_idx, tab_idx)
     }
 
     pub(super) fn pane_info(
@@ -1210,45 +1170,7 @@ impl App {
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
     ) -> Option<crate::api::schema::PaneInfo> {
-        let ws = self.state.workspaces.get(ws_idx)?;
-        let pane = ws.pane_state(pane_id)?;
-        let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
-        let tab_idx = ws.find_tab_index_for_pane(pane_id)?;
-        let focused = self.state.active == Some(ws_idx)
-            && ws.active_tab == tab_idx
-            && ws
-                .focused_pane_id()
-                .is_some_and(|focused| focused == pane_id);
-        let presentation = terminal.effective_presentation();
-        Some(crate::api::schema::PaneInfo {
-            pane_id: self.public_pane_id(ws_idx, pane_id)?,
-            terminal_id: terminal.id.to_string(),
-            location: crate::api::schema::resource_location_params_from(&terminal.location),
-            workspace_id: self.public_workspace_id(ws_idx),
-            tab_id: self.public_tab_id(ws_idx, tab_idx)?,
-            focused,
-            cwd: ws
-                .terminal_tab(tab_idx)
-                .ok()?
-                .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
-                .map(|cwd| cwd.display().to_string()),
-            foreground_cwd: ws
-                .terminal_tab(tab_idx)
-                .ok()?
-                .foreground_cwd_for_pane(pane_id, &self.terminal_runtimes)
-                .map(|cwd| cwd.display().to_string()),
-            label: terminal.manual_label.clone(),
-            agent: terminal.lifecycle_agent_label().map(str::to_string),
-            title: presentation.title,
-            display_agent: presentation.display_agent,
-            agent_status: pane_agent_status(terminal.state, pane.seen),
-            custom_status: presentation.custom_status,
-            state_labels: presentation.state_labels,
-            tokens: presentation.tokens,
-            agent_session: terminal_agent_session_info(terminal),
-            scroll: self.pane_scroll_info(ws_idx, pane_id),
-            revision: terminal.revision,
-        })
+        self.pane_info_for_view(&self.default_client_view, ws_idx, pane_id)
     }
 
     pub(super) fn pane_info_for_view(
@@ -1261,10 +1183,11 @@ impl App {
         let pane = ws.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
         let tab_idx = ws.find_tab_index_for_pane(pane_id)?;
+        let tab_number = ws.tabs.get(tab_idx)?.number();
         let focused = view.active_workspace == Some(ws_idx)
             && view.active_tab_index_for_workspace(&self.state, ws_idx) == Some(tab_idx)
             && view
-                .focused_pane_for_tab(&ws.id, tab_idx + 1)
+                .focused_pane_for_tab(&ws.id, tab_number)
                 .is_some_and(|focused| focused == pane_id);
         let presentation = terminal.effective_presentation();
         Some(crate::api::schema::PaneInfo {
@@ -1336,27 +1259,19 @@ impl App {
     }
 
     pub(super) fn workspace_info(&self, index: usize) -> crate::api::schema::WorkspaceInfo {
-        let ws = &self.state.workspaces[index];
-        let (agg_state, seen) = ws.aggregate_state(&self.state.terminals);
-        crate::api::schema::WorkspaceInfo {
-            workspace_id: self.public_workspace_id(index),
-            group_id: ws.group_id.clone(),
-            default_location: crate::api::schema::resource_location_params_from(
-                &ws.default_location,
-            ),
-            number: index + 1,
-            label: ws.display_name_from(&self.state.terminals, &self.terminal_runtimes),
-            focused: self.state.active == Some(index),
-            pane_count: ws.public_pane_numbers.len(),
-            tab_count: ws.tabs.len(),
-            active_tab_id: self
-                .public_tab_id(index, ws.active_tab)
-                .unwrap_or_else(|| format!("{}:{}", ws.id, ws.active_tab + 1)),
-            agent_status: pane_agent_status(agg_state, seen),
-        }
+        self.workspace_info_for_view(&self.default_client_view, index)
     }
 
+    #[cfg(test)]
     pub(super) fn group_info(&self, index: usize) -> crate::api::schema::GroupInfo {
+        self.group_info_for_view(&self.default_client_view, index)
+    }
+
+    pub(super) fn group_info_for_view(
+        &self,
+        view: &crate::app::ClientViewState,
+        index: usize,
+    ) -> crate::api::schema::GroupInfo {
         let group = &self.state.groups[index];
         let workspace_count = self
             .state
@@ -1369,7 +1284,7 @@ impl App {
             number: index + 1,
             name: group.name.clone(),
             icon: group.icon.clone(),
-            focused: self.state.active_group == index,
+            focused: view.active_group == index,
             workspace_count,
             default_location: group
                 .default_location
@@ -1449,23 +1364,16 @@ impl App {
                         pending.client_view_id,
                         &crate::app::creation::CommittedRemoteCreation::Workspace { ws_idx },
                     );
-                    let encode_view = self.response_view_for_pending_focus(
-                        pending.focus,
-                        pending.client_view_id,
-                        &crate::app::creation::CommittedRemoteCreation::Workspace { ws_idx },
-                    );
-                    let workspace = match encode_view.as_ref() {
-                        Some(view) => self.workspace_info_for_view(view, ws_idx),
-                        None => self.workspace_info(ws_idx),
-                    };
-                    let tab = match encode_view.as_ref() {
-                        Some(view) => self.tab_info_for_view(view, ws_idx, 0),
-                        None => self.tab_info(ws_idx, 0),
-                    };
-                    let root_pane = match encode_view.as_ref() {
-                        Some(view) => self.root_pane_info_for_view(view, ws_idx, 0),
-                        None => self.root_pane_info(ws_idx, 0),
-                    };
+                    let mut workspace = self.workspace_info(ws_idx);
+                    workspace.focused = pending.focus;
+                    let mut tab = self.tab_info(ws_idx, 0);
+                    if let Some(tab) = &mut tab {
+                        tab.focused = pending.focus;
+                    }
+                    let mut root_pane = self.root_pane_info(ws_idx, 0);
+                    if let Some(root_pane) = &mut root_pane {
+                        root_pane.focused = pending.focus;
+                    }
                     if let (Some(tab), Some(root_pane)) = (tab, root_pane) {
                         self.emit_event(EventEnvelope {
                             event: EventKind::WorkspaceCreated,
@@ -1527,15 +1435,13 @@ impl App {
                         pending.client_view_id,
                         &crate::app::creation::CommittedRemoteCreation::Tab { ws_idx, tab_idx },
                     );
-                    let encode_view = self.response_view_for_pending_focus(
-                        pending.focus,
-                        pending.client_view_id,
-                        &crate::app::creation::CommittedRemoteCreation::Tab { ws_idx, tab_idx },
-                    );
-                    let result = match encode_view.as_ref() {
-                        Some(view) => self.tab_created_result_for_view(view, ws_idx, tab_idx),
-                        None => self.tab_created_result(ws_idx, tab_idx),
-                    };
+                    let result = self.tab_created_result(ws_idx, tab_idx).map(|mut result| {
+                        if let ResponseResult::TabCreated { tab, root_pane } = &mut result {
+                            tab.focused = pending.focus;
+                            root_pane.focused = pending.focus;
+                        }
+                        result
+                    });
                     if let Some(result) = result {
                         if let ResponseResult::TabCreated { tab, root_pane } = &result {
                             self.emit_event(EventEnvelope {
@@ -1579,19 +1485,10 @@ impl App {
                             pane_id,
                         },
                     );
-                    let encode_view = self.response_view_for_pending_focus(
-                        pending.focus,
-                        pending.client_view_id,
-                        &crate::app::creation::CommittedRemoteCreation::Split {
-                            ws_idx,
-                            tab_idx,
-                            pane_id,
-                        },
-                    );
-                    let pane = match encode_view.as_ref() {
-                        Some(view) => self.pane_info_for_view(view, ws_idx, pane_id),
-                        None => self.pane_info(ws_idx, pane_id),
-                    };
+                    let mut pane = self.pane_info(ws_idx, pane_id);
+                    if let Some(pane) = &mut pane {
+                        pane.focused = pending.focus;
+                    }
                     if let Some(pane) = pane {
                         self.emit_event(EventEnvelope {
                             event: EventKind::PaneCreated,
@@ -1810,27 +1707,10 @@ impl App {
         self.focus_default_client_view_on_committed(committed);
     }
 
-    fn response_view_for_pending_focus(
-        &self,
-        focus: bool,
-        client_view_id: Option<u64>,
-        committed: &CommittedRemoteCreation,
-    ) -> Option<ClientViewState> {
-        let view_id = client_view_id.filter(|_| focus)?;
-        // Encode as the requester would see it after deferred focus application.
-        // Do not mutate default_client_view for non-default requesters here.
-        let mut view = self
-            .default_client_view
-            .clone_reconciled(&self.state)
-            .clone_for_encode_as(view_id);
-        self.focus_view_on_committed(&mut view, committed);
-        Some(view)
-    }
-
     fn focus_default_client_view_on_committed(&mut self, committed: &CommittedRemoteCreation) {
-        let mut view = self.default_client_view.clone_reconciled(&self.state);
-        self.focus_view_on_committed(&mut view, committed);
-        self.default_client_view = view;
+        self.with_default_client_view(|app, view| {
+            app.focus_view_on_committed(view, committed);
+        });
     }
 
     fn focus_view_on_committed(
@@ -1986,7 +1866,7 @@ mod placement_creation_tests {
         );
         app.state.workspaces.clear();
         app.state.terminals.clear();
-        app.state.active = None;
+        app.default_client_view.active_workspace = None;
         app
     }
 

@@ -83,11 +83,6 @@ pub(crate) fn navigator_layout(area: Rect) -> Option<NavigatorLayout> {
     })
 }
 
-pub(super) fn render_navigator_overlay(app: &AppState, frame: &mut Frame) {
-    let rows = app.navigator_rows();
-    render_navigator_overlay_from(app, &app.navigator, &rows, app.screen_rect(), frame);
-}
-
 pub(super) fn render_navigator_overlay_for_view(
     app: &AppState,
     view: &ClientViewState,
@@ -667,14 +662,13 @@ mod tests {
     #[test]
     fn client_navigator_detail_uses_the_client_selected_row() {
         let mut app = AppState::test_new();
-        crate::ui::compute_view(&mut app, Rect::new(0, 0, 120, 30));
         app.workspaces = vec![
             Workspace::test_new("app-selected-workspace"),
             Workspace::test_new("client-selected-workspace"),
         ];
-        app.navigator.query = "app-selected".to_string();
 
         let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.terminal_area = Rect::new(0, 0, 120, 30);
         view.navigator.query = "client-selected".to_string();
         let selected = app
             .navigator_rows_for_view(&view, &crate::terminal::TerminalRuntimeRegistry::new())
@@ -715,19 +709,18 @@ mod tests {
         let closed_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let last_pane = workspace.test_split(ratatui::layout::Direction::Horizontal);
         assert!(!workspace.close_pane(closed_pane));
-        workspace
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(last_pane);
         app.workspaces = vec![workspace];
-        app.active = Some(0);
-        app.selected = 0;
         let area = Rect::new(0, 0, 120, 30);
-        crate::ui::compute_view(&mut app, area);
-        app.open_navigator();
 
         let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.terminal_area = area;
+        view.focus_pane_in_workspace(&app, 0, 0, last_pane);
+        view.navigator
+            .expanded_groups
+            .insert(app.groups[0].id.clone());
+        view.navigator
+            .expanded_workspaces
+            .insert(app.workspaces[0].id.clone());
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let selected = app
             .navigator_rows_for_view(&view, &terminal_runtimes)
@@ -762,10 +755,15 @@ mod tests {
         workspace.test_split(ratatui::layout::Direction::Horizontal);
         workspace.test_add_tab(Some("tests"));
         app.workspaces = vec![workspace];
-        app.active = Some(0);
-        app.open_navigator();
-
-        let rows = app.navigator_rows();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.navigator
+            .expanded_groups
+            .insert(app.groups[0].id.clone());
+        view.navigator
+            .expanded_workspaces
+            .insert(app.workspaces[0].id.clone());
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let rows = app.navigator_rows_for_view(&view, &terminal_runtimes);
         let prefixes = rows
             .iter()
             .enumerate()
@@ -784,6 +782,7 @@ mod tests {
     #[test]
     fn navigator_branch_rows_only_show_disclosure_and_group_identity() {
         let app = AppState::test_new();
+        let view = ClientViewState::from_default_client_state(&app);
         let row = NavigatorRow {
             target: NavigatorTarget::Group { group_idx: 0 },
             depth: 0,
@@ -806,7 +805,7 @@ mod tests {
             .draw(|frame| {
                 render_row(
                     &app,
-                    &app.navigator,
+                    &view.navigator,
                     frame,
                     frame.area(),
                     std::slice::from_ref(&row),
@@ -824,6 +823,7 @@ mod tests {
     #[test]
     fn navigator_leaf_workspace_rows_do_not_show_a_disclosure_prefix() {
         let app = AppState::test_new();
+        let view = ClientViewState::from_default_client_state(&app);
         let row = NavigatorRow {
             target: NavigatorTarget::Workspace { ws_idx: 0 },
             depth: 1,
@@ -846,7 +846,7 @@ mod tests {
             .draw(|frame| {
                 render_row(
                     &app,
-                    &app.navigator,
+                    &view.navigator,
                     frame,
                     frame.area(),
                     std::slice::from_ref(&row),
@@ -864,6 +864,7 @@ mod tests {
     #[test]
     fn navigator_leaf_tab_rows_do_not_show_a_disclosure_prefix() {
         let app = AppState::test_new();
+        let view = ClientViewState::from_default_client_state(&app);
         let row = NavigatorRow {
             target: NavigatorTarget::Tab {
                 ws_idx: 0,
@@ -889,7 +890,7 @@ mod tests {
             .draw(|frame| {
                 render_row(
                     &app,
-                    &app.navigator,
+                    &view.navigator,
                     frame,
                     frame.area(),
                     std::slice::from_ref(&row),
@@ -907,6 +908,7 @@ mod tests {
     #[test]
     fn navigator_row_keeps_full_meta_when_the_row_has_room() {
         let app = AppState::test_new();
+        let view = ClientViewState::from_default_client_state(&app);
         let row = NavigatorRow {
             target: NavigatorTarget::Group { group_idx: 0 },
             depth: 0,
@@ -929,7 +931,7 @@ mod tests {
             .draw(|frame| {
                 render_row(
                     &app,
-                    &app.navigator,
+                    &view.navigator,
                     frame,
                     frame.area(),
                     std::slice::from_ref(&row),
@@ -960,9 +962,15 @@ mod tests {
         workspace.test_split(ratatui::layout::Direction::Horizontal);
         workspace.test_add_tab(Some("evaluation"));
         app.workspaces = vec![workspace];
-        app.active = Some(0);
-        app.open_navigator();
-        let rows = app.navigator_rows();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.navigator
+            .expanded_groups
+            .insert(app.groups[0].id.clone());
+        view.navigator
+            .expanded_workspaces
+            .insert(app.workspaces[0].id.clone());
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let rows = app.navigator_rows_for_view(&view, &terminal_runtimes);
 
         let backend = TestBackend::new(80, rows.len() as u16);
         let mut terminal = Terminal::new(backend).expect("test backend");
@@ -971,7 +979,7 @@ mod tests {
                 for idx in 0..rows.len() {
                     render_row(
                         &app,
-                        &app.navigator,
+                        &view.navigator,
                         frame,
                         Rect::new(0, idx as u16, 80, 1),
                         &rows,
@@ -1027,17 +1035,26 @@ mod tests {
         let mut workspace = Workspace::test_new("single");
         workspace.tabs[0].set_custom_name("Baz".into());
         app.workspaces = vec![workspace];
-        app.active = Some(0);
-        app.selected = 0;
         let area = Rect::new(0, 0, 120, 30);
-        crate::ui::compute_view(&mut app, area);
-        app.open_navigator();
-        app.navigator.query = "baz".into();
-        app.select_first_navigator_match();
-
-        let view = ClientViewState::from_default_client_state(&app);
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.terminal_area = area;
+        view.navigator
+            .expanded_groups
+            .insert(app.groups[0].id.clone());
+        view.navigator
+            .expanded_workspaces
+            .insert(app.workspaces[0].id.clone());
+        view.navigator.query = "baz".into();
 
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let selected = app
+            .navigator_rows_for_view(&view, &terminal_runtimes)
+            .iter()
+            .position(|row| row.matched)
+            .expect("matching custom tab");
+        view.navigator.list.select(selected);
+        view.navigator.list.show();
+
         let backend = TestBackend::new(area.width, area.height);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal

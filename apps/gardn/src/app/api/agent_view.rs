@@ -94,10 +94,9 @@ impl App {
         id: String,
         params: AgentViewSetParams,
     ) -> String {
-        let mut view = self.default_client_view.clone_reconciled(&self.state);
-        let response = self.handle_agent_view_set_for_view(&mut view, id, params);
-        self.default_client_view = view;
-        response
+        self.with_default_client_view(|app, view| {
+            app.handle_agent_view_set_for_view(view, id, params)
+        })
     }
 
     pub(super) fn handle_agent_view_clear(
@@ -105,10 +104,9 @@ impl App {
         id: String,
         params: AgentViewClearParams,
     ) -> String {
-        let mut view = self.default_client_view.clone_reconciled(&self.state);
-        let response = self.handle_agent_view_clear_for_view(&mut view, id, params);
-        self.default_client_view = view;
-        response
+        self.with_default_client_view(|app, view| {
+            app.handle_agent_view_clear_for_view(view, id, params)
+        })
     }
 }
 

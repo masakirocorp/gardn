@@ -143,9 +143,6 @@ impl App {
                     ) if selected.as_str() == profile_id
                 )
             };
-            if selected_profile(&self.state.connection_scope) {
-                self.state.connection_scope = crate::app::connection_scope::ConnectionScope::All;
-            }
             if selected_profile(&self.default_client_view.connection_scope) {
                 self.default_client_view.connection_scope =
                     crate::app::connection_scope::ConnectionScope::All;
@@ -222,7 +219,7 @@ impl App {
             return Ok(Some("a terminal"));
         }
         if self
-            .state
+            .default_client_view
             .pending_workspace_create_location
             .as_ref()
             .is_some_and(|location| &location.execution_host_id == host_id)
@@ -430,24 +427,6 @@ impl App {
                 .retain(|tombstone| tombstone.location.execution_host_id != host_id);
         }
 
-        if self
-            .state
-            .pending_workspace_create_location
-            .as_ref()
-            .is_some_and(|location| location.execution_host_id == host_id)
-        {
-            self.state.pending_workspace_create_location = None;
-            self.state.requested_new_workspace_name = None;
-            self.state.name_input.clear();
-            self.state.name_input_replace_on_type = false;
-            if self.state.mode == crate::app::state::Mode::RenameWorkspace {
-                self.state.mode = if self.state.active.is_some() {
-                    crate::app::state::Mode::Terminal
-                } else {
-                    crate::app::state::Mode::Navigate
-                };
-            }
-        }
         if self
             .default_client_view
             .pending_workspace_create_location
@@ -799,7 +778,7 @@ mod tests {
         let profile = profile();
         let host_id = profile.execution_host_id();
         app.state.ssh_connection_profiles = vec![profile];
-        app.state.pending_workspace_create_location =
+        app.default_client_view.pending_workspace_create_location =
             Some(crate::execution_host::ResourceLocation::new(
                 host_id,
                 crate::execution_host::HostPath::new("/srv/work").expect("valid host path"),
@@ -1291,8 +1270,8 @@ mod tests {
         let host_id = profile.execution_host_id();
         app.state.ssh_connection_profiles = vec![profile];
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("retire-ws")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         app.state.ensure_test_terminals();
 
         let remote_location = crate::execution_host::ResourceLocation::new(
@@ -1370,8 +1349,8 @@ mod tests {
             host_id.clone(),
             crate::execution_host::HostPath::new("/srv/pending").expect("path"),
         );
-        app.state.pending_workspace_create_location = Some(pending_location.clone());
-        app.state.mode = crate::app::state::Mode::RenameWorkspace;
+        app.default_client_view.pending_workspace_create_location = Some(pending_location.clone());
+        app.default_client_view.mode = crate::app::state::Mode::RenameWorkspace;
         app.default_client_view.pending_workspace_create_location = Some(pending_location);
         app.default_client_view.active_workspace = Some(0);
         app.default_client_view.mode = crate::app::state::Mode::RenameWorkspace;
@@ -1388,8 +1367,6 @@ mod tests {
         // No tombstones in this pure-state close path.
         assert_eq!(body["result"]["pending_terminations"], 0);
 
-        assert!(app.state.pending_workspace_create_location.is_none());
-        assert_eq!(app.state.mode, crate::app::state::Mode::Terminal);
         assert!(app
             .default_client_view
             .pending_workspace_create_location
@@ -1486,7 +1463,7 @@ mod tests {
         let host_id = profile.execution_host_id();
         app.commit_ssh_connection_profile(profile.clone())
             .expect("persist profile");
-        app.state.pending_workspace_create_location =
+        app.default_client_view.pending_workspace_create_location =
             Some(crate::execution_host::ResourceLocation::new(
                 host_id.clone(),
                 crate::execution_host::HostPath::new("/srv/pending").expect("path"),

@@ -8,8 +8,8 @@ use ratatui::{
 
 use crate::app::{
     agent_profile_picker::{
-        agent_profile_picker_filtered_entries, agent_profile_picker_filtered_entries_for_picker,
-        agent_profile_picker_tab_label, AgentProfilePickerEntry, AGENT_PROFILE_PICKER_TABS,
+        agent_profile_picker_filtered_entries_for_picker, agent_profile_picker_tab_label,
+        AgentProfilePickerEntry, AGENT_PROFILE_PICKER_TABS,
     },
     view_state::ClientViewState,
     AppState,
@@ -80,19 +80,22 @@ pub(crate) fn agent_profile_picker_inner_rect(area: Rect) -> Option<Rect> {
     modal_frame_areas(area, agent_profile_picker_frame_spec(area)).map(|frame| frame.inner)
 }
 
-pub(crate) fn agent_profile_picker_tab_hit_areas(app: &AppState, row: Rect) -> Vec<(usize, Rect)> {
-    let (start, end) = agent_profile_picker_visible_tab_range(app, row.width);
+pub(crate) fn agent_profile_picker_tab_hit_areas_for_view(
+    view: &ClientViewState,
+    row: Rect,
+) -> Vec<(usize, Rect)> {
+    let (start, end) = agent_profile_picker_visible_tab_range_for_view(view, row.width);
     super::modal_tabs::tab_hit_areas(row, start, end, |idx| {
         agent_profile_picker_tab_width(AGENT_PROFILE_PICKER_TABS[idx])
     })
 }
 
-pub(crate) fn agent_profile_picker_tab_chevron_at(
-    app: &AppState,
+pub(crate) fn agent_profile_picker_tab_chevron_at_for_view(
+    view: &ClientViewState,
     row: Rect,
     col: u16,
 ) -> Option<usize> {
-    let (start, end) = agent_profile_picker_visible_tab_range(app, row.width);
+    let (start, end) = agent_profile_picker_visible_tab_range_for_view(view, row.width);
     super::modal_tabs::chevron_tab_at(
         AGENT_PROFILE_PICKER_TABS.len(),
         row,
@@ -103,10 +106,13 @@ pub(crate) fn agent_profile_picker_tab_chevron_at(
     )
 }
 
-fn agent_profile_picker_visible_tab_range(app: &AppState, row_width: u16) -> (usize, usize) {
+fn agent_profile_picker_visible_tab_range_for_view(
+    view: &ClientViewState,
+    row_width: u16,
+) -> (usize, usize) {
     let selected = AGENT_PROFILE_PICKER_TABS
         .iter()
-        .position(|tab| *tab == app.agent_profile_picker.kind_filter)
+        .position(|tab| *tab == view.agent_profile_picker.kind_filter)
         .unwrap_or(0);
     super::modal_tabs::visible_tab_range(
         AGENT_PROFILE_PICKER_TABS.len(),
@@ -146,17 +152,6 @@ fn agent_profile_picker_content_rows(content: Rect) -> [Rect; 9] {
         Constraint::Min(1),
     ])
     .areas::<9>(content)
-}
-
-pub(super) fn render_agent_profile_picker_overlay(app: &AppState, frame: &mut Frame) {
-    let entries = agent_profile_picker_filtered_entries(app);
-    render_agent_profile_picker_overlay_from(
-        app,
-        frame,
-        app.screen_rect(),
-        &app.agent_profile_picker,
-        entries,
-    );
 }
 
 pub(super) fn render_agent_profile_picker_overlay_for_view(
@@ -517,7 +512,6 @@ mod tests {
     #[test]
     fn agent_profile_picker_uses_picker_copy() {
         let mut app = AppState::test_new();
-        app.mode = crate::app::state::Mode::AgentProfilePicker;
         app.groups[0].name = "Work".to_string();
         app.groups[0].icon = "■".to_string();
         app.set_group_accent(0, Some(crate::config::TerminalAccent::Red));
@@ -546,11 +540,14 @@ mod tests {
             .favorite_agent_profile_ids
             .push("user:shell-builtin".to_string());
         app.workspaces = vec![crate::workspace::Workspace::test_new("test")];
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.mode = crate::app::state::Mode::AgentProfilePicker;
+        view.computed.terminal_area = Rect::new(0, 0, 100, 24);
 
         let backend = TestBackend::new(100, 24);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_agent_profile_picker_overlay(&app, frame))
+            .draw(|frame| render_agent_profile_picker_overlay_for_view(&app, &view, frame))
             .expect("render agent picker");
 
         let buffer = terminal.backend().buffer();

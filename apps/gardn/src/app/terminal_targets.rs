@@ -1,4 +1,4 @@
-use super::{api_helpers::pane_agent_status, App};
+use super::{api_helpers::pane_agent_status, App, ClientViewState};
 
 // Staged for #00f: the agent CLI will use this resolver once #00e provides terminal ids.
 #[allow(dead_code)]
@@ -84,14 +84,24 @@ impl App {
         &self,
         target: &str,
     ) -> Result<TerminalTarget, TerminalTargetError> {
+        self.resolve_agent_target_for_view(&self.default_client_view, target)
+    }
+
+    pub(crate) fn resolve_agent_target_for_view(
+        &self,
+        view: &ClientViewState,
+        target: &str,
+    ) -> Result<TerminalTarget, TerminalTargetError> {
         let resolved = self.resolve_terminal_target(target)?;
         let is_agent = self.state.terminals.values().any(|terminal| {
             terminal.id.to_string() == resolved.terminal_id && terminal.is_agent_terminal()
         });
         if is_agent
-            || self
-                .state
-                .is_agent_follow_up(resolved.ws_idx, resolved.pane_id)
+            || self.state.is_agent_follow_up(
+                &view.agent_follow_up,
+                resolved.ws_idx,
+                resolved.pane_id,
+            )
         {
             Ok(resolved)
         } else {

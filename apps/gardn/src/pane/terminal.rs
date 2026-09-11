@@ -131,12 +131,6 @@ impl InputState {
     pub fn sgr_pixels_enabled(self) -> bool {
         self.mouse_reporting_enabled() && self.mouse_sgr_pixels
     }
-
-    pub fn plain_page_keys_use_host_scrollback(self) -> bool {
-        !self.alternate_screen
-            && !self.mouse_reporting_enabled()
-            && (!self.application_cursor || self.bracketed_paste)
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3661,23 +3655,6 @@ mod tests {
             Some(KITTY_GRAPHICS_REDRAW_SETTLE)
         );
         assert_eq!(render_delay_after_pty_write(true, false, true, true), None);
-    }
-
-    #[test]
-    fn plain_page_keys_host_scroll_for_shell_like_decckm_with_bracketed_paste() {
-        assert!(InputState {
-            alternate_screen: false,
-            application_cursor: true,
-            bracketed_paste: true,
-            focus_reporting: false,
-            mouse_protocol_mode: crate::input::MouseProtocolMode::None,
-            mouse_protocol_encoding: crate::input::MouseProtocolEncoding::Default,
-            mouse_alternate_scroll: false,
-            modify_other_keys: false,
-            color_scheme_reporting: false,
-            mouse_sgr_pixels: false,
-        }
-        .plain_page_keys_use_host_scrollback());
     }
 
     #[test]

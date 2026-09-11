@@ -151,10 +151,6 @@ fn git_repo_picker_content_rows(inner: Rect) -> Option<[Rect; 5]> {
     )
 }
 
-pub(crate) fn git_repo_picker_list_geometry(app: &AppState) -> Option<ModalListGeometry> {
-    git_repo_picker_layout(app.screen_rect(), &app.git_repo_picker).map(|layout| layout.list)
-}
-
 pub(crate) fn git_repo_picker_list_geometry_for_view(
     view: &crate::app::view_state::ClientViewState,
 ) -> Option<ModalListGeometry> {
@@ -179,13 +175,6 @@ pub(crate) fn git_repo_picker_index_at_for_view(
     let visual_row = list.hit_visual_row(col, row)?;
     let index = visual_row / 2;
     (index < view.git_repo_picker.roots.len()).then_some(index)
-}
-
-pub(crate) fn git_repo_picker_index_at(app: &AppState, col: u16, row: u16) -> Option<usize> {
-    let layout = git_repo_picker_layout(app.screen_rect(), &app.git_repo_picker)?;
-    let visual_row = layout.list.hit_visual_row(col, row)?;
-    let index = visual_row / 2;
-    (index < app.git_repo_picker.roots.len()).then_some(index)
 }
 
 struct GitRepoPickerLayout {
@@ -213,10 +202,6 @@ fn git_repo_picker_layout(
         content_rows,
         list,
     })
-}
-
-pub(super) fn render_git_repo_picker_overlay(app: &AppState, frame: &mut Frame) {
-    render_git_repo_picker_overlay_with(app, &app.git_repo_picker, app.screen_rect(), frame);
 }
 
 pub(super) fn render_git_repo_picker_overlay_for_view(
@@ -382,10 +367,11 @@ mod tests {
     #[test]
     fn git_repo_picker_hit_test_uses_rendered_repo_row() {
         let mut app = AppState::test_new();
-        crate::ui::compute_view(&mut app, Rect::new(0, 0, 119, 24));
         app.workspaces = vec![crate::workspace::Workspace::test_new("fake mono")];
-        app.git_repo_picker.ws_idx = 0;
-        app.git_repo_picker.roots = vec![
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.terminal_area = Rect::new(0, 0, 119, 24);
+        view.git_repo_picker.ws_idx = 0;
+        view.git_repo_picker.roots = vec![
             std::path::PathBuf::from("/tmp/fake-mono/api"),
             std::path::PathBuf::from("/tmp/fake-mono/web"),
         ];
@@ -393,7 +379,7 @@ mod tests {
         let backend = TestBackend::new(119, 24);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_git_repo_picker_overlay(&app, frame))
+            .draw(|frame| render_git_repo_picker_overlay_for_view(&app, &view, frame))
             .expect("render git repo picker");
         let buffer = terminal.backend().buffer();
         let (web_x, web_y) = (0..24)
@@ -408,7 +394,13 @@ mod tests {
             })
             .expect("rendered repo");
 
-        assert_eq!(git_repo_picker_index_at(&app, web_x, web_y), Some(1));
-        assert_eq!(git_repo_picker_index_at(&app, web_x, web_y + 1), Some(1));
+        assert_eq!(
+            git_repo_picker_index_at_for_view(&view, web_x, web_y),
+            Some(1)
+        );
+        assert_eq!(
+            git_repo_picker_index_at_for_view(&view, web_x, web_y + 1),
+            Some(1)
+        );
     }
 }

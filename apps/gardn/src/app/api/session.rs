@@ -5,38 +5,39 @@ use super::responses::encode_success;
 
 impl App {
     pub(super) fn handle_session_snapshot(&mut self, id: String) -> String {
-        encode_success(
-            id,
-            ResponseResult::SessionSnapshot {
-                snapshot: Box::new(self.session_snapshot()),
-            },
-        )
+        self.with_default_client_view(|app, view| {
+            encode_success(
+                id,
+                ResponseResult::SessionSnapshot {
+                    snapshot: Box::new(app.session_snapshot_for_view(view)),
+                },
+            )
+        })
     }
 
-    fn session_snapshot(&self) -> SessionSnapshot {
-        let focused_workspace_id = self
-            .state
-            .active
+    fn session_snapshot_for_view(&self, view: &crate::app::ClientViewState) -> SessionSnapshot {
+        let focused_workspace_id = view
+            .active_workspace
             .map(|ws_idx| self.public_workspace_id(ws_idx));
-        let focused_tab_id = self.state.active.and_then(|ws_idx| {
-            let ws = self.state.workspaces.get(ws_idx)?;
-            self.public_tab_id(ws_idx, ws.active_tab)
+        let focused_tab_id = view.active_workspace.and_then(|ws_idx| {
+            let tab_idx = view.active_tab_index_for_workspace(&self.state, ws_idx)?;
+            self.public_tab_id(ws_idx, tab_idx)
         });
-        let focused_pane_id = self.state.active.and_then(|ws_idx| {
-            let ws = self.state.workspaces.get(ws_idx)?;
-            self.public_pane_id(ws_idx, ws.focused_pane_id()?)
+        let focused_pane_id = view.active_workspace.and_then(|ws_idx| {
+            let (_, pane_id) = view.focused_pane_for_workspace(&self.state, ws_idx)?;
+            self.public_pane_id(ws_idx, pane_id)
         });
 
         let mut workspaces = Vec::new();
         let mut tabs = Vec::new();
         let mut layouts = Vec::new();
         for (ws_idx, ws) in self.state.workspaces.iter().enumerate() {
-            workspaces.push(self.workspace_info(ws_idx));
+            workspaces.push(self.workspace_info_for_view(view, ws_idx));
             for tab_idx in 0..ws.tabs.len() {
-                if let Some(tab) = self.tab_info(ws_idx, tab_idx) {
+                if let Some(tab) = self.tab_info_for_view(view, ws_idx, tab_idx) {
                     tabs.push(tab);
                 }
-                if let Some(layout) = self.pane_layout_snapshot(ws_idx, tab_idx) {
+                if let Some(layout) = self.pane_layout_snapshot_for_view(view, ws_idx, tab_idx) {
                     layouts.push(layout);
                 }
             }
@@ -50,7 +51,9 @@ impl App {
             focused_pane_id,
             workspaces,
             tabs,
-            panes: self.collect_panes_for_workspace(None).unwrap_or_default(),
+            panes: self
+                .collect_panes_for_workspace_for_view(view, None)
+                .unwrap_or_default(),
             layouts,
             agents: self.collect_agent_infos(),
         }
@@ -75,7 +78,8 @@ mod tests {
         workspace.test_add_tab(None);
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
+        app.default_client_view
+            .focus_tab_in_workspace(&app.state, 0, 0);
         app
     }
 

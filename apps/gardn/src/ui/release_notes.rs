@@ -22,10 +22,6 @@ pub(crate) const PRODUCT_ANNOUNCEMENT_MODAL_SIZE: (u16, u16) = (88, 24);
 const PRODUCT_ANNOUNCEMENT_HINTS: &[(&str, &str)] =
     &[("Scroll", "Wheel ↑↓"), ("Close", "Esc / Enter")];
 
-pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_release_notes_overlay_with(app, app.release_notes.as_ref(), frame, area);
-}
-
 pub(super) fn render_release_notes_overlay_for_view(
     app: &AppState,
     client_view: &crate::app::ClientViewState,
@@ -117,10 +113,6 @@ fn render_release_notes_overlay_with(
     }
 
     render_modal_scroll_hints(frame, stack.footer.unwrap_or_default(), &app.palette);
-}
-
-pub(super) fn render_product_announcement_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
-    render_product_announcement_overlay_with(app, app.product_announcement.as_ref(), frame, area);
 }
 
 pub(super) fn render_product_announcement_overlay_for_view(

@@ -669,13 +669,15 @@ impl HeadlessServer {
         let canvas_size = key
             .as_ref()
             .and_then(|key| self.tab_controls.canvas_size(key));
-        if let Some(view) = self
-            .clients
-            .get_mut(&client_id)
-            .and_then(|client| client.view_state.as_mut())
-        {
-            view.set_tab_control(projection);
-            view.tab_canvas_size = canvas_size;
+        if let Some(client) = self.clients.get_mut(&client_id) {
+            let previous = client.tab_context.control;
+            client.tab_context = crate::app::ClientTabContext {
+                control: projection,
+                canvas_size,
+            };
+            if let Some(view) = client.view_state.as_mut() {
+                view.reconcile_tab_control(previous, projection);
+            }
         }
     }
 
@@ -727,12 +729,13 @@ impl HeadlessServer {
         };
         let (cols, rows) = client.terminal_size;
         let cell_size = client.cell_size;
-        crate::ui::compute_view_for_client_with_cell_size(
+        crate::ui::compute_view(
             &self.app.state,
             &mut view,
             &self.app.terminal_runtimes,
             Rect::new(0, 0, cols, rows),
             cell_size,
+            crate::ui::PaneResizeAuthority::Granted,
         );
         let canvas_size = (
             view.computed.terminal_area.width,
@@ -842,14 +845,17 @@ impl HeadlessServer {
             .as_deref()
             .unwrap_or(&self.server_keybindings)
             .clone();
-        let view_state = client.view_state.clone();
 
         self.effective_size = terminal_size;
         self.app.state.outer_terminal_focus = outer_terminal_focus;
         apply_keybindings(&mut self.app, &keybindings);
         self.sync_visible_server_config_diagnostic(uses_local_keybindings);
         if outer_terminal_focus != Some(false) {
-            if let Some(view) = view_state.as_ref() {
+            if let Some(view) = self
+                .clients
+                .get_mut(&client_id)
+                .and_then(|client| client.view_state.as_mut())
+            {
                 self.app.state.mark_active_tab_seen_for_view(view);
             }
         }
@@ -928,7 +934,7 @@ impl HeadlessServer {
             &self.app.state.terminals,
             &self.app.terminal_runtimes,
             &default_view,
-            &self.app.state.agent_follow_up,
+            &default_view.agent_follow_up,
         );
         snapshot.pane_id_aliases = self
             .app
@@ -1204,15 +1210,7 @@ impl HeadlessServer {
         let Some(workspace) = self.app.state.workspaces.get(ws_idx) else {
             return false;
         };
-        let Some(tab_idx) = view
-            .active_tab_index_for_workspace(&self.app.state, ws_idx)
-            .or_else(|| {
-                workspace
-                    .tabs
-                    .get(workspace.active_tab_index())
-                    .map(|_| workspace.active_tab_index())
-            })
-        else {
+        let Some(tab_idx) = view.active_tab_index_for_workspace(&self.app.state, ws_idx) else {
             return false;
         };
         let Ok(tab) = workspace.terminal_tab(tab_idx) else {
@@ -1221,11 +1219,12 @@ impl HeadlessServer {
         if !tab.panes.contains_key(&pane_id) {
             return false;
         }
-        if !tab.zoomed {
+        if !view.tab_is_zoomed(&workspace.id, tab.number) {
             return true;
         }
         view.focused_pane_for_tab(&workspace.id, tab.number)
-            .unwrap_or_else(|| tab.layout.focused())
+            .filter(|focused| tab.panes.contains_key(focused))
+            .unwrap_or(tab.root_pane)
             == pane_id
     }
 
@@ -1438,16 +1437,36 @@ impl HeadlessServer {
             }
             return true;
         }
-        let result = if let Some(ws_idx) = target_workspace {
+        let foreground_view = self
+            .foreground_client_id
+            .and_then(|id| self.clients.get_mut(&id))
+            .and_then(|client| client.view_state.as_mut());
+        let result = if let Some(view) = foreground_view {
+            if let Some(ws_idx) = target_workspace {
+                self.app.state.open_project_command_for_workspace(
+                    view,
+                    &mut self.app.terminal_runtimes,
+                    ws_idx,
+                    kind,
+                )
+            } else {
+                self.app
+                    .state
+                    .open_project_command(view, &mut self.app.terminal_runtimes, kind)
+            }
+        } else if let Some(ws_idx) = target_workspace {
             self.app.state.open_project_command_for_workspace(
+                &mut self.app.default_client_view,
                 &mut self.app.terminal_runtimes,
                 ws_idx,
                 kind,
             )
         } else {
-            self.app
-                .state
-                .open_project_command(&mut self.app.terminal_runtimes, kind)
+            self.app.state.open_project_command(
+                &mut self.app.default_client_view,
+                &mut self.app.terminal_runtimes,
+                kind,
+            )
         };
         if let Err(err) = result {
             self.app.state.toast = Some(app::state::ToastNotification {
@@ -1775,13 +1794,19 @@ impl HeadlessServer {
         if let Some(client) = self.clients.get_mut(&client_id) {
             client.request_semantic_redraw_after_input();
         }
+        let tab_context = self
+            .clients
+            .get(&client_id)
+            .map(|client| client.tab_context)
+            .unwrap_or_default();
         if let Some(mut view_state) = self
             .clients
             .get_mut(&client_id)
             .and_then(|client| client.view_state.take())
         {
-            self.app.route_client_events_for_view(
+            self.app.route_client_events_for_view_with_tab_context(
                 &mut view_state,
+                tab_context,
                 vec![crate::raw_input::RawInputEvent::Paste(path)],
                 true,
             );
@@ -2949,7 +2974,7 @@ impl HeadlessServer {
                     .get(&client_id)
                     .and_then(|client| client.view_state.as_ref())
                     .map(|view| view.mode)
-                    .unwrap_or(self.app.state.mode);
+                    .unwrap_or(self.app.default_client_view.mode);
                 let render_neutral_mouse_motion =
                     events_are_render_neutral_mouse_motion(&events, motion_mode);
                 let foreground_changed = if interaction {
@@ -2966,9 +2991,11 @@ impl HeadlessServer {
                     .is_some_and(|client| client.view_state.is_some())
                 {
                     if let Some(client) = self.clients.get_mut(&client_id) {
+                        let tab_context = client.tab_context;
                         if let Some(view_state) = client.view_state.as_mut() {
-                            self.app.route_client_events_for_view(
+                            self.app.route_client_events_for_view_with_tab_context(
                                 view_state,
+                                tab_context,
                                 events,
                                 apply_host_terminal_theme,
                             );
@@ -3094,7 +3121,7 @@ impl HeadlessServer {
                     .get(&client_id)
                     .and_then(|client| client.view_state.as_ref())
                     .map(|view| view.mode)
-                    .unwrap_or(self.app.state.mode);
+                    .unwrap_or(self.app.default_client_view.mode);
                 let render_neutral_mouse_motion =
                     events_are_render_neutral_mouse_motion(&events, motion_mode);
                 let foreground_changed = if interaction {
@@ -3111,9 +3138,11 @@ impl HeadlessServer {
                     .is_some_and(|client| client.view_state.is_some())
                 {
                     if let Some(client) = self.clients.get_mut(&client_id) {
+                        let tab_context = client.tab_context;
                         if let Some(view_state) = client.view_state.as_mut() {
-                            self.app.route_client_events_for_view(
+                            self.app.route_client_events_for_view_with_tab_context(
                                 view_state,
+                                tab_context,
                                 events,
                                 apply_host_terminal_theme,
                             );
@@ -3859,8 +3888,9 @@ impl HeadlessServer {
             let (cols, rows) = self.effective_size;
             let area = Rect::new(0, 0, cols, rows);
             let resize_panes = false;
-            let _ = crate::server::render_stream::render_virtual_with_runtime_registry(
+            let _ = crate::server::render_stream::render_virtual_for_client_view(
                 &mut self.app.state,
+                &mut self.app.default_client_view,
                 &self.app.terminal_runtimes,
                 area,
                 resize_panes,
@@ -3891,12 +3921,14 @@ impl HeadlessServer {
                     let Some(view_state) = client.view_state.as_mut() else {
                         continue;
                     };
-                    let resize_controlled_tab = view_state.tab_control.can_mutate_tab();
+                    let tab_context = client.tab_context;
+                    let resize_controlled_tab = tab_context.control.can_mutate_tab();
                     let (buffer, cursor, hyperlinks) =
-                        crate::server::render_stream::render_virtual_for_client_view(
+                        crate::server::render_stream::render_virtual_for_client_view_with_tab_context(
                             &mut self.app.state,
                             view_state,
                             &self.app.terminal_runtimes,
+                            tab_context,
                             area,
                             resize_controlled_tab,
                             render_cell_size,
@@ -4076,7 +4108,13 @@ impl HeadlessServer {
         }
 
         if now >= self.app.next_command_scan {
+            let view = self
+                .foreground_client_id
+                .and_then(|id| self.clients.get(&id))
+                .and_then(|client| client.view_state.as_ref())
+                .unwrap_or(&self.app.default_client_view);
             changed |= self.app.state.refresh_command_catalog_with_hosts(
+                view,
                 &self.app.terminal_runtimes,
                 self.app.execution_hosts.as_mut(),
             );
@@ -4636,7 +4674,7 @@ mod tests {
     use crate::server::clients::{ClientConnection, ClientConnectionMode};
     use std::time::Duration;
 
-    use crate::app::AppState;
+    use crate::app::{AppState, ClientViewState};
     use crate::protocol::CursorState;
     use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -4705,6 +4743,24 @@ mod tests {
             server_event_rx,
             server_event_tx,
         }
+    }
+
+    fn render_test_client(
+        state: &mut AppState,
+        view: &mut ClientViewState,
+        area: Rect,
+        resize_panes: bool,
+    ) -> (ratatui::buffer::Buffer, Option<CursorState>) {
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        let (buffer, cursor, _) = crate::server::render_stream::render_virtual_for_client_view(
+            state,
+            view,
+            &terminal_runtimes,
+            area,
+            resize_panes,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        (buffer, cursor)
     }
 
     #[tokio::test]
@@ -4898,9 +4954,11 @@ mod tests {
         let background_tab = workspace.test_add_tab(Some("background"));
         let background_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view =
+            ClientViewState::from_default_client_state(&server.app.state);
 
         for (index, &terminal_size) in client_sizes.iter().enumerate() {
             let client_id = index as u64 + 1;
@@ -4943,9 +5001,13 @@ mod tests {
         assert!(!server.pty_sources_visible_to_any_render_target(&sources));
 
         let workspace_id = server.app.state.workspaces[0].id.clone();
+        let background_tab_number = server.app.state.workspaces[0]
+            .public_tab_number_for_pane(background_pane)
+            .expect("background tab should have a public number");
         for client in server.clients.values_mut() {
             if let Some(view) = client.view_state.as_mut() {
-                view.active_tabs.insert(workspace_id.clone(), 1);
+                view.active_tabs
+                    .insert(workspace_id.clone(), background_tab_number);
             }
         }
         assert!(server.pty_sources_visible_to_any_render_target(&sources));
@@ -4958,6 +5020,9 @@ mod tests {
         let workspace_id = workspace.id.clone();
         let background_tab = workspace.test_add_tab(Some("background"));
         let background_pane = workspace.terminal_tab(background_tab).unwrap().root_pane;
+        let background_tab_number = workspace
+            .public_tab_number(background_tab)
+            .expect("background tab should have a public number");
         workspace
             .terminal_tab_mut(background_tab)
             .unwrap()
@@ -4967,9 +5032,9 @@ mod tests {
                 crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"before"),
             );
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let (client_tx, _client_control_rx, client_rx) = test_client_writer();
         let mut client = ClientConnection::new(
@@ -5003,13 +5068,12 @@ mod tests {
         assert!(!server.pty_sources_visible_to_any_render_target(&request.pty_sources));
         assert!(client_rx.recv_timeout(Duration::from_millis(50)).is_err());
 
-        server.app.state.workspaces[0].switch_tab(background_tab);
         if let Some(view) = server
             .clients
             .get_mut(&1)
             .and_then(|client| client.view_state.as_mut())
         {
-            view.active_tabs.insert(workspace_id, background_tab);
+            view.active_tabs.insert(workspace_id, background_tab_number);
         }
         server.render_and_stream();
         let visible_frame = match read_server_message(
@@ -5055,9 +5119,9 @@ mod tests {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
         server.app.state.ensure_test_terminals();
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
         let (client_tx, _client_control_rx, client_rx) = test_client_writer();
 
         server.clients.insert(
@@ -5132,9 +5196,9 @@ mod tests {
             );
         workspace.insert_test_runtime(pane_id, runtime);
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
         input_rx
     }
 
@@ -5154,9 +5218,9 @@ mod tests {
     async fn removing_client_preserves_github_tab_for_reattach() {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("workspace")];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
         let workspace_id = server.app.state.workspaces[0].id.clone();
         let mut view = crate::app::ClientViewState::from_default_client_state(&server.app.state);
         server.app.open_github_for_view(&mut view);
@@ -5181,7 +5245,7 @@ mod tests {
         assert!(server.app.state.workspaces[0].tabs[github_tab].is_github());
         let mut reattached =
             crate::app::ClientViewState::from_default_client_state(&server.app.state);
-        reattached.active_tabs.insert(workspace_id, github_tab);
+        reattached.active_tabs.insert(workspace_id, github_number);
         assert!(server.app.pump_github_for_view(&mut reattached));
         assert!(reattached.focused_tab_is_github(&server.app.state));
         assert!(reattached.github.is_some());
@@ -5191,9 +5255,9 @@ mod tests {
     async fn headless_server_processes_command_palette_agent_profile_request() {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = app::state::Mode::CommandPalette;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = app::state::Mode::CommandPalette;
         server.app.state.agent_profiles = crate::agent_profiles::AgentProfileCatalog::from_config(
             &crate::agent_profiles::AgentProfilesConfig {
                 order: vec!["user:shell-builtin".to_string()],
@@ -5216,7 +5280,7 @@ mod tests {
                 path: std::path::PathBuf::from("/tmp/gardn-test-omp"),
                 state: crate::integration::IntegrationStatusKind::Current,
             }];
-        server.app.state.command_palette.query = "new agent".to_string();
+        server.app.default_client_view.command_palette.query = "new agent".to_string();
 
         server.app.route_client_events(
             vec![crate::raw_input::RawInputEvent::Key(
@@ -5228,8 +5292,14 @@ mod tests {
             )],
             true,
         );
-        assert_eq!(server.app.state.mode, app::state::Mode::AgentProfilePicker);
-        assert_eq!(server.app.state.agent_profile_picker.ws_idx, 0);
+        assert_eq!(
+            server.app.default_client_view.mode,
+            app::state::Mode::AgentProfilePicker
+        );
+        assert_eq!(
+            server.app.default_client_view.agent_profile_picker.ws_idx,
+            0
+        );
 
         server.app.route_client_events(
             vec![crate::raw_input::RawInputEvent::Key(
@@ -5323,8 +5393,8 @@ mod tests {
         .unwrap();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("web")];
         server.app.state.ensure_test_terminals();
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
         let root_pane = server.app.state.workspaces[0]
             .terminal_tab(0)
             .unwrap()
@@ -5421,10 +5491,11 @@ mod tests {
     #[test]
     fn each_new_client_starts_with_the_configured_sidebar_overview() {
         let mut server = test_headless_server();
-        server.app.state.group_filter_enabled = true;
-        server.app.state.sidebar_collapsed = true;
-        server.app.state.right_sidebar_collapsed = true;
-        server.app.state.agent_panel_scope = crate::app::state::AgentPanelScope::CurrentWorkspace;
+        server.app.default_client_view.group_filter_enabled = true;
+        server.app.default_client_view.sidebar_collapsed = true;
+        server.app.default_client_view.right_sidebar_collapsed = true;
+        server.app.default_client_view.agent_panel_scope =
+            crate::app::state::AgentPanelScope::CurrentWorkspace;
         let (writer_a, _control_a, _render_a) = test_client_writer();
         let (writer_b, _control_b, _render_b) = test_client_writer();
 
@@ -5641,14 +5712,14 @@ next_tab = ""
             direct_graphics: false,
             writer,
         }));
-        server.app.state.mode = crate::app::Mode::Settings;
-        server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
-        server.app.state.settings.list.selected = 0;
-        server.app.state.settings.list.show();
         if let Some(client) = server.clients.get_mut(&1) {
-            client.view_state = Some(crate::app::ClientViewState::from_default_client_state(
-                &server.app.state,
-            ));
+            let mut view =
+                crate::app::ClientViewState::from_default_client_state(&server.app.state);
+            view.mode = crate::app::Mode::Settings;
+            view.settings.section = crate::app::state::SettingsSection::Toast;
+            view.settings.list.selected = 0;
+            view.settings.list.show();
+            client.view_state = Some(view);
         }
 
         assert!(server.handle_server_event(ServerEvent::ClientInput {
@@ -5768,9 +5839,9 @@ next_tab = ""
             direct_graphics: false,
             writer: writer_a,
         }));
-        server.app.state.mode = crate::app::Mode::Settings;
-        server.app.state.settings.section = crate::app::state::SettingsSection::Toast;
-        server.app.state.settings.list.selected = 1;
+        server.app.default_client_view.mode = crate::app::Mode::Settings;
+        server.app.default_client_view.settings.section = crate::app::state::SettingsSection::Toast;
+        server.app.default_client_view.settings.list.selected = 1;
         if let Some(client) = server.clients.get_mut(&1) {
             client.view_state = Some(crate::app::ClientViewState::from_default_client_state(
                 &server.app.state,
@@ -6315,8 +6386,8 @@ next_tab = ""
     fn virtual_render_produces_nonempty_buffer() {
         let mut state = AppState::test_new();
         let area = Rect::new(0, 0, 80, 24);
-        let (buffer, _cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let (buffer, _cursor) = render_test_client(&mut state, &mut view, area, true);
         assert_eq!(buffer.area.width, 80);
         assert_eq!(buffer.area.height, 24);
     }
@@ -6325,8 +6396,8 @@ next_tab = ""
     fn virtual_render_without_frame_cursor_keeps_cursor_hidden() {
         let mut state = AppState::test_new();
         let area = Rect::new(0, 0, 80, 24);
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
 
         assert_eq!(cursor, None);
     }
@@ -6342,15 +6413,12 @@ next_tab = ""
         );
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let area = Rect::new(0, 0, 80, 24);
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
-        let pane = state
-            .view
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
+        let pane = view
+            .computed
             .pane_infos
             .iter()
             .find(|info| info.id == pane_id)
@@ -6359,8 +6427,8 @@ next_tab = ""
         assert_eq!(
             cursor,
             Some(CursorState {
-                x: pane.inner_rect.x + 4,
-                y: pane.inner_rect.y,
+                x: view.computed.terminal_area.x + pane.inner_rect.x + 4,
+                y: view.computed.terminal_area.y + pane.inner_rect.y,
                 visible: true,
                 shape: cursor.as_ref().map(|c| c.shape).unwrap_or(0),
             })
@@ -6378,15 +6446,12 @@ next_tab = ""
         );
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let area = Rect::new(0, 0, 80, 24);
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
-        let pane = state
-            .view
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
+        let pane = view
+            .computed
             .pane_infos
             .iter()
             .find(|info| info.id == pane_id)
@@ -6395,8 +6460,8 @@ next_tab = ""
         assert_eq!(
             cursor,
             Some(CursorState {
-                x: pane.inner_rect.x + 4,
-                y: pane.inner_rect.y,
+                x: view.computed.terminal_area.x + pane.inner_rect.x + 4,
+                y: view.computed.terminal_area.y + pane.inner_rect.y,
                 visible: false,
                 shape: cursor.as_ref().map(|c| c.shape).unwrap_or(0),
             })
@@ -6415,15 +6480,12 @@ next_tab = ""
         );
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let area = Rect::new(0, 0, 80, 24);
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
-        let pane = state
-            .view
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
+        let pane = view
+            .computed
             .pane_infos
             .iter()
             .find(|info| info.id == pane_id)
@@ -6432,8 +6494,8 @@ next_tab = ""
         assert_eq!(
             cursor,
             Some(CursorState {
-                x: pane.inner_rect.x + 4,
-                y: pane.inner_rect.y,
+                x: view.computed.terminal_area.x + pane.inner_rect.x + 4,
+                y: view.computed.terminal_area.y + pane.inner_rect.y,
                 visible: true,
                 shape: state.cjk_ime_cursor_shape,
             })
@@ -6456,12 +6518,10 @@ next_tab = ""
         ws.insert_test_runtime(pane_id, runtime);
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let area = Rect::new(0, 0, 80, 24);
-        let _ = crate::server::render_stream::render_virtual(&mut state, area, true);
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let _ = render_test_client(&mut state, &mut view, area, true);
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let runtime = state
             .runtime_for_pane(&terminal_runtimes, pane_id)
@@ -6469,8 +6529,7 @@ next_tab = ""
         runtime.scroll_up(6);
         assert!(crate::ui::pane_is_scrolled_back(runtime));
 
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
 
         assert!(
             cursor.as_ref().is_none_or(|cursor| !cursor.visible),
@@ -6492,15 +6551,12 @@ next_tab = ""
         );
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let area = Rect::new(0, 0, 80, 24);
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
-        let pane = state
-            .view
+        let mut view = ClientViewState::from_default_client_state(&state);
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
+        let pane = view
+            .computed
             .pane_infos
             .iter()
             .find(|info| info.id == pane_id)
@@ -6509,8 +6565,8 @@ next_tab = ""
         assert_eq!(
             cursor,
             Some(CursorState {
-                x: pane.inner_rect.x,
-                y: pane.inner_rect.y,
+                x: view.computed.terminal_area.x + pane.inner_rect.x,
+                y: view.computed.terminal_area.y + pane.inner_rect.y,
                 visible: true,
                 shape: state.cjk_ime_cursor_shape,
             }),
@@ -6534,13 +6590,13 @@ next_tab = ""
         );
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let area = Rect::new(0, 0, 80, 24);
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(0);
+        view.selected_workspace = 0;
+        view.mode = crate::app::Mode::Terminal;
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
 
         assert!(
             cursor.as_ref().is_none_or(|cursor| !cursor.visible),
@@ -6562,13 +6618,13 @@ next_tab = ""
         );
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let area = Rect::new(0, 0, 80, 24);
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(0);
+        view.selected_workspace = 0;
+        view.mode = crate::app::Mode::Terminal;
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
 
         assert!(
             cursor.as_ref().is_none_or(|cursor| !cursor.visible),
@@ -6587,13 +6643,13 @@ next_tab = ""
         );
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Navigate;
 
         let area = Rect::new(0, 0, 44, 24);
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(0);
+        view.selected_workspace = 0;
+        view.mode = crate::app::Mode::Navigate;
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
 
         assert_eq!(cursor, None);
     }
@@ -6612,12 +6668,13 @@ next_tab = ""
         ws.insert_test_runtime(pane_id, runtime);
 
         state.workspaces = vec![ws];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = crate::app::Mode::Terminal;
 
         let area = Rect::new(0, 0, 80, 24);
-        let _ = crate::server::render_stream::render_virtual(&mut state, area, true);
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(0);
+        view.selected_workspace = 0;
+        view.mode = crate::app::Mode::Terminal;
+        let _ = render_test_client(&mut state, &mut view, area, true);
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let runtime = state
             .runtime_for_pane(&terminal_runtimes, pane_id)
@@ -6625,8 +6682,7 @@ next_tab = ""
         runtime.scroll_up(6);
         assert!(crate::ui::pane_is_scrolled_back(runtime));
 
-        let (_buffer, cursor) =
-            crate::server::render_stream::render_virtual(&mut state, area, true);
+        let (_buffer, cursor) = render_test_client(&mut state, &mut view, area, true);
 
         assert!(
             cursor.as_ref().is_none_or(|cursor| !cursor.visible),
@@ -6829,9 +6885,9 @@ next_tab = ""
     fn render_and_stream_uses_each_client_terminal_size() {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let (desktop_tx, _desktop_control_rx, desktop_rx) = test_client_writer();
         let (phone_tx, _phone_control_rx, phone_rx) = test_client_writer();
@@ -6893,12 +6949,13 @@ next_tab = ""
             .terminal_id(restored_pane)
             .cloned()
             .expect("restored pane should have terminal");
-        workspace.active_tab = 0;
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
         server.app.state.ensure_test_terminals();
+        server.app.default_client_view =
+            ClientViewState::from_default_client_state(&server.app.state);
         server.app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
             foreground: Some(crate::terminal_theme::RgbColor {
                 r: 220,
@@ -6940,9 +6997,13 @@ next_tab = ""
             RenderEncoding::SemanticFrame,
             Some(client_tx),
         );
-        let mut client_view =
-            crate::app::ClientViewState::from_default_client_state(&server.app.state);
-        client_view.active_tabs.insert(workspace_id, restored_tab);
+        let restored_tab_number = server.app.state.workspaces[0]
+            .public_tab_number(restored_tab)
+            .expect("restored tab should have a public number");
+        let mut client_view = ClientViewState::from_default_client_state(&server.app.state);
+        client_view
+            .active_tabs
+            .insert(workspace_id.clone(), restored_tab_number);
         client.view_state = Some(client_view);
         server.clients.insert(1, client);
         server.foreground_client_id = Some(1);
@@ -6972,8 +7033,12 @@ next_tab = ""
             "started native-agent resume should clear the pending plan"
         );
         assert_eq!(
-            server.app.state.workspaces[0].active_tab, 0,
-            "client-visible resume should not steal the shared app tab focus"
+            server
+                .app
+                .default_client_view
+                .active_tab_index_for_workspace(&server.app.state, 0),
+            Some(0),
+            "client-visible resume should not steal the default client tab focus"
         );
 
         for (_, runtime) in server.app.terminal_runtimes.drain() {
@@ -6985,9 +7050,9 @@ next_tab = ""
     fn accepted_app_client_gets_view_state_and_first_frame() {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let (writer, _control_rx, render_rx) = test_client_writer();
 
@@ -7038,11 +7103,11 @@ next_tab = ""
 
         server.app.state.groups = vec![workspace_group, empty_group];
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.active_group = 0;
-        server.app.state.group_filter_enabled = true;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.active_group = 0;
+        server.app.default_client_view.group_filter_enabled = true;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let (a_tx, _a_control_rx, a_render_rx) = test_client_writer();
         let (b_tx, _b_control_rx, b_render_rx) = test_client_writer();
@@ -7129,9 +7194,9 @@ next_tab = ""
                 crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b""),
             );
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         server.clients.insert(
             1,
@@ -7190,9 +7255,9 @@ next_tab = ""
             .runtimes
             .insert(pane_id, runtime);
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let mut first = test_app_client(None, 1);
         first.terminal_size = (120, 40);
@@ -7209,26 +7274,15 @@ next_tab = ""
 
         assert!(server.reconcile_client_tab_control(1));
         assert!(matches!(
-            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            server.clients[&1].tab_context.control,
             crate::app::ClientTabControl::Controlling { .. }
         ));
         assert!(matches!(
-            server.clients[&2].view_state.as_ref().unwrap().tab_control,
+            server.clients[&2].tab_context.control,
             crate::app::ClientTabControl::WatchingControlled { .. }
         ));
-        let first_canvas = server.clients[&1]
-            .view_state
-            .as_ref()
-            .unwrap()
-            .tab_canvas_size;
-        assert_eq!(
-            server.clients[&2]
-                .view_state
-                .as_ref()
-                .unwrap()
-                .tab_canvas_size,
-            first_canvas
-        );
+        let first_canvas = server.clients[&1].tab_context.canvas_size;
+        assert_eq!(server.clients[&2].tab_context.canvas_size, first_canvas);
         let first_size = server
             .app
             .state
@@ -7262,6 +7316,7 @@ next_tab = ""
             "a watcher must not write input to the shared PTY"
         );
 
+        let second_projection = server.clients[&2].tab_context.control;
         server
             .clients
             .get_mut(&2)
@@ -7269,30 +7324,19 @@ next_tab = ""
             .view_state
             .as_mut()
             .unwrap()
-            .request_tab_control();
+            .request_tab_control(second_projection);
         assert!(server.reconcile_client_tab_control(2));
         assert!(matches!(
-            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            server.clients[&1].tab_context.control,
             crate::app::ClientTabControl::WatchingControlled { .. }
         ));
         assert!(matches!(
-            server.clients[&2].view_state.as_ref().unwrap().tab_control,
+            server.clients[&2].tab_context.control,
             crate::app::ClientTabControl::Controlling { .. }
         ));
-        let second_canvas = server.clients[&2]
-            .view_state
-            .as_ref()
-            .unwrap()
-            .tab_canvas_size;
+        let second_canvas = server.clients[&2].tab_context.canvas_size;
         assert_ne!(second_canvas, first_canvas);
-        assert_eq!(
-            server.clients[&1]
-                .view_state
-                .as_ref()
-                .unwrap()
-                .tab_canvas_size,
-            second_canvas
-        );
+        assert_eq!(server.clients[&1].tab_context.canvas_size, second_canvas);
         let second_size = server
             .app
             .state
@@ -7309,7 +7353,7 @@ next_tab = ""
 
         server.remove_client(2);
         assert!(matches!(
-            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            server.clients[&1].tab_context.control,
             crate::app::ClientTabControl::WatchingFree { .. }
         ));
         assert!(
@@ -7317,9 +7361,10 @@ next_tab = ""
             "a watcher must not be promoted merely because the tab became free"
         );
         assert!(matches!(
-            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            server.clients[&1].tab_context.control,
             crate::app::ClientTabControl::WatchingFree { .. }
         ));
+        let first_projection = server.clients[&1].tab_context.control;
         server
             .clients
             .get_mut(&1)
@@ -7327,10 +7372,10 @@ next_tab = ""
             .view_state
             .as_mut()
             .unwrap()
-            .request_tab_control();
+            .request_tab_control(first_projection);
         assert!(server.reconcile_client_tab_control(1));
         assert!(matches!(
-            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            server.clients[&1].tab_context.control,
             crate::app::ClientTabControl::Controlling { .. }
         ));
         assert_eq!(
@@ -7351,9 +7396,9 @@ next_tab = ""
         workspace.test_add_tab(Some("logs"));
         server.app.state.workspaces = vec![workspace];
         server.app.state.ensure_test_terminals();
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let mut client = test_app_client(Some(true), 1);
         client.view_state = Some(crate::app::ClientViewState::from_default_client_state(
@@ -7363,7 +7408,7 @@ next_tab = ""
         server.foreground_client_id = Some(1);
         assert!(server.reconcile_client_tab_control(1));
         assert!(matches!(
-            server.clients[&1].view_state.as_ref().unwrap().tab_control,
+            server.clients[&1].tab_context.control,
             crate::app::ClientTabControl::Controlling { .. }
         ));
 
@@ -7388,7 +7433,7 @@ next_tab = ""
         server.render_and_stream();
         assert!(
             matches!(
-                server.clients[&1].view_state.as_ref().unwrap().tab_control,
+                server.clients[&1].tab_context.control,
                 crate::app::ClientTabControl::Controlling { .. }
             ),
             "API focus must reclaim the destination tab before the next paint, not flash Take Control"
@@ -7408,9 +7453,9 @@ next_tab = ""
         let terminal_id_string = terminal_id.to_string();
         server.app.state.workspaces = vec![workspace];
         server.app.state.ensure_test_terminals();
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
         server.app.terminal_runtimes.insert(
             terminal_id.clone(),
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b""),
@@ -7665,9 +7710,9 @@ next_tab = ""
         workspace.insert_test_runtime(first_pane, first_runtime);
         workspace.insert_test_runtime(second_pane, second_runtime);
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let mut client = test_app_client(Some(false), 1);
         let mut client_view =
@@ -7677,6 +7722,7 @@ next_tab = ""
         server.clients.insert(1, client);
         server.foreground_client_id = Some(1);
         server.sync_foreground_client_state();
+        assert!(server.reconcile_client_tab_control(1));
 
         assert!(server.handle_server_event(ServerEvent::ClientInputEvents {
             client_id: 1,
@@ -7704,6 +7750,7 @@ next_tab = ""
         server.foreground_client_id = Some(1);
         server.sync_foreground_client_state();
         assert!(server.reconcile_client_tab_control(1));
+        let second_projection = server.clients[&2].tab_context.control;
         server
             .clients
             .get_mut(&2)
@@ -7711,7 +7758,7 @@ next_tab = ""
             .view_state
             .as_mut()
             .unwrap()
-            .request_tab_control();
+            .request_tab_control(second_projection);
         assert!(server.reconcile_client_tab_control(2));
 
         assert!(server.handle_server_event(ServerEvent::ClientInputEvents {
@@ -8049,9 +8096,9 @@ next_tab = ""
     fn render_and_stream_skips_identical_frame_sends() {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("test")];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let (client_tx, _client_control_rx, client_rx) = test_client_writer();
 
@@ -8234,8 +8281,8 @@ next_tab = ""
         let workspace = crate::workspace::Workspace::test_new("osc-controller");
         let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
         let (controller_writer, controller_rx, _controller_render_rx) = test_client_writer();
         let (watcher_writer, watcher_rx, _watcher_render_rx) = test_client_writer();
 
@@ -8305,8 +8352,8 @@ next_tab = ""
     fn popup_terminal_clipboard_write_targets_owning_client() {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-osc")];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
 
         let (owner_writer, owner_rx, _owner_render_rx) = test_client_writer();
         let (other_writer, other_rx, _other_render_rx) = test_client_writer();
@@ -8357,8 +8404,8 @@ next_tab = ""
     fn popup_open_url_targets_owning_client() {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-url")];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
 
         let (owner_writer, owner_rx, _owner_render_rx) = test_client_writer();
         let (other_writer, other_rx, _other_render_rx) = test_client_writer();
@@ -8416,8 +8463,8 @@ next_tab = ""
         let workspace = crate::workspace::Workspace::test_new("stale-owner");
         let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         server.app.state.workspaces = vec![workspace];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
         server.app.state.ensure_test_terminals();
         let terminal_id = server.app.state.workspaces[0]
             .pane_state(pane_id)
@@ -8575,8 +8622,8 @@ next_tab = ""
             crate::workspace::Workspace::test_new("foreground"),
         ];
         server.app.state.ensure_test_terminals();
-        server.app.state.active = Some(0);
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
         server.app.state.toast_config.delivery = crate::config::ToastDelivery::Gardn;
 
         let target_pane = server.app.state.workspaces[1]
@@ -8718,9 +8765,9 @@ next_tab = ""
                 None,
                 Some(20),
             );
-        server.app.state.active = Some(1);
-        server.app.state.selected = 1;
-        server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.default_client_view.active_workspace = Some(1);
+        server.app.default_client_view.selected_workspace = 1;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let (client_tx, client_control_rx, _client_rx) = test_client_writer();
         server.clients.insert(
@@ -8880,8 +8927,9 @@ next_tab = ""
     fn window_title_test_server(template: &str) -> HeadlessServer {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("herd")];
-        server.app.state.active = Some(0);
-        server.app.state.selected = 0;
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.reconcile(&server.app.state);
         server.app.configure_window_title(template);
         server
     }

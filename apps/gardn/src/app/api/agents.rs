@@ -13,30 +13,28 @@ use super::responses::{encode_error, encode_error_body, encode_success};
 const AGENT_PROMPT_SUBMIT_DELAY: Duration = Duration::from_millis(300);
 
 impl App {
-    pub(super) fn handle_agent_list(&mut self, id: String) -> String {
+    pub(super) fn handle_agent_list_for_view(&self, view: &ClientViewState, id: String) -> String {
         encode_success(
             id,
             ResponseResult::AgentList {
-                agents: self.collect_agent_infos(),
+                agents: self.collect_agent_infos_for_view(view),
             },
         )
     }
 
-    pub(super) fn handle_agent_get(&mut self, id: String, target: AgentTarget) -> String {
-        let agent = match self.agent_info_for_target(&target.target) {
-            Ok(agent) => agent,
+    pub(super) fn handle_agent_get_for_view(
+        &self,
+        view: &ClientViewState,
+        id: String,
+        target: AgentTarget,
+    ) -> String {
+        let resolved = match self.resolve_agent_target_for_view(view, &target.target) {
+            Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
         };
-
-        encode_success(id, ResponseResult::AgentInfo { agent })
-    }
-
-    pub(super) fn handle_agent_focus(&mut self, id: String, target: AgentTarget) -> String {
-        let agent = match self.focus_agent_target(&target.target) {
-            Ok(agent) => agent,
-            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+        let Some(agent) = self.agent_info_for_view(view, resolved.ws_idx, resolved.pane_id) else {
+            return agent_not_found(id, &target.target);
         };
-
         encode_success(id, ResponseResult::AgentInfo { agent })
     }
 
@@ -47,7 +45,7 @@ impl App {
         target: AgentTarget,
     ) -> String {
         view.reconcile(&self.state);
-        let resolved = match self.resolve_agent_target(&target.target) {
+        let resolved = match self.resolve_agent_target_for_view(view, &target.target) {
             Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
         };
@@ -61,38 +59,42 @@ impl App {
         view.selected_workspace = resolved.ws_idx;
         view.mode = Mode::Terminal;
 
-        self.state
-            .focus_workspace_tab_pane(resolved.ws_idx, resolved.tab_idx, resolved.pane_id);
-        self.state.mark_active_tab_seen();
-        self.state.mode = Mode::Terminal;
-
-        let Some(agent) = self.agent_info(resolved.ws_idx, resolved.pane_id) else {
+        let Some(agent) = self.agent_info_for_view(view, resolved.ws_idx, resolved.pane_id) else {
             return agent_not_found(id, &target.target);
         };
 
         encode_success(id, ResponseResult::AgentInfo { agent })
     }
 
-    pub(super) fn handle_agent_follow_up_add(&mut self, id: String, target: AgentTarget) -> String {
-        let resolved = match self.resolve_agent_target(&target.target) {
+    pub(super) fn handle_agent_follow_up_add_for_view(
+        &mut self,
+        view: &mut ClientViewState,
+        id: String,
+        target: AgentTarget,
+    ) -> String {
+        let resolved = match self.resolve_agent_target_for_view(view, &target.target) {
             Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
         };
-        self.state
-            .insert_agent_follow_up(resolved.ws_idx, resolved.pane_id);
-        let agent = match self.agent_info(resolved.ws_idx, resolved.pane_id) {
+        self.state.insert_agent_follow_up(
+            &mut view.agent_follow_up,
+            resolved.ws_idx,
+            resolved.pane_id,
+        );
+        let agent = match self.agent_info_for_view(view, resolved.ws_idx, resolved.pane_id) {
             Some(agent) => agent,
             None => return agent_not_found(id, &target.target),
         };
         encode_success(id, ResponseResult::AgentInfo { agent })
     }
 
-    pub(super) fn handle_agent_follow_up_remove(
+    pub(super) fn handle_agent_follow_up_remove_for_view(
         &mut self,
+        view: &mut ClientViewState,
         id: String,
         target: AgentTarget,
     ) -> String {
-        let resolved = match self.resolve_agent_target(&target.target) {
+        let resolved = match self.resolve_agent_target_for_view(view, &target.target) {
             Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
         };
@@ -100,9 +102,12 @@ impl App {
             Some(workspace) => workspace.id.clone(),
             None => return agent_not_found(id, &target.target),
         };
-        self.state
-            .clear_agent_follow_up_for_pane(&workspace_id, resolved.pane_id);
-        let agent = match self.agent_info(resolved.ws_idx, resolved.pane_id) {
+        self.state.clear_agent_follow_up_for_pane(
+            &mut view.agent_follow_up,
+            &workspace_id,
+            resolved.pane_id,
+        );
+        let agent = match self.agent_info_for_view(view, resolved.ws_idx, resolved.pane_id) {
             Some(agent) => agent,
             None => return agent_not_found(id, &target.target),
         };
@@ -128,7 +133,7 @@ impl App {
 
     pub(super) fn handle_agent_start_disposition_for_view(
         &mut self,
-        view: &crate::app::ClientViewState,
+        view: &mut crate::app::ClientViewState,
         id: String,
         params: AgentStartParams,
     ) -> crate::api::ApiRequestDisposition {
@@ -137,7 +142,7 @@ impl App {
 
     fn handle_agent_start_with(
         &mut self,
-        view: Option<&crate::app::ClientViewState>,
+        view: Option<&mut crate::app::ClientViewState>,
         id: String,
         params: AgentStartParams,
     ) -> crate::api::ApiRequestDisposition {
@@ -149,6 +154,7 @@ impl App {
                 return crate::api::ApiRequestDisposition::Respond(encode_error(id, &code, message))
             }
         };
+        let client_view_id = view.as_deref().map(crate::app::ClientViewState::id);
         let outcome = match view {
             Some(view) => self.start_agent_for_view(view, params, extra_env),
             None => self.start_agent(params, extra_env),
@@ -169,7 +175,7 @@ impl App {
                     request_id: id,
                     kind: crate::api::DeferredRemoteCreateKind::AgentStart { argv },
                     focus,
-                    client_view_id: view.map(|view| view.id()),
+                    client_view_id,
                     // Agent start may stamp tab/workspace markers via its own path;
                     // failure cleanup is exact only when a marker was installed.
                     pending_focus: None,
@@ -439,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn agent_list_includes_follow_up_from_session_state() {
+    fn agent_list_includes_follow_up_from_default_client_view() {
         let mut app = test_app();
         let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = app.state.workspaces[0]
@@ -452,10 +458,14 @@ mod tests {
             .get_mut(&terminal_id)
             .expect("terminal")
             .agent_name = Some("omp".into());
-        assert!(app.state.insert_agent_follow_up(0, pane_id));
-        app.state.agent_follow_up[0].added_at_unix_secs = 1_700_000_000;
+        assert!(app.state.insert_agent_follow_up(
+            &mut app.default_client_view.agent_follow_up,
+            0,
+            pane_id
+        ));
+        app.default_client_view.agent_follow_up[0].added_at_unix_secs = 1_700_000_000;
 
-        let response = app.handle_agent_list("list".into());
+        let response = app.handle_agent_list_for_view(&app.default_client_view, "list".into());
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         let ResponseResult::AgentList { agents } = success.result else {
             panic!("expected agent list");
@@ -470,15 +480,69 @@ mod tests {
     fn agent_list_keeps_follow_up_after_agent_identity_is_cleared() {
         let mut app = test_app();
         let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
-        assert!(app.state.insert_agent_follow_up(0, pane_id));
+        assert!(app.state.insert_agent_follow_up(
+            &mut app.default_client_view.agent_follow_up,
+            0,
+            pane_id
+        ));
 
-        let response = app.handle_agent_list("list".into());
+        let response = app.handle_agent_list_for_view(&app.default_client_view, "list".into());
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         let ResponseResult::AgentList { agents } = success.result else {
             panic!("expected agent list");
         };
         assert_eq!(agents.len(), 1);
         assert!(agents[0].follow_up);
+    }
+
+    #[test]
+    fn follow_up_api_scopes_mutation_and_projection_to_invoking_view() {
+        let mut app = test_app();
+        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = app.state.workspaces[0]
+            .pane_state(pane_id)
+            .expect("root pane")
+            .attached_terminal_id
+            .clone();
+        app.state
+            .terminals
+            .get_mut(&terminal_id)
+            .expect("terminal")
+            .agent_name = Some("omp".into());
+        let mut invoking_view = ClientViewState::from_default_client_state(&app.state);
+        let observer_view = ClientViewState::from_default_client_state(&app.state);
+        let target = AgentTarget {
+            target: terminal_id.to_string(),
+        };
+
+        let response = app.handle_agent_follow_up_add_for_view(
+            &mut invoking_view,
+            "add".into(),
+            target.clone(),
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentInfo { agent } = success.result else {
+            panic!("expected agent info");
+        };
+        assert!(agent.follow_up);
+        assert!(
+            app.agent_info_for_view(&invoking_view, 0, pane_id)
+                .unwrap()
+                .follow_up
+        );
+        assert!(
+            !app.agent_info_for_view(&observer_view, 0, pane_id)
+                .unwrap()
+                .follow_up
+        );
+
+        let response =
+            app.handle_agent_follow_up_remove_for_view(&mut invoking_view, "remove".into(), target);
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::AgentInfo { agent } = success.result else {
+            panic!("expected agent info");
+        };
+        assert!(!agent.follow_up);
     }
 
     #[test]
@@ -501,7 +565,7 @@ mod tests {
             .expect("pane")
             .seen = false;
 
-        let response = app.handle_agent_list("list".into());
+        let response = app.handle_agent_list_for_view(&app.default_client_view, "list".into());
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         let ResponseResult::AgentList { agents } = success.result else {
             panic!("expected agent list");
@@ -531,9 +595,9 @@ mod tests {
             .get_mut(&pane_id)
             .expect("pane")
             .seen = true;
-        app.state.triage_hold = Some((workspace_id, pane_id));
+        app.default_client_view.triage_hold = Some((workspace_id, pane_id));
 
-        let response = app.handle_agent_list("list".into());
+        let response = app.handle_agent_list_for_view(&app.default_client_view, "list".into());
         let success: SuccessResponse = serde_json::from_str(&response).unwrap();
         let ResponseResult::AgentList { agents } = success.result else {
             panic!("expected agent list");
@@ -581,7 +645,11 @@ mod tests {
             .get_mut(&pane_id)
             .unwrap()
             .blocked_review = crate::pane::BlockedReviewState::Pending;
-        assert!(app.state.insert_agent_follow_up(0, pane_id));
+        assert!(app.state.insert_agent_follow_up(
+            &mut app.default_client_view.agent_follow_up,
+            0,
+            pane_id
+        ));
         assert!(!app.agent_info(0, pane_id).unwrap().in_triage);
     }
 
@@ -601,8 +669,8 @@ mod tests {
             .get_mut(&terminal_id)
             .expect("terminal")
             .agent_name = Some("omp".into());
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
 
         let mut view = ClientViewState::from_default_client_state(&app.state);
         assert_eq!(view.active_workspace, Some(0));
@@ -635,11 +703,13 @@ mod tests {
             .expect("root pane")
             .attached_terminal_id
             .clone();
-        assert!(app.state.insert_agent_follow_up(1, pane_id));
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
 
         let mut view = ClientViewState::from_default_client_state(&app.state);
+        assert!(app
+            .state
+            .insert_agent_follow_up(&mut view.agent_follow_up, 1, pane_id));
         let response = app.handle_agent_focus_for_view(
             &mut view,
             "focus".into(),

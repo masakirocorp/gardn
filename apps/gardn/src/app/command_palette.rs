@@ -294,41 +294,6 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         CommandPaletteCommand::new("Detach / Quit", "app", CommandPaletteAction::DetachOrQuit),
     ];
 
-    if let Some(ws) = state.active.and_then(|idx| state.workspaces.get(idx)) {
-        commands.extend(ws.tabs.iter().enumerate().map(|(idx, _tab)| {
-            CommandPaletteCommand::new(
-                format!(
-                    "Switch to Tab: {}",
-                    ws.tab_display_name(idx)
-                        .unwrap_or_else(|| (idx + 1).to_string())
-                ),
-                "tabs",
-                CommandPaletteAction::SwitchTab(idx),
-            )
-            .with_key_label(indexed_keybind_label(&state.keybinds.switch_tab, idx))
-        }));
-    }
-
-    commands.extend(
-        state
-            .visible_workspace_indices()
-            .into_iter()
-            .enumerate()
-            .filter_map(|(shortcut_idx, idx)| {
-                state.workspaces.get(idx).map(|workspace| {
-                    CommandPaletteCommand::new(
-                        format!("Switch to Space: {}", workspace.display_name()),
-                        "spaces",
-                        CommandPaletteAction::SwitchWorkspace(idx),
-                    )
-                    .with_key_label(indexed_keybind_label(
-                        &state.keybinds.switch_workspace,
-                        shortcut_idx,
-                    ))
-                })
-            }),
-    );
-
     commands.extend(state.groups.iter().enumerate().map(|(idx, group)| {
         CommandPaletteCommand::new(
             format!("Switch to Group: {} {}", group.icon, group.name),
@@ -337,17 +302,6 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         )
         .with_key_label(indexed_keybind_label(&state.keybinds.switch_group, idx))
     }));
-
-    if state
-        .active
-        .is_some_and(|ws_idx| workspace_agent_profile_ids(state, ws_idx).next().is_some())
-    {
-        commands.push(CommandPaletteCommand::new(
-            "New Agent",
-            "agents",
-            CommandPaletteAction::NewAgent,
-        ));
-    }
 
     commands.extend(
         state
@@ -557,24 +511,6 @@ pub(crate) fn command_palette_filtered_commands_for_view(
     commands.into_iter().map(|(_, command)| command).collect()
 }
 
-pub(crate) fn command_palette_filtered_commands(state: &AppState) -> Vec<CommandPaletteCommand> {
-    command_palette_filtered_commands_for_query(state, state.command_palette.query.as_str())
-}
-
-pub(crate) fn command_palette_filtered_commands_for_query(
-    state: &AppState,
-    query: &str,
-) -> Vec<CommandPaletteCommand> {
-    let mut commands = command_palette_commands(state)
-        .into_iter()
-        .enumerate()
-        .filter(|(_, command)| command.matches(query))
-        .collect::<Vec<_>>();
-
-    commands.sort_by_key(|(idx, command)| (command_palette_group_order(command.group), *idx));
-    commands.into_iter().map(|(_, command)| command).collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -587,8 +523,6 @@ mod tests {
         let mut client_workspace = Workspace::test_new("client workspace");
         client_workspace.group_id = state.groups[client_group].id.clone();
         state.workspaces = vec![Workspace::test_new("default workspace"), client_workspace];
-        state.active_group = 0;
-        state.group_filter_enabled = true;
 
         let mut view = ClientViewState::from_default_client_state(&state);
         view.active_group = client_group;
@@ -608,8 +542,10 @@ mod tests {
     #[test]
     fn palette_includes_workspace_navigator_with_its_keybinding() {
         let state = AppState::test_new();
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.command_palette.query = "workspace navigator".to_string();
 
-        let command = command_palette_filtered_commands_for_query(&state, "workspace navigator")
+        let command = command_palette_filtered_commands_for_view(&state, &view)
             .into_iter()
             .next()
             .expect("workspace navigator command");

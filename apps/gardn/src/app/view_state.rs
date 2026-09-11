@@ -46,6 +46,11 @@ impl ClientTabControl {
         )
     }
 }
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ClientTabContext {
+    pub(crate) control: ClientTabControl,
+    pub(crate) canvas_size: Option<(u16, u16)>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct ClientTabViewKey {
@@ -302,9 +307,7 @@ pub(crate) struct ClientAuthenticationPrompt {
 #[derive(Clone)]
 pub(crate) struct ClientViewState {
     id: u64,
-    pub(crate) tab_control: ClientTabControl,
     pub(crate) tab_control_request: Option<u64>,
-    pub(crate) tab_canvas_size: Option<(u16, u16)>,
     pub(crate) tab_canvas_origins: HashMap<ClientTabViewKey, CanvasOrigin>,
     pub(crate) tab_canvas_view: Option<TabCanvasViewport>,
     pub(crate) active_workspace: Option<usize>,
@@ -315,10 +318,13 @@ pub(crate) struct ClientViewState {
     /// an explicit client focus change from a shared workspace-list remap.
     workspace_ids: Option<Vec<String>>,
     pub(crate) active_group: usize,
+    active_group_id: Option<String>,
+    group_ids: Option<Vec<String>>,
     pub(crate) group_filter_enabled: bool,
     pub(crate) agent_panel_scope: crate::app::state::AgentPanelScope,
     pub(crate) connection_scope: crate::app::connection_scope::ConnectionScope,
     pub(crate) agent_view_override: Option<crate::api::schema::AgentViewSetParams>,
+    pub(crate) agent_follow_up: Vec<crate::app::state::AgentFollowUpEntry>,
     pub(crate) workspace_scroll: usize,
     pub(crate) agent_panel_scroll: usize,
     pub(crate) tab_scroll: usize,
@@ -380,6 +386,8 @@ pub(crate) struct ClientViewState {
     pub(crate) tab_press: Option<TabPressState>,
     pub(crate) agent_press: Option<crate::app::state::AgentPressState>,
     pub(crate) previous_pane_focus: Option<PaneFocusTarget>,
+    /// Keep a just-focused Done agent in Triage until focus leaves that pane.
+    pub(crate) triage_hold: Option<(String, PaneId)>,
     pub(crate) right_click_passthrough: Option<RightClickPassthroughGesture>,
     pub(crate) keybind_help: KeybindHelpState,
     pub(crate) config_diagnostics_scroll: u16,
@@ -410,22 +418,26 @@ pub(crate) struct ClientViewState {
 
 impl ClientViewState {
     pub(crate) fn from_default_client_state(state: &AppState) -> Self {
+        let active_workspace = (!state.workspaces.is_empty()).then_some(0);
+        let active_group = state
+            .workspaces
+            .first()
+            .and_then(|workspace| state.group_index_by_id(&workspace.group_id))
+            .unwrap_or(0);
         let mut view = Self {
             id: NEXT_CLIENT_VIEW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            active_workspace: state.active,
-            tab_control: ClientTabControl::default(),
             tab_control_request: None,
-            tab_canvas_size: None,
             tab_canvas_origins: HashMap::new(),
             tab_canvas_view: None,
-            selected_workspace: state.selected,
+            active_workspace,
+            selected_workspace: 0,
             active_workspace_id: state
-                .active
-                .and_then(|idx| state.workspaces.get(idx))
+                .workspaces
+                .first()
                 .map(|workspace| workspace.id.clone()),
             selected_workspace_id: state
                 .workspaces
-                .get(state.selected)
+                .first()
                 .map(|workspace| workspace.id.clone()),
             workspace_ids: Some(
                 state
@@ -434,37 +446,46 @@ impl ClientViewState {
                     .map(|workspace| workspace.id.clone())
                     .collect(),
             ),
-            active_group: state.active_group,
-            group_filter_enabled: state.group_filter_enabled,
-            agent_panel_scope: state.agent_panel_scope,
-            connection_scope: state.connection_scope.clone(),
+            active_group,
+            active_group_id: state.groups.get(active_group).map(|group| group.id.clone()),
+            group_ids: Some(state.groups.iter().map(|group| group.id.clone()).collect()),
+            group_filter_enabled: false,
+            agent_panel_scope: crate::app::state::AgentPanelScope::CurrentWorkspace,
+            connection_scope: crate::app::connection_scope::ConnectionScope::All,
             agent_view_override: None,
-            workspace_scroll: state.workspace_scroll,
-            agent_panel_scroll: state.agent_panel_scroll,
-            tab_scroll: state.tab_scroll,
-            tab_scroll_follow_active: state.tab_scroll_follow_active,
-            hovered_tab: state.hovered_tab,
-            collapsed_sidebar_hover: state.collapsed_sidebar_hover.clone(),
-            mobile_switcher_scroll: state.mobile_switcher_scroll,
-            mobile_switcher_level: state.mobile_switcher_level,
-            mobile_switcher_selected: state.mobile_switcher_selected,
-            mobile_agents_expanded: state.mobile_agents_expanded,
-            sidebar_width: state.sidebar_width,
-            sidebar_width_source: state.sidebar_width_source,
-            sidebar_collapsed: state.sidebar_collapsed,
-            right_sidebar_collapsed: state.right_sidebar_collapsed,
+            agent_follow_up: Vec::new(),
+            workspace_scroll: 0,
+            agent_panel_scroll: 0,
+            tab_scroll: 0,
+            tab_scroll_follow_active: true,
+            hovered_tab: None,
+            collapsed_sidebar_hover: None,
+            mobile_switcher_scroll: 0,
+            mobile_switcher_level: crate::app::state::MobileSwitcherLevel::default(),
+            mobile_switcher_selected: 0,
+            mobile_agents_expanded: false,
+            sidebar_width: state
+                .default_sidebar_width
+                .clamp(state.sidebar_min_width, state.sidebar_max_width),
+            sidebar_width_source: crate::app::state::SidebarWidthSource::ConfigDefault,
+            sidebar_collapsed: false,
+            right_sidebar_collapsed: false,
             context_bar_visibility_override: None,
             zen_mode: false,
-            right_sidebar_width: state.right_sidebar_width,
-            sidebar_section_split: state.sidebar_section_split,
-            activity_agents_expanded: state.activity_agents_expanded,
-            activity_commands_expanded: state.activity_commands_expanded,
-            activity_ports_expanded: state.activity_ports_expanded,
-            collapsed_agent_sections: state.collapsed_agent_sections.clone(),
-            collapsed_command_groups: state.collapsed_command_groups.clone(),
-            collapsed_command_status_groups: state.collapsed_command_status_groups.clone(),
-            collapsed_workspace_groups: state.collapsed_workspace_groups.clone(),
-            mode: state.mode,
+            right_sidebar_width: 28,
+            sidebar_section_split: 0.5,
+            activity_agents_expanded: true,
+            activity_commands_expanded: false,
+            activity_ports_expanded: false,
+            collapsed_agent_sections: Vec::new(),
+            collapsed_command_groups: Vec::new(),
+            collapsed_command_status_groups: Vec::new(),
+            collapsed_workspace_groups: Vec::new(),
+            mode: if active_workspace.is_some() {
+                Mode::Terminal
+            } else {
+                Mode::Navigate
+            },
             active_tabs: HashMap::new(),
             pending_active_tabs: HashMap::new(),
             pending_active_workspace: None,
@@ -475,52 +496,53 @@ impl ClientViewState {
             zoomed_tabs: HashSet::new(),
             overlay_return_states: HashMap::new(),
             terminal_offsets_from_bottom: HashMap::new(),
-            settings: state.settings.clone(),
-            command_palette: state.command_palette.clone(),
-            navigator: state.navigator.clone(),
-            agent_profile_picker: state.agent_profile_picker.clone(),
-            git_repo_picker: state.git_repo_picker.clone(),
+            input_leases: crate::app::input::InputLeaseTable::default(),
+            settings: SettingsState::default(),
+            command_palette: CommandPaletteState::default(),
+            navigator: NavigatorState::default(),
+            agent_profile_picker: AgentProfilePickerState::default(),
+            git_repo_picker: GitRepoPickerState::default(),
             github: None,
             github_host: None,
-            context_menu: state.context_menu.clone(),
-            selection: state.selection.clone(),
-            selection_autoscroll: state.selection_autoscroll.clone(),
+            context_menu: None,
+            selection: None,
+            selection_autoscroll: None,
             last_pane_click: None,
             pending_url_click: false,
             selection_highlight_clear_deadline: None,
-            copy_mode: state.copy_mode.clone(),
-            drag: state.drag.clone(),
-            workspace_press: state.workspace_press.clone(),
-            group_press: state.group_press.clone(),
-            tab_press: state.tab_press.clone(),
+            copy_mode: None,
+            drag: None,
+            workspace_press: None,
+            group_press: None,
+            tab_press: None,
             agent_press: None,
-            previous_pane_focus: state.previous_pane_focus.clone(),
-            right_click_passthrough: state.right_click_passthrough.clone(),
-            keybind_help: state.keybind_help.clone(),
-            config_diagnostics_scroll: state.config_diagnostics_scroll,
-            global_menu: state.global_menu,
-            group_menu: state.group_menu,
-            agent_menu: state.agent_menu,
-            creating_new_tab: state.creating_new_tab,
-            creating_new_group: state.creating_new_group,
-            group_icon_input: state.group_icon_input.clone(),
-            group_default_directory_input: state.group_default_directory_input.clone(),
-            group_default_execution_host_id: state.group_default_execution_host_id.clone(),
-            group_modal_selected_field: state.group_modal_selected_field,
-            group_icon_picker_open: state.group_icon_picker_open,
-            rename_group_target: state.rename_group_target,
-            requested_new_tab_name: state.requested_new_tab_name.clone(),
-            pending_workspace_create_location: state.pending_workspace_create_location.clone(),
+            previous_pane_focus: None,
+            triage_hold: None,
+            right_click_passthrough: None,
+            keybind_help: KeybindHelpState::default(),
+            config_diagnostics_scroll: 0,
+            global_menu: ModalListState::default(),
+            group_menu: ModalListState::default(),
+            agent_menu: ModalListState::default(),
+            creating_new_tab: false,
+            creating_new_group: false,
+            group_icon_input: crate::app::state::DEFAULT_GROUP_ICON.to_string(),
+            group_default_directory_input: String::new(),
+            group_default_execution_host_id: crate::execution_host::ExecutionHostId::local(),
+            group_modal_selected_field: 0,
+            group_icon_picker_open: false,
+            rename_group_target: None,
+            requested_new_tab_name: None,
+            pending_workspace_create_location: None,
             pending_workspace_create_group: None,
-            rename_pane_target: state.rename_pane_target,
-            confirm_delete_group: state.confirm_delete_group,
-            name_input: state.name_input.clone(),
-            name_input_replace_on_type: state.name_input_replace_on_type,
-            release_notes: state.release_notes.clone(),
-            product_announcement: state.product_announcement.clone(),
+            rename_pane_target: None,
+            confirm_delete_group: None,
+            name_input: String::new(),
+            name_input_replace_on_type: false,
+            release_notes: None,
+            product_announcement: None,
+            computed: ViewState::default(),
             authentication_prompt: None,
-            computed: state.view.clone(),
-            input_leases: crate::app::input::InputLeaseTable::default(),
         };
         view.reconcile(state);
         view
@@ -532,13 +554,9 @@ impl ClientViewState {
         view
     }
 
-    pub(crate) fn can_mutate_tab(&self) -> bool {
-        self.tab_control.can_mutate_tab()
-    }
-
-    pub(crate) fn request_tab_control(&mut self) -> Option<u64> {
-        if self.tab_control.is_watching() && self.tab_control_request.is_none() {
-            self.tab_control_request = self.tab_control.epoch();
+    pub(crate) fn request_tab_control(&mut self, tab_control: ClientTabControl) -> Option<u64> {
+        if tab_control.is_watching() && self.tab_control_request.is_none() {
+            self.tab_control_request = tab_control.epoch();
         }
         self.tab_control_request
     }
@@ -547,15 +565,16 @@ impl ClientViewState {
         self.tab_control_request.take()
     }
 
-    pub(crate) fn set_tab_control(&mut self, tab_control: ClientTabControl) {
-        let lost_control = self.tab_control.can_mutate_tab() && !tab_control.can_mutate_tab();
-        self.tab_control = tab_control;
+    pub(crate) fn reconcile_tab_control(
+        &mut self,
+        previous: ClientTabControl,
+        current: ClientTabControl,
+    ) {
         self.tab_control_request = None;
-        if matches!(tab_control, ClientTabControl::Unavailable) {
-            self.tab_canvas_size = None;
+        if matches!(current, ClientTabControl::Unavailable) {
             self.tab_canvas_view = None;
         }
-        if lost_control {
+        if previous.can_mutate_tab() && !current.can_mutate_tab() {
             self.input_leases.clear();
         }
     }
@@ -578,12 +597,14 @@ impl ClientViewState {
     pub(crate) fn fork_for_attached_client(&self, state: &AppState) -> Self {
         let mut view = self.clone_reconciled(state);
         view.id = NEXT_CLIENT_VIEW_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        view.tab_control = ClientTabControl::Unavailable;
         view.tab_control_request = None;
-        view.tab_canvas_size = None;
         view.tab_canvas_origins.clear();
         view.tab_canvas_view = None;
         view.connection_scope = crate::app::connection_scope::ConnectionScope::All;
+        view.group_filter_enabled = false;
+        view.sidebar_collapsed = false;
+        view.right_sidebar_collapsed = false;
+        view.agent_panel_scope = crate::app::state::AgentPanelScope::AllWorkspaces;
         view.agent_view_override = None;
         view.pending_active_workspace = None;
         view.pending_active_tabs.clear();
@@ -658,8 +679,8 @@ impl ClientViewState {
                 workspace
                     .tabs
                     .iter()
-                    .position(|tab| tab.number() == *tab_number)
-                    .map(|tab_index| (workspace_id.clone(), tab_index))
+                    .any(|tab| tab.number() == *tab_number)
+                    .then(|| (workspace_id.clone(), *tab_number))
             })
             .collect();
         self.focused_panes =
@@ -742,6 +763,11 @@ impl ClientViewState {
     }
 
     pub(crate) fn reconcile(&mut self, state: &AppState) {
+        self.agent_follow_up.retain(|entry| {
+            state
+                .resolve_live_agent_target(&entry.workspace_id, entry.pane_number)
+                .is_some()
+        });
         if let Some(pane_id) = self.pending_popup_pane {
             if let Some(popup) = state.popup_panes.get(&pane_id) {
                 if popup.owner.is_none_or(|owner| owner == self.id) {
@@ -782,11 +808,30 @@ impl ClientViewState {
                 self.connection_scope = crate::app::connection_scope::ConnectionScope::All;
             }
         }
+        let group_list_unchanged = self.group_ids.as_ref().is_some_and(|previous| {
+            previous.len() == state.groups.len()
+                && previous
+                    .iter()
+                    .zip(state.groups.iter())
+                    .all(|(id, group)| id == &group.id)
+        });
         if state.groups.is_empty() {
             self.active_group = 0;
+            self.active_group_id = None;
+            self.group_ids = None;
             self.group_filter_enabled = false;
         } else {
-            self.active_group = self.active_group.min(state.groups.len() - 1);
+            if !group_list_unchanged {
+                self.active_group = self
+                    .active_group_id
+                    .as_ref()
+                    .and_then(|id| state.groups.iter().position(|group| &group.id == id))
+                    .unwrap_or_else(|| self.active_group.min(state.groups.len() - 1));
+            } else {
+                self.active_group = self.active_group.min(state.groups.len() - 1);
+            }
+            self.active_group_id = Some(state.groups[self.active_group].id.clone());
+            self.group_ids = Some(state.groups.iter().map(|group| group.id.clone()).collect());
         }
 
         if state.workspaces.is_empty() {
@@ -795,6 +840,9 @@ impl ClientViewState {
             self.active_workspace_id = None;
             self.selected_workspace_id = None;
             self.workspace_ids = None;
+            self.selection = None;
+            self.selection_autoscroll = None;
+            self.copy_mode = None;
             self.active_tabs.clear();
             self.pending_active_tabs.clear();
             // Keep pending_active_workspace / pending_focused_panes / pending_popup_pane:
@@ -804,10 +852,21 @@ impl ClientViewState {
             self.zoomed_tabs.clear();
             self.overlay_return_states.clear();
             self.terminal_offsets_from_bottom.clear();
-            self.set_tab_control(ClientTabControl::Unavailable);
             self.tab_canvas_origins.clear();
             self.tab_canvas_view = None;
             return;
+        }
+        let selected_pane_exists = self.selection.as_ref().is_none_or(|selection| {
+            state.workspaces.iter().any(|workspace| {
+                workspace
+                    .find_tab_index_for_pane(selection.pane_id)
+                    .is_some()
+            })
+        });
+        if !selected_pane_exists {
+            self.selection = None;
+            self.selection_autoscroll = None;
+            self.copy_mode = None;
         }
 
         let active_group = self.active_group;
@@ -864,6 +923,7 @@ impl ClientViewState {
                     .position(|group| group.id == state.workspaces[ws_idx].group_id)
                 {
                     self.active_group = group_idx;
+                    self.active_group_id = Some(state.groups[group_idx].id.clone());
                 }
                 self.mode = Mode::Terminal;
                 self.pending_active_workspace = None;
@@ -878,6 +938,14 @@ impl ClientViewState {
                     .zip(state.workspaces.iter())
                     .all(|(id, workspace)| id == &workspace.id)
         });
+        let selected_workspace_removed = !workspace_list_unchanged
+            && self.selected_workspace_id.as_ref().is_some_and(|id| {
+                !state
+                    .workspaces
+                    .iter()
+                    .enumerate()
+                    .any(|(idx, workspace)| workspace.id == *id && visible_workspace(idx))
+            });
         if !workspace_list_unchanged && !applied_pending_workspace {
             if let Some(id) = self.active_workspace_id.clone() {
                 if let Some(idx) = state
@@ -903,19 +971,20 @@ impl ClientViewState {
             }
         }
 
+        if selected_workspace_removed {
+            if let Some(active_workspace) =
+                self.active_workspace.filter(|idx| visible_workspace(*idx))
+            {
+                self.selected_workspace = active_workspace;
+            }
+        }
+
         if !self
             .active_workspace
             .is_some_and(|idx| idx < state.workspaces.len() && in_active_group(idx))
             && self.pending_active_workspace.is_none()
         {
-            self.active_workspace = if self.group_filter_enabled {
-                first_group_workspace()
-            } else {
-                state
-                    .active
-                    .filter(|idx| *idx < state.workspaces.len())
-                    .or_else(first_group_workspace)
-            };
+            self.active_workspace = first_group_workspace();
         }
         if self.selected_workspace >= state.workspaces.len()
             || !visible_workspace(self.selected_workspace)
@@ -1017,19 +1086,26 @@ impl ClientViewState {
             else {
                 continue;
             };
-            let Some((tab_idx, tab)) = workspace
+            let Some((_, tab)) = workspace
                 .terminal_tabs()
                 .find(|(_, tab)| tab.number == return_state.tab.tab_number)
             else {
                 continue;
             };
+            if self.active_workspace != Some(ws_idx)
+                || self.active_tabs.get(&workspace.id) != Some(&return_state.tab.tab_number)
+                || self.focused_panes.get(&return_state.tab) != Some(&overlay_pane)
+            {
+                continue;
+            }
             if !tab.panes.contains_key(&return_state.focused_pane) {
                 continue;
             }
 
             self.active_workspace = Some(ws_idx);
             self.selected_workspace = ws_idx;
-            self.active_tabs.insert(workspace.id.clone(), tab_idx);
+            self.active_tabs
+                .insert(workspace.id.clone(), return_state.tab.tab_number);
             self.focused_panes
                 .insert(return_state.tab.clone(), return_state.focused_pane);
             if return_state.zoomed {
@@ -1066,25 +1142,30 @@ impl ClientViewState {
             }
 
             let pending_active_tab = self.pending_active_tabs.get(&workspace.id).copied();
-            let active_tab = if let Some(tab_idx) = pending_active_tab {
-                if tab_idx < workspace.tabs.len() {
+            let active_tab_number = if let Some(tab_number) = pending_active_tab {
+                if workspace.tabs.iter().any(|tab| tab.number() == tab_number) {
                     self.pending_active_tabs.remove(&workspace.id);
-                    tab_idx
+                    tab_number
                 } else {
                     self.active_tabs
                         .get(&workspace.id)
                         .copied()
-                        .filter(|idx| *idx < workspace.tabs.len())
-                        .unwrap_or_else(|| workspace.active_tab.min(workspace.tabs.len() - 1))
+                        .filter(|tab_number| {
+                            workspace.tabs.iter().any(|tab| tab.number() == *tab_number)
+                        })
+                        .unwrap_or_else(|| workspace.tabs[0].number())
                 }
             } else {
                 self.active_tabs
                     .get(&workspace.id)
                     .copied()
-                    .filter(|idx| *idx < workspace.tabs.len())
-                    .unwrap_or_else(|| workspace.active_tab.min(workspace.tabs.len() - 1))
+                    .filter(|tab_number| {
+                        workspace.tabs.iter().any(|tab| tab.number() == *tab_number)
+                    })
+                    .unwrap_or_else(|| workspace.tabs[0].number())
             };
-            self.active_tabs.insert(workspace.id.clone(), active_tab);
+            self.active_tabs
+                .insert(workspace.id.clone(), active_tab_number);
             for (_, tab) in workspace.terminal_tabs() {
                 let tab_number = tab.number;
                 let tab_key = ClientTabViewKey::new(&workspace.id, tab_number);
@@ -1094,20 +1175,16 @@ impl ClientViewState {
                         self.pending_focused_panes.remove(&tab_key);
                     }
                 }
-                if !tab.panes.contains_key(
-                    self.focused_panes
-                        .get(&tab_key)
-                        .unwrap_or(&tab.layout.focused()),
-                ) {
-                    self.focused_panes
-                        .insert(tab_key.clone(), tab.layout.focused());
-                } else {
-                    self.focused_panes
-                        .entry(tab_key.clone())
-                        .or_insert_with(|| tab.layout.focused());
-                }
-                if tab.zoomed {
-                    self.zoomed_tabs.insert(tab_key);
+                let focused = self.focused_panes.get(&tab_key).copied();
+                if focused.is_none_or(|pane_id| !tab.panes.contains_key(&pane_id)) {
+                    let fallback = self
+                        .previous_pane_focus
+                        .as_ref()
+                        .filter(|previous| previous.workspace_id == workspace.id)
+                        .map(|previous| previous.pane_id)
+                        .filter(|pane_id| tab.panes.contains_key(pane_id))
+                        .unwrap_or(tab.root_pane);
+                    self.focused_panes.insert(tab_key, fallback);
                 }
             }
 
@@ -1131,8 +1208,18 @@ impl ClientViewState {
             });
         }
         if self.current_tab_key(state).is_none() {
-            self.set_tab_control(ClientTabControl::Unavailable);
+            self.tab_canvas_view = None;
         }
+    }
+    pub(crate) fn select_group(&mut self, state: &AppState, group_idx: usize) -> bool {
+        let Some(group) = state.groups.get(group_idx) else {
+            return false;
+        };
+        let changed = self.active_group != group_idx;
+        self.active_group = group_idx;
+        self.active_group_id = Some(group.id.clone());
+        self.group_ids = Some(state.groups.iter().map(|group| group.id.clone()).collect());
+        changed
     }
 
     pub(crate) fn active_tab_for_workspace(&self, workspace_id: &str) -> Option<usize> {
@@ -1164,8 +1251,11 @@ impl ClientViewState {
         ws_idx: usize,
     ) -> Option<usize> {
         let workspace = state.workspaces.get(ws_idx)?;
-        self.active_tab_for_workspace(&workspace.id)
-            .filter(|idx| *idx < workspace.tabs.len())
+        let tab_number = self.active_tab_for_workspace(&workspace.id)?;
+        workspace
+            .tabs
+            .iter()
+            .position(|tab| tab.number() == tab_number)
     }
     pub(crate) fn current_tab_key(&self, state: &AppState) -> Option<ClientTabViewKey> {
         let ws_idx = self.active_workspace?;
@@ -1215,17 +1305,18 @@ impl ClientViewState {
             let pane = self
                 .focused_pane_for_tab(&workspace.id, tab.number)
                 .filter(|pane| tab.panes.contains_key(pane))
-                .unwrap_or_else(|| tab.layout.focused());
+                .unwrap_or(tab.root_pane);
             return self.focus_pane_in_workspace(state, ws_idx, tab_idx, pane);
         }
         let changed = self.active_workspace != Some(ws_idx)
-            || self.active_tab_for_workspace(&workspace.id) != Some(tab_idx);
+            || self.active_tab_for_workspace(&workspace.id) != Some(entry.number());
         self.previous_pane_focus = self.current_pane_focus_target(state);
         self.active_workspace = Some(ws_idx);
         self.selected_workspace = ws_idx;
         self.active_workspace_id = Some(workspace.id.clone());
         self.selected_workspace_id = Some(workspace.id.clone());
-        self.active_tabs.insert(workspace.id.clone(), tab_idx);
+        self.active_tabs
+            .insert(workspace.id.clone(), entry.number());
         let key = ClientTabViewKey::new(&workspace.id, entry.number());
         self.focused_panes.remove(&key);
         self.zoomed_tabs.remove(&key);
@@ -1291,7 +1382,7 @@ impl ClientViewState {
         {
             self.active_group = group_idx;
         }
-        self.active_tabs.insert(workspace.id.clone(), tab_idx);
+        self.active_tabs.insert(workspace.id.clone(), tab.number);
         self.focused_panes
             .insert(ClientTabViewKey::new(&workspace.id, tab.number), pane_id);
         if self.mode != Mode::Navigate {
@@ -1335,7 +1426,7 @@ impl ClientViewState {
         {
             self.active_group = group_idx;
         }
-        self.active_tabs.insert(workspace.id.clone(), tab_idx);
+        self.active_tabs.insert(workspace.id.clone(), tab.number);
         self.pending_focused_panes
             .insert(ClientTabViewKey::new(&workspace.id, tab.number), pane_id);
         self.mode = Mode::Terminal;
@@ -1356,9 +1447,9 @@ impl ClientViewState {
             }
             crate::api::PendingFocusMarker::Tab {
                 workspace_id,
-                tab_idx,
+                tab_number,
             } => {
-                if self.pending_active_tabs.get(workspace_id) == Some(tab_idx) {
+                if self.pending_active_tabs.get(workspace_id) == Some(tab_number) {
                     self.pending_active_tabs.remove(workspace_id);
                     return true;
                 }
@@ -1395,14 +1486,6 @@ impl ClientViewState {
 
     pub(crate) fn id(&self) -> u64 {
         self.id
-    }
-
-    /// Build a temporary encode/projection clone that reports as `client_view_id`.
-    /// Used when finishing deferred remote creates for a non-default requester.
-    pub(crate) fn clone_for_encode_as(&self, client_view_id: u64) -> Self {
-        let mut view = self.clone();
-        view.id = client_view_id;
-        view
     }
 
     pub(crate) fn focus_client_overlay(
@@ -1535,6 +1618,71 @@ impl ClientViewState {
         } else {
             Rect::default()
         }
+    }
+
+    pub(crate) fn active_group_id<'a>(&self, state: &'a AppState) -> &'a str {
+        state
+            .groups
+            .get(self.active_group)
+            .map(|group| group.id.as_str())
+            .unwrap_or(crate::workspace::DEFAULT_GROUP_ID)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_workspace_accent_color(&self, state: &AppState) -> ratatui::style::Color {
+        if !self.group_filter_enabled {
+            if let Some(group_idx) = self
+                .active_workspace
+                .and_then(|ws_idx| state.workspaces.get(ws_idx))
+                .and_then(|workspace| state.group_index_by_id(&workspace.group_id))
+            {
+                return state.group_accent_color(group_idx);
+            }
+        }
+        state.group_accent_color(self.active_group)
+    }
+
+    pub(crate) fn visible_workspace_indices(&self, state: &AppState) -> Vec<usize> {
+        crate::app::connection_scope::visible_workspace_indices(
+            state,
+            self.active_group,
+            self.group_filter_enabled,
+            &self.connection_scope,
+        )
+        .collect()
+    }
+
+    pub(crate) fn sidebar_visible_workspace_indices(&self, state: &AppState) -> Vec<usize> {
+        if self.sidebar_collapsed || self.group_filter_enabled {
+            return self.visible_workspace_indices(state);
+        }
+        state
+            .workspaces
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, workspace)| {
+                (!self.workspace_group_collapsed(&workspace.group_id)
+                    && crate::app::connection_scope::workspace_matches(
+                        state,
+                        idx,
+                        &self.connection_scope,
+                    ))
+                .then_some(idx)
+            })
+            .collect()
+    }
+
+    pub(crate) fn workspace_group_collapsed(&self, group_id: &str) -> bool {
+        self.collapsed_workspace_groups
+            .iter()
+            .any(|id| id == group_id)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_section_collapsed(&self, section_key: &str) -> bool {
+        self.collapsed_agent_sections
+            .iter()
+            .any(|key| key == section_key)
     }
 
     pub(crate) fn compute_github(&mut self, state: &AppState) {
@@ -1729,7 +1877,7 @@ mod tests {
         assert_eq!(view.active_workspace, None);
         assert_eq!(view.selected_workspace, 0);
         assert_eq!(view.active_group, 0);
-        assert!(view.group_filter_enabled);
+        assert!(!view.group_filter_enabled);
         assert_eq!(
             view.agent_panel_scope,
             crate::app::state::AgentPanelScope::CurrentWorkspace
@@ -1741,34 +1889,22 @@ mod tests {
     }
 
     #[test]
-    fn default_view_captures_workspace_tab_focus_and_zoom() {
+    fn default_view_uses_stable_initial_tab_and_root_pane_identities() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
-        state.active = Some(1);
-        state.selected = 1;
-        state.mode = Mode::Terminal;
-        state.workspaces[0].terminal_tab_mut(0).unwrap().zoomed = true;
 
         let first_workspace_id = state.workspaces[0].id.clone();
         let second_workspace_id = state.workspaces[1].id.clone();
-        let first_focused = state.workspaces[0]
-            .terminal_tab(0)
-            .unwrap()
-            .layout
-            .focused();
-        let second_focused = state.workspaces[1]
-            .terminal_tab(0)
-            .unwrap()
-            .layout
-            .focused();
+        let first_focused = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let second_focused = state.workspaces[1].terminal_tab(0).unwrap().root_pane;
 
         let view = ClientViewState::from_default_client_state(&state);
 
-        assert_eq!(view.active_workspace, Some(1));
-        assert_eq!(view.selected_workspace, 1);
+        assert_eq!(view.active_workspace, Some(0));
+        assert_eq!(view.selected_workspace, 0);
         assert_eq!(view.mode, Mode::Terminal);
-        assert_eq!(view.active_tab_for_workspace(&first_workspace_id), Some(0));
-        assert_eq!(view.active_tab_for_workspace(&second_workspace_id), Some(0));
+        assert_eq!(view.active_tab_for_workspace(&first_workspace_id), Some(1));
+        assert_eq!(view.active_tab_for_workspace(&second_workspace_id), Some(1));
         assert_eq!(
             view.focused_pane_for_tab(&first_workspace_id, 1),
             Some(first_focused)
@@ -1777,7 +1913,7 @@ mod tests {
             view.focused_pane_for_tab(&second_workspace_id, 1),
             Some(second_focused)
         );
-        assert!(view.tab_is_zoomed(&first_workspace_id, 1));
+        assert!(!view.tab_is_zoomed(&first_workspace_id, 1));
         assert!(!view.tab_is_zoomed(&second_workspace_id, 1));
     }
 
@@ -1785,14 +1921,8 @@ mod tests {
     fn reconcile_discards_deleted_workspaces_and_clamps_selection() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
-        state.active = Some(0);
-        state.selected = 0;
         let removed_workspace_id = state.workspaces[1].id.clone();
-        let removed_pane = state.workspaces[1]
-            .terminal_tab(0)
-            .unwrap()
-            .layout
-            .focused();
+        let removed_pane = state.workspaces[1].terminal_tab(0).unwrap().root_pane;
 
         let mut view = ClientViewState::from_default_client_state(&state);
         view.active_workspace = Some(9);
@@ -1829,8 +1959,6 @@ mod tests {
             Workspace::test_new("b"),
             Workspace::test_new("c"),
         ];
-        state.active = Some(1);
-        state.selected = 1;
         let focused_id = state.workspaces[1].id.clone();
 
         let mut view = ClientViewState::from_default_client_state(&state);
@@ -1871,8 +1999,6 @@ mod tests {
             Workspace::test_new("first-visible"),
             Workspace::test_new("second-visible"),
         ];
-        state.active = Some(0);
-        state.selected = 1;
 
         let mut view = ClientViewState::from_default_client_state(&state);
         view.active_workspace = Some(0);
@@ -1894,21 +2020,19 @@ mod tests {
     fn reconcile_preserves_pending_future_tab_focus_until_tab_exists() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("shell")];
-        state.workspaces[0].active_tab = 0;
         let workspace_id = state.workspaces[0].id.clone();
 
         let mut view = ClientViewState::from_default_client_state(&state);
-        view.pending_active_tabs.insert(workspace_id.clone(), 1);
-        view.reconcile(&state);
-
-        assert_eq!(view.active_tab_for_workspace(&workspace_id), Some(0));
-        assert_eq!(view.pending_active_tabs.get(&workspace_id), Some(&1));
-
-        state.workspaces[0].test_add_tab(Some("diff"));
-        state.workspaces[0].active_tab = 1;
+        view.pending_active_tabs.insert(workspace_id.clone(), 2);
         view.reconcile(&state);
 
         assert_eq!(view.active_tab_for_workspace(&workspace_id), Some(1));
+        assert_eq!(view.pending_active_tabs.get(&workspace_id), Some(&2));
+
+        state.workspaces[0].test_add_tab(Some("diff"));
+        view.reconcile(&state);
+
+        assert_eq!(view.active_tab_for_workspace(&workspace_id), Some(2));
         assert!(!view.pending_active_tabs.contains_key(&workspace_id));
     }
 
@@ -1922,13 +2046,10 @@ mod tests {
         state.groups = vec![workspace_group.clone(), empty_group];
         state.workspaces = vec![Workspace::test_new("one")];
         state.workspaces[0].group_id = workspace_group.id;
-        state.active = Some(0);
-        state.selected = 0;
-        state.active_group = 0;
-        state.group_filter_enabled = true;
 
         let mut view = ClientViewState::from_default_client_state(&state);
-        view.active_group = 1;
+        view.select_group(&state, 1);
+        view.group_filter_enabled = true;
         view.active_workspace = None;
         view.selected_workspace = 0;
         view.reconcile(&state);
@@ -1942,8 +2063,7 @@ mod tests {
     async fn terminal_scroll_offset_state_is_client_local() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("terminal")];
-        state.active = Some(0);
-        let pane_id = state.workspaces[0].focused_pane_id().expect("focused pane");
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = state.workspaces[0]
             .pane_state(pane_id)
             .and_then(|pane| pane.terminal_id_cloned())
@@ -2004,8 +2124,7 @@ mod tests {
     async fn scrolled_terminal_client_view_stays_anchored_when_output_grows() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("terminal")];
-        state.active = Some(0);
-        let pane_id = state.workspaces[0].focused_pane_id().expect("focused pane");
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let terminal_id = state.workspaces[0]
             .pane_state(pane_id)
             .and_then(|pane| pane.terminal_id_cloned())
@@ -2056,9 +2175,6 @@ mod tests {
         let second_number = workspace.tabs[second_idx].number();
         let workspace_id = workspace.id.clone();
         state.workspaces = vec![workspace];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Terminal;
 
         let mut view = ClientViewState::from_default_client_state(&state);
         let second_key = ClientTabViewKey::new(&workspace_id, second_number);
@@ -2089,18 +2205,12 @@ mod tests {
     fn focusing_native_tab_clears_terminal_focus_without_clobbering_settings() {
         let mut state = AppState::test_new();
         state.workspaces = vec![Workspace::test_new("native")];
-        state.active = Some(0);
-        state.selected = 0;
         let native_tab = state.workspaces[0].ensure_github_tab();
 
         let mut view = ClientViewState::from_default_client_state(&state);
         view.mode = Mode::Settings;
         view.computed.pane_infos.push(crate::layout::PaneInfo {
-            id: state.workspaces[0]
-                .terminal_tab(0)
-                .unwrap()
-                .layout
-                .focused(),
+            id: state.workspaces[0].terminal_tab(0).unwrap().root_pane,
             rect: Rect::new(0, 0, 10, 10),
             inner_rect: Rect::new(0, 0, 10, 10),
             scrollbar_rect: None,
@@ -2123,12 +2233,12 @@ mod tab_control_tests {
     #[test]
     fn watching_projection_exposes_epoch_and_queues_one_shot_request() {
         let mut view = ClientViewState::from_default_client_state(&AppState::test_new());
-        view.set_tab_control(ClientTabControl::WatchingFree { epoch: 7 });
+        let projection = ClientTabControl::WatchingFree { epoch: 7 };
 
-        assert!(!view.can_mutate_tab());
-        assert_eq!(view.tab_control.epoch(), Some(7));
-        assert_eq!(view.request_tab_control(), Some(7));
-        assert_eq!(view.request_tab_control(), Some(7));
+        assert!(!projection.can_mutate_tab());
+        assert_eq!(projection.epoch(), Some(7));
+        assert_eq!(view.request_tab_control(projection), Some(7));
+        assert_eq!(view.request_tab_control(projection), Some(7));
         assert_eq!(view.take_tab_control_request(), Some(7));
         assert_eq!(view.take_tab_control_request(), None);
     }
@@ -2138,11 +2248,7 @@ mod tab_control_tests {
         let mut state = AppState::test_new();
         state.workspaces = vec![crate::workspace::Workspace::test_new("control")];
         let mut view = ClientViewState::from_default_client_state(&state);
-        let pane_id = state.workspaces[0]
-            .terminal_tab(0)
-            .unwrap()
-            .layout
-            .focused();
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let key = crate::input::TerminalKey::new(
             crossterm::event::KeyCode::Char('x'),
             crossterm::event::KeyModifiers::empty(),
@@ -2156,7 +2262,10 @@ mod tab_control_tests {
             key,
         );
 
-        view.set_tab_control(ClientTabControl::WatchingControlled { epoch: 1 });
+        view.reconcile_tab_control(
+            ClientTabControl::Controlling { epoch: 1 },
+            ClientTabControl::WatchingControlled { epoch: 1 },
+        );
 
         assert!(view.input_leases.is_empty());
     }
@@ -2164,10 +2273,10 @@ mod tab_control_tests {
     #[test]
     fn unavailable_projection_has_no_epoch_or_control_request() {
         let mut view = ClientViewState::from_default_client_state(&AppState::test_new());
-        view.set_tab_control(ClientTabControl::Unavailable);
+        let projection = ClientTabControl::Unavailable;
 
-        assert!(!view.can_mutate_tab());
-        assert_eq!(view.tab_control.epoch(), None);
-        assert_eq!(view.request_tab_control(), None);
+        assert!(!projection.can_mutate_tab());
+        assert_eq!(projection.epoch(), None);
+        assert_eq!(view.request_tab_control(projection), None);
     }
 }

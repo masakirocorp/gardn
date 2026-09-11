@@ -183,14 +183,6 @@ pub(crate) fn scope_color(
     }
 }
 
-pub(crate) fn reanchor_state_selection(state: &mut AppState) {
-    let previous = state.selected;
-    if let Some(next) = nearest_visible(previous, state.sidebar_visible_workspace_indices()) {
-        state.selected = next;
-        state.ensure_workspace_visible(next);
-    }
-}
-
 pub(crate) fn reanchor_view_selection(
     state: &AppState,
     view: &mut crate::app::view_state::ClientViewState,
@@ -353,23 +345,6 @@ mod tests {
             visible_workspace_indices(&state, 0, false, &scope).collect::<Vec<_>>(),
             vec![0, 1]
         );
-    }
-
-    #[test]
-    fn filtering_reanchors_selection_without_changing_active_workspace() {
-        let mut state = AppState::test_new();
-        let local = Workspace::test_new("local");
-        let mut remote = Workspace::test_new("remote");
-        remote.default_location = location("ssh:workbox:1");
-        state.workspaces = vec![local, remote];
-        state.active = Some(0);
-        state.selected = 0;
-        state.connection_scope = profile_scope("workbox");
-
-        reanchor_state_selection(&mut state);
-
-        assert_eq!(state.selected, 1);
-        assert_eq!(state.active, Some(0));
     }
 
     #[test]

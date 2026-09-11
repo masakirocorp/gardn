@@ -884,15 +884,6 @@ impl PaneRuntimeIo {
         }
     }
 
-    async fn send_bytes(&self, bytes: Bytes) -> Result<(), mpsc::error::SendError<Bytes>> {
-        match self {
-            PaneRuntimeIo::Actor(actor) => actor.write_user_input(bytes).await,
-            PaneRuntimeIo::Remote { sender, .. } => sender.send(bytes).await,
-            #[cfg(test)]
-            PaneRuntimeIo::TestChannel { sender, .. } => sender.send(bytes).await,
-        }
-    }
-
     fn try_send_bytes(&self, bytes: Bytes) -> Result<(), mpsc::error::TrySendError<Bytes>> {
         match self {
             PaneRuntimeIo::Actor(actor) => actor.try_write_user_input(bytes),
@@ -2639,29 +2630,12 @@ impl PaneRuntime {
             .encode_terminal_key(key, self.keyboard_protocol())
     }
 
-    pub async fn send_bytes(&self, bytes: Bytes) -> Result<(), mpsc::error::SendError<Bytes>> {
-        self.io.send_bytes(bytes).await
-    }
-
     pub fn try_send_bytes(&self, bytes: Bytes) -> Result<(), mpsc::error::TrySendError<Bytes>> {
         self.io.try_send_bytes(bytes)
     }
 
     pub fn send_bytes_after(&self, bytes: Bytes, delay: std::time::Duration) {
         self.io.send_bytes_after(bytes, delay);
-    }
-
-    pub async fn send_paste(&self, text: String) -> Result<(), mpsc::error::SendError<Bytes>> {
-        let bracketed = self
-            .input_state()
-            .map(|state| state.bracketed_paste)
-            .unwrap_or(false);
-        let payload = if bracketed {
-            format!("\x1b[200~{text}\x1b[201~")
-        } else {
-            text
-        };
-        self.send_bytes(Bytes::from(payload)).await
     }
 
     pub fn try_send_focus_event(&self, event: crate::ghostty::FocusEvent) -> bool {

@@ -72,7 +72,7 @@ impl App {
                 ));
             }
         };
-        let context = self.plugin_context_for_workspace(ws_idx, "plugin-pane");
+        let context = self.plugin_context_for_workspace_for_view(view, ws_idx, "plugin-pane");
         let extra_env =
             match self.plugin_pane_launch_env(plugin, &pane.id, params.env.clone(), &context) {
                 Ok(env) => env,
@@ -241,7 +241,8 @@ impl App {
                 ));
             }
         };
-        let context = self.plugin_context_for_pane(ws_idx, target_pane, "plugin-pane");
+        let context =
+            self.plugin_context_for_pane_for_view(view, ws_idx, target_pane, "plugin-pane");
         let extra_env =
             match self.plugin_pane_launch_env(plugin, &pane.id, params.env.clone(), &context) {
                 Ok(env) => env,
@@ -261,7 +262,6 @@ impl App {
         let focus = params.focus || placement == PluginPanePlacement::Zoomed;
 
         let (rows, cols) = self.state.estimate_pane_size();
-        let previous_focus = self.state.current_pane_focus_target();
         let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
             return crate::api::ApiRequestDisposition::Respond(encode_error(
                 id,
@@ -279,7 +279,6 @@ impl App {
             extra_env,
             self.state.pane_scrollback_limit_bytes,
             self.state.host_terminal_theme,
-            focus,
         );
         let (tab_idx, new_pane) = match result {
             Some(Ok(result)) => result,
@@ -299,23 +298,23 @@ impl App {
             }
         };
         if focus {
-            self.state.switch_workspace_tab(ws_idx, tab_idx);
-            self.state
-                .record_pane_focus_change(previous_focus, ws_idx, new_pane.pane_id);
-            self.state.mode = crate::app::Mode::Terminal;
-            let _ = view;
+            view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, new_pane.pane_id);
+            view.mode = crate::app::Mode::Terminal;
+        } else {
+            view.reconcile(&self.state);
         }
         if placement == PluginPanePlacement::Zoomed {
             if let Some(tab) = self
                 .state
                 .workspaces
-                .get_mut(ws_idx)
-                .and_then(|ws| ws.terminal_tab_mut(tab_idx).ok())
+                .get(ws_idx)
+                .and_then(|ws| ws.terminal_tab(tab_idx).ok())
             {
-                tab.zoomed = true;
+                view.set_tab_zoomed(&self.state.workspaces[ws_idx].id, tab.number, true);
             }
         }
         crate::api::ApiRequestDisposition::Respond(self.finish_plugin_pane_open(
+            view,
             id,
             ws_idx,
             None,
@@ -345,7 +344,7 @@ impl App {
                     ));
                 }
             },
-            None => match self.state.active {
+            None => match view.active_workspace {
                 Some(ws_idx) => ws_idx,
                 None => {
                     return crate::api::ApiRequestDisposition::Respond(encode_error(
@@ -364,7 +363,7 @@ impl App {
                 ));
             }
         };
-        let context = self.plugin_context_for_workspace(ws_idx, "plugin-pane");
+        let context = self.plugin_context_for_workspace_for_view(view, ws_idx, "plugin-pane");
         let extra_env =
             match self.plugin_pane_launch_env(plugin, &pane.id, params.env.clone(), &context) {
                 Ok(env) => env,
@@ -374,7 +373,6 @@ impl App {
                     ));
                 }
             };
-        let _ = view;
 
         let (rows, cols) = self.state.estimate_pane_size();
         let Some(ws) = self.state.workspaces.get_mut(ws_idx) else {
@@ -402,14 +400,21 @@ impl App {
                 ));
             }
         };
-        let pane_id = ws
-            .terminal_tab(tab_idx)
-            .map_err(|error| error.to_string())
-            .map(|tab| tab.root_pane)
-            .unwrap();
+        let pane_id = match ws.terminal_tab(tab_idx) {
+            Ok(tab) => tab.root_pane,
+            Err(err) => {
+                return crate::api::ApiRequestDisposition::Respond(encode_error(
+                    id,
+                    "plugin_pane_open_failed",
+                    format!("created plugin pane is not terminal: {err}"),
+                ));
+            }
+        };
         if params.focus {
-            self.state.switch_workspace_tab(ws_idx, tab_idx);
-            self.state.mode = crate::app::Mode::Terminal;
+            view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+            view.mode = crate::app::Mode::Terminal;
+        } else {
+            view.reconcile(&self.state);
         }
         let new_pane = crate::workspace::NewPane {
             pane_id,
@@ -417,6 +422,7 @@ impl App {
             runtime,
         };
         crate::api::ApiRequestDisposition::Respond(self.finish_plugin_pane_open(
+            view,
             id,
             ws_idx,
             Some(tab_idx),
@@ -467,6 +473,7 @@ impl App {
 
     fn finish_plugin_pane_open(
         &mut self,
+        view: &crate::app::ClientViewState,
         id: String,
         ws_idx: usize,
         created_tab_idx: Option<usize>,
@@ -491,7 +498,7 @@ impl App {
             },
         );
         if let Some(tab_idx) = created_tab_idx {
-            if let Some(tab) = self.tab_info(ws_idx, tab_idx) {
+            if let Some(tab) = self.tab_info_for_view(view, ws_idx, tab_idx) {
                 self.emit_event(crate::api::schema::EventEnvelope {
                     event: crate::api::schema::EventKind::TabCreated,
                     data: crate::api::schema::EventData::TabCreated { tab },
@@ -499,7 +506,7 @@ impl App {
             }
         }
         self.schedule_session_save();
-        let Some(pane) = self.pane_info(ws_idx, new_pane.pane_id) else {
+        let Some(pane) = self.pane_info_for_view(view, ws_idx, new_pane.pane_id) else {
             return encode_error(id, "plugin_pane_open_failed", "plugin pane disappeared");
         };
         self.emit_event(crate::api::schema::EventEnvelope {
@@ -576,38 +583,19 @@ impl App {
                     .workspace_id
                     .as_deref()
                     .and_then(|workspace_id| self.parse_workspace_id(workspace_id))
-                    .or(self.state.active)
+                    .or(view.active_workspace)
                     .ok_or_else(|| {
                         (
                             "workspace_not_found".to_string(),
                             "workspace not found".to_string(),
                         )
                     })?;
-                if view.active_workspace == Some(ws_idx) {
-                    if let Some((_, pane_id)) = view.focused_pane_for_workspace(&self.state, ws_idx)
-                    {
-                        if let Some(location) = pane_location(ws_idx, pane_id) {
-                            return Ok(location);
-                        }
+                if let Some((_, pane_id)) = view.focused_pane_for_workspace(&self.state, ws_idx) {
+                    if let Some(location) = pane_location(ws_idx, pane_id) {
+                        return Ok(location);
                     }
                 }
-                let workspace = self.state.workspaces.get(ws_idx).ok_or_else(|| {
-                    (
-                        "workspace_not_found".to_string(),
-                        "workspace not found".to_string(),
-                    )
-                })?;
-                let pane_id = workspace
-                    .terminal_tab(workspace.active_tab)
-                    .ok()
-                    .map(|tab| tab.layout.focused())
-                    .ok_or_else(|| ("no_active_pane".to_string(), "no active pane".to_string()))?;
-                pane_location(ws_idx, pane_id).ok_or_else(|| {
-                    (
-                        "plugin_pane_target_unavailable".to_string(),
-                        "plugin pane target terminal is unavailable".to_string(),
-                    )
-                })
+                Err(("no_active_pane".to_string(), "no active pane".to_string()))
             }
         }
     }

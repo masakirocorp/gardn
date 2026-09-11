@@ -58,7 +58,7 @@ impl App {
 
     pub(crate) fn open_default_github(&mut self, workspace: Option<usize>) {
         self.with_default_github_view(|app, view| {
-            view.active_workspace = workspace.or(app.state.active);
+            view.active_workspace = workspace.or(view.active_workspace);
             app.open_github_for_view(view);
         });
     }
@@ -155,7 +155,7 @@ impl App {
                     .flatten()
             })
             .flatten();
-        if !self.state.close_workspace_tab(ws_idx, tab_idx) {
+        if !self.state.close_workspace_tab(view, ws_idx, tab_idx) {
             return false;
         }
         if closes_host {
@@ -423,90 +423,10 @@ impl App {
         &mut self,
         action: impl FnOnce(&mut Self, &mut ClientViewState) -> R,
     ) -> R {
-        let replacement = ClientViewState::from_default_client_state(&self.state);
-        let mut view = std::mem::replace(&mut self.default_client_view, replacement);
-        let previous_host_key = view.github_host.as_ref().map(|host| host.key.clone());
-        let had_screen = view.github.is_some();
-        view.active_tabs = self
-            .state
-            .workspaces
-            .iter()
-            .map(|workspace| (workspace.id.clone(), workspace.active_tab))
-            .collect();
-        view.focused_panes = self
-            .state
-            .workspaces
-            .iter()
-            .flat_map(|workspace| {
-                workspace.terminal_tabs().map(|(_, tab)| {
-                    (
-                        super::view_state::ClientTabViewKey::new(&workspace.id, tab.number),
-                        tab.layout.focused(),
-                    )
-                })
-            })
-            .collect();
-        view.tab_canvas_view = None;
-        view.active_workspace = self.state.active;
-        view.mode = self.state.mode;
-        view.computed = self.state.view.clone();
-        view.command_palette = self.state.command_palette.clone();
-        view.sync_github_mode(&self.state);
-        view.compute_github(&self.state);
-        let result = action(self, &mut view);
-        if let Some(key) = view.current_tab_key(&self.state) {
-            if let Some(ws_idx) = self
-                .state
-                .workspaces
-                .iter()
-                .position(|workspace| workspace.id == key.workspace_id)
-            {
-                if let Some(tab_idx) = self.state.workspaces[ws_idx]
-                    .tabs
-                    .iter()
-                    .position(|tab| tab.number() == key.tab_number)
-                {
-                    if self.state.active != Some(ws_idx) {
-                        self.state.switch_workspace(ws_idx);
-                    }
-                    if self.state.workspaces[ws_idx].active_tab != tab_idx {
-                        self.state.switch_tab(tab_idx);
-                    }
-                }
-            }
-        }
-        let restored_source = previous_host_key.is_some() && view.github_host.is_none();
-        let opened_screen = view.github.is_some()
-            && (!had_screen
-                || previous_host_key != view.github_host.as_ref().map(|host| host.key.clone()));
-        if opened_screen || restored_source {
-            if let Some(target) = view.current_pane_focus_target(&self.state) {
-                if let Some(ws_idx) = self
-                    .state
-                    .workspaces
-                    .iter()
-                    .position(|workspace| workspace.id == target.workspace_id)
-                {
-                    if let Some(tab_idx) =
-                        workspace_tab_for_pane(&self.state.workspaces[ws_idx], target.pane_id)
-                    {
-                        self.state.switch_workspace(ws_idx);
-                        self.state.switch_tab(tab_idx);
-                        self.state.focus_pane(target.pane_id);
-                    }
-                }
-            }
-        }
-        self.state.mode = view.mode;
-        self.state.command_palette = view.command_palette.clone();
-        self.default_client_view = view;
-        result
+        self.with_default_client_view(|app, view| {
+            view.sync_github_mode(&app.state);
+            view.compute_github(&app.state);
+            action(app, view)
+        })
     }
-}
-
-fn workspace_tab_for_pane(
-    workspace: &crate::workspace::Workspace,
-    pane_id: crate::layout::PaneId,
-) -> Option<usize> {
-    workspace.find_tab_index_for_pane(pane_id)
 }

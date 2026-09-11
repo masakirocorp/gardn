@@ -4,7 +4,6 @@ use crate::app::input::TerminalKeyTarget;
 use crate::input::{KeyIdentity, TerminalKey};
 
 pub(crate) type InputSourceId = u64;
-pub(crate) const LOCAL_INPUT_SOURCE: InputSourceId = 0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct InputLeaseKey {

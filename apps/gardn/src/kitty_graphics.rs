@@ -156,6 +156,7 @@ pub(crate) fn is_enabled() -> bool {
 
 pub(crate) fn paint_local_pane_graphics(
     app: &AppState,
+    view: &ClientViewState,
     obscured_pane: Option<PaneId>,
     graphics: &mut crate::app::pane_graphics::Runtime,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -166,6 +167,7 @@ pub(crate) fn paint_local_pane_graphics(
     if let Ok(mut cache) = cache.lock() {
         bytes = encode_local_pane_graphics(
             app,
+            view,
             obscured_pane,
             graphics,
             terminal_runtimes,
@@ -189,21 +191,22 @@ pub(crate) fn paint_local_pane_graphics(
 
 pub(crate) fn encode_local_pane_graphics(
     app: &AppState,
+    view: &ClientViewState,
     obscured_pane: Option<PaneId>,
     graphics: &mut crate::app::pane_graphics::Runtime,
     terminal_runtimes: &TerminalRuntimeRegistry,
     cell_size: HostCellSize,
     cache: &mut HostGraphicsCache,
 ) -> Vec<u8> {
-    let mode_ok = matches!(app.mode, Mode::Terminal | Mode::Github);
+    let mode_ok = matches!(view.mode, Mode::Terminal | Mode::Github);
     let cell_ok = cell_size.is_known();
     tracing::debug!(
         mode_ok,
         cell_ok,
         cell_width_px = cell_size.width_px,
         cell_height_px = cell_size.height_px,
-        active = ?app.active,
-        pane_infos_len = app.view.pane_infos.len(),
+        active = ?view.active_workspace,
+        pane_infos_len = view.computed.pane_infos.len(),
         "paint_local_pane_graphics entry"
     );
     if !mode_ok || !cell_ok {
@@ -218,10 +221,11 @@ pub(crate) fn encode_local_pane_graphics(
         return cache.clear_bytes();
     }
 
-    let view_key = active_view_key(app);
-    let blit_pane = focused_graphics_blit_pane(app);
-    let placements = collect_visible_placements(
+    let view_key = active_view_key_for_view(app, view);
+    let blit_pane = focused_graphics_blit_pane_for_view(app, view);
+    let placements = collect_visible_placements_for_view(
         app,
+        view,
         graphics,
         terminal_runtimes,
         cell_size,
@@ -288,6 +292,7 @@ pub(crate) fn encode_local_pane_graphics_for_view(
         cell_size,
         &cache.images,
         blit_pane,
+        None,
     );
 
     let mut bytes = Vec::new();
@@ -505,36 +510,13 @@ impl HostGraphicsCache {
     }
 }
 
-fn active_view_key(app: &AppState) -> Option<HostViewKey> {
-    let ws_idx = app.active?;
-    let ws = app.workspaces.get(ws_idx)?;
-    Some(HostViewKey {
-        workspace_index: ws_idx,
-        tab_index: ws.active_tab_index(),
-    })
-}
-
 fn active_view_key_for_view(app: &AppState, view: &ClientViewState) -> Option<HostViewKey> {
     let ws_idx = view.active_workspace?;
-    let ws = app.workspaces.get(ws_idx)?;
+    app.workspaces.get(ws_idx)?;
     Some(HostViewKey {
         workspace_index: ws_idx,
-        tab_index: view
-            .active_tab_for_workspace(&ws.id)
-            .unwrap_or_else(|| ws.active_tab_index()),
+        tab_index: view.active_tab_index_for_workspace(app, ws_idx)?,
     })
-}
-
-fn focused_graphics_blit_pane(app: &AppState) -> Option<PaneId> {
-    if app.mode != Mode::Terminal {
-        return None;
-    }
-    let workspace = app.workspaces.get(app.active?)?;
-    let tab = workspace.terminal_tab(workspace.active_tab_index()).ok()?;
-    if tab.layout.pane_ids().len() != 1 && !tab.zoomed {
-        return None;
-    }
-    Some(tab.layout.focused())
 }
 
 fn focused_graphics_blit_pane_for_view(app: &AppState, view: &ClientViewState) -> Option<PaneId> {
@@ -543,14 +525,15 @@ fn focused_graphics_blit_pane_for_view(app: &AppState, view: &ClientViewState) -
     }
     let ws_idx = view.active_workspace?;
     let workspace = app.workspaces.get(ws_idx)?;
-    let tab_idx = view.active_tab_for_workspace(&workspace.id)?;
+    let tab_idx = view.active_tab_index_for_workspace(app, ws_idx)?;
     let tab = workspace.terminal_tab(tab_idx).ok()?;
-    if tab.layout.pane_ids().len() != 1 && !tab.zoomed {
+    if tab.layout.pane_ids().len() != 1 && !view.tab_is_zoomed(&workspace.id, tab.number) {
         return None;
     }
     Some(
         view.focused_pane_for_tab(&workspace.id, tab.number)
-            .unwrap_or_else(|| tab.layout.focused()),
+            .filter(|pane_id| tab.panes.contains_key(pane_id))
+            .unwrap_or(tab.root_pane),
     )
 }
 
@@ -611,6 +594,7 @@ fn collect_visible_placements_for_view(
     cell_size: HostCellSize,
     uploaded_images: &HashMap<u32, ImageSignature>,
     blit_pane: Option<PaneId>,
+    obscured_pane: Option<PaneId>,
 ) -> Vec<HostPlacement> {
     let Some(ws_idx) = view.active_workspace else {
         return Vec::new();
@@ -624,6 +608,9 @@ fn collect_visible_placements_for_view(
         return Vec::new();
     };
     for info in &view.computed.pane_infos {
+        if obscured_pane == Some(info.id) {
+            continue;
+        }
         if blit_pane.is_some_and(|pane_id| pane_id != info.id) {
             continue;
         }
@@ -673,85 +660,6 @@ fn collect_visible_placements_for_view(
             &mut placements,
         );
     }
-    placements
-}
-
-fn collect_visible_placements(
-    app: &AppState,
-    graphics: &mut crate::app::pane_graphics::Runtime,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    cell_size: HostCellSize,
-    uploaded_images: &HashMap<u32, ImageSignature>,
-    blit_pane: Option<PaneId>,
-    obscured_pane: Option<PaneId>,
-) -> Vec<HostPlacement> {
-    let ws_idx = match app.active {
-        Some(idx) => idx,
-        None => {
-            tracing::debug!("collect_visible_placements: no active workspace");
-            return Vec::new();
-        }
-    };
-    if app
-        .workspaces
-        .get(ws_idx)
-        .and_then(crate::workspace::Workspace::active_tab)
-        .is_none()
-    {
-        tracing::debug!(ws_idx, "collect_visible_placements: no active tab");
-        return Vec::new();
-    }
-
-    tracing::debug!(
-        ws_idx,
-        terminal_runtimes_len = terminal_runtimes.len(),
-        pane_infos_len = app.view.pane_infos.len(),
-        "collect_visible_placements: starting iteration"
-    );
-    let mut placements = Vec::new();
-    for info in &app.view.pane_infos {
-        if obscured_pane == Some(info.id) {
-            continue;
-        }
-        if blit_pane.is_some_and(|pane_id| pane_id != info.id) {
-            continue;
-        }
-        let runtime = match app.runtime_for_pane_in_workspace(terminal_runtimes, ws_idx, info.id) {
-            Some(rt) => rt,
-            None => {
-                tracing::debug!(pane_id = ?info.id, "collect_visible_placements: runtime not found");
-                continue;
-            }
-        };
-        let mut copied_images = HashSet::new();
-        for placement in runtime.kitty_image_placements_with_data_filter(|descriptor| {
-            needs_host_image_data(info.id, descriptor, uploaded_images, &mut copied_images)
-        }) {
-            let scrollback_offset = runtime
-                .scroll_metrics()
-                .map(|m| m.offset_from_bottom as u32)
-                .unwrap_or(0);
-            placements.push(HostPlacement {
-                pane_id: info.id,
-                area: info.inner_rect,
-                cell_size,
-                placement,
-                scrollback_offset,
-            });
-        }
-        append_pane_graphics_placements(
-            graphics,
-            info.id,
-            info.inner_rect,
-            cell_size,
-            uploaded_images,
-            &mut placements,
-        );
-    }
-    tracing::debug!(
-        placements_len = placements.len(),
-        "collect_visible_placements: done"
-    );
     placements
 }
 
@@ -1808,29 +1716,37 @@ mod tests {
     #[test]
     fn focused_blit_uses_the_only_pane_on_a_terminal_tab() {
         let mut app = crate::app::state::AppState::test_new();
-        app.mode = Mode::Terminal;
         app.workspaces = vec![crate::workspace::Workspace::test_new("tb")];
-        app.active = Some(0);
         let pane_id = app.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.active_workspace = Some(0);
+        view.mode = Mode::Terminal;
 
-        assert_eq!(focused_graphics_blit_pane(&app), Some(pane_id));
+        assert_eq!(
+            focused_graphics_blit_pane_for_view(&app, &view),
+            Some(pane_id)
+        );
     }
 
     #[test]
     fn focused_blit_skips_split_tabs_until_zoomed() {
         let mut app = crate::app::state::AppState::test_new();
-        app.mode = Mode::Terminal;
         let mut workspace = crate::workspace::Workspace::test_new("tb");
-        workspace.test_split(ratatui::layout::Direction::Vertical);
+        let focused = workspace.test_split(ratatui::layout::Direction::Vertical);
+        let workspace_id = workspace.id.clone();
         app.workspaces = vec![workspace];
-        app.active = Some(0);
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.active_workspace = Some(0);
+        view.mode = Mode::Terminal;
 
-        assert_eq!(focused_graphics_blit_pane(&app), None);
+        assert_eq!(focused_graphics_blit_pane_for_view(&app, &view), None);
 
-        let tab = app.workspaces[0].terminal_tab_mut(0).unwrap();
-        tab.zoomed = true;
-        let focused = tab.layout.focused();
-        assert_eq!(focused_graphics_blit_pane(&app), Some(focused));
+        view.focus_pane_in_workspace(&app, 0, 0, focused);
+        view.set_tab_zoomed(&workspace_id, 1, true);
+        assert_eq!(
+            focused_graphics_blit_pane_for_view(&app, &view),
+            Some(focused)
+        );
     }
 
     fn large_placement() -> HostPlacement {

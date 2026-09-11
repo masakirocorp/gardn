@@ -8,8 +8,7 @@ use ratatui::{
 
 use crate::app::{
     command_palette::{
-        command_palette_filtered_commands, command_palette_filtered_commands_for_view,
-        CommandPaletteAction, CommandPaletteCommand,
+        command_palette_filtered_commands_for_view, CommandPaletteAction, CommandPaletteCommand,
     },
     view_state::ClientViewState,
     AppState,
@@ -93,17 +92,6 @@ pub(crate) fn command_palette_button_rects(inner: Rect) -> (Rect, Rect) {
     );
     let close = super::widgets::modal_close_button_rect(stack.header);
     (rects[0], close)
-}
-
-pub(super) fn render_command_palette_overlay(app: &AppState, frame: &mut Frame) {
-    let commands = command_palette_filtered_commands(app);
-    render_command_palette_overlay_from(
-        app,
-        frame,
-        app.screen_rect(),
-        &app.command_palette,
-        commands,
-    );
 }
 
 pub(super) fn render_command_palette_overlay_for_view(
@@ -405,11 +393,13 @@ mod tests {
     #[test]
     fn command_palette_renders_one_close_affordance_and_run_action() {
         let app = AppState::test_new();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.terminal_area = Rect::new(0, 0, 100, 24);
         let backend = TestBackend::new(100, 24);
         let mut terminal = Terminal::new(backend).expect("test backend");
 
         terminal
-            .draw(|frame| render_command_palette_overlay(&app, frame))
+            .draw(|frame| render_command_palette_overlay_for_view(&app, &view, frame))
             .expect("render command palette");
 
         let text = buffer_text(terminal.backend().buffer(), 100, 24);
@@ -435,11 +425,13 @@ mod tests {
     #[test]
     fn command_palette_keeps_close_and_run_actions_on_a_narrow_terminal() {
         let app = AppState::test_new();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.terminal_area = Rect::new(0, 0, 32, 12);
         let backend = TestBackend::new(32, 12);
         let mut terminal = Terminal::new(backend).expect("test backend");
 
         terminal
-            .draw(|frame| render_command_palette_overlay(&app, frame))
+            .draw(|frame| render_command_palette_overlay_for_view(&app, &view, frame))
             .expect("render narrow command palette");
 
         let text = buffer_text(terminal.backend().buffer(), 32, 12);
@@ -453,12 +445,14 @@ mod tests {
         let group_idx = app.create_group("work".to_string());
         app.groups[group_idx].icon = "■".to_string();
         app.set_group_accent(group_idx, Some(crate::config::TerminalAccent::Green));
-        app.command_palette.query = "switch group".to_string();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.command_palette.query = "switch group".to_string();
+        view.computed.terminal_area = Rect::new(0, 0, 100, 24);
 
         let backend = TestBackend::new(100, 24);
         let mut terminal = Terminal::new(backend).expect("test backend");
         terminal
-            .draw(|frame| render_command_palette_overlay(&app, frame))
+            .draw(|frame| render_command_palette_overlay_for_view(&app, &view, frame))
             .expect("render command palette");
 
         let buffer = terminal.backend().buffer();

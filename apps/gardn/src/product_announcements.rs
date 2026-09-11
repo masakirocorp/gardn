@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::fs;
-use std::io;
 use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
+#[cfg(not(test))]
 const PRODUCT_ANNOUNCEMENTS_PATH: &str = "product-announcements.json";
 const BUNDLED_ANNOUNCEMENTS: &str = include_str!("../assets/product-announcements.json");
 const FAKE_ANNOUNCEMENT_BODY_ENV: &str = "GARDN_FAKE_PRODUCT_ANNOUNCEMENT_BODY";
@@ -34,7 +34,7 @@ struct AnnouncementCatalog {
     announcements: Vec<StoredProductAnnouncement>,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct AnnouncementStore {
     #[serde(default)]
     seen: BTreeSet<String>,
@@ -60,6 +60,7 @@ fn seen_key(version: &str, id: &str) -> String {
     format!("{version}/{id}")
 }
 
+#[cfg(not(test))]
 pub fn store_path() -> PathBuf {
     crate::config::state_dir().join(PRODUCT_ANNOUNCEMENTS_PATH)
 }
@@ -81,10 +82,6 @@ pub fn load_unseen_for_current_version() -> Option<ProductAnnouncement> {
             env!("CARGO_PKG_VERSION"),
         )
     }
-}
-
-pub fn mark_seen(version: &str, id: &str) -> io::Result<()> {
-    mark_seen_at(&store_path(), version, id)
 }
 
 fn load_fake_for_current_version() -> Option<ProductAnnouncement> {
@@ -162,30 +159,9 @@ fn load_unseen_from_catalog(
     Some(announcement.into_product_announcement())
 }
 
-fn mark_seen_at(path: &Path, version: &str, id: &str) -> io::Result<()> {
-    let mut store = load_store_from_path(path).unwrap_or_default();
-    store.seen.insert(seen_key(version, id));
-    write_store_to_path(path, &store)
-}
-
 fn load_store_from_path(path: &Path) -> Option<AnnouncementStore> {
     let content = fs::read_to_string(path).ok()?;
     serde_json::from_str(&content).ok()
-}
-
-fn write_store_to_path(path: &Path, store: &AnnouncementStore) -> io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let json = serde_json::to_string_pretty(store).map_err(io::Error::other)?;
-    let tmp_path = path.with_extension(format!("json.tmp.{}", std::process::id()));
-    fs::write(&tmp_path, json)?;
-    if let Err(err) = fs::rename(&tmp_path, path) {
-        let _ = fs::remove_file(&tmp_path);
-        return Err(err);
-    }
-    Ok(())
 }
 
 fn normalize_body(body: &str) -> String {
@@ -224,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn current_unseen_bundled_announcement_is_delivered_once() {
+    fn current_version_announcement_is_delivered() {
         let path = temp_path("unseen");
         let catalog = r####"{
             "announcements": [{
@@ -237,9 +213,9 @@ mod tests {
 
         let loaded = load_unseen_from_catalog(catalog, &path, "1.2.3").expect("announcement");
         assert_eq!(loaded.id, "keymap-v2");
-        mark_seen_at(&path, &loaded.version, &loaded.id).unwrap();
-        assert_eq!(load_unseen_from_catalog(catalog, &path, "1.2.3"), None);
-        let _ = fs::remove_file(path);
+        assert_eq!(loaded.title, "Keymap changed");
+        assert_eq!(loaded.body, "### Changed\n- One");
+        assert!(!loaded.preview);
     }
 
     #[test]

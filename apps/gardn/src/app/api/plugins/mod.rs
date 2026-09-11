@@ -314,7 +314,7 @@ impl App {
             &action.id,
         )
         .map_err(|(_, message)| message)?;
-        let Some(ws_idx) = self.state.active else {
+        let Some(ws_idx) = self.default_client_view.active_workspace else {
             return Ok(false);
         };
         let mut context = self.plugin_context_for_pane(ws_idx, pane_id, "link_click");
@@ -519,10 +519,9 @@ impl App {
         id: String,
         params: PluginPaneOpenParams,
     ) -> crate::api::ApiRequestDisposition {
-        let mut view = self.default_client_view.clone_reconciled(&self.state);
-        let disposition = self.handle_plugin_pane_open_for_view(&mut view, id, params);
-        self.default_client_view = view;
-        disposition
+        self.with_default_client_view(|app, view| {
+            app.handle_plugin_pane_open_for_view(view, id, params)
+        })
     }
 
     pub(super) fn handle_plugin_pane_focus(
@@ -530,11 +529,19 @@ impl App {
         id: String,
         params: PluginPaneFocusParams,
     ) -> String {
+        self.with_default_client_view(|app, view| {
+            app.handle_plugin_pane_focus_for_view(view, id, params)
+        })
+    }
+
+    pub(super) fn handle_plugin_pane_focus_for_view(
+        &mut self,
+        view: &mut crate::app::ClientViewState,
+        id: String,
+        params: PluginPaneFocusParams,
+    ) -> String {
         if self.parse_popup_public_pane_id(&params.pane_id).is_some() {
-            let mut view = self.default_client_view.clone_reconciled(&self.state);
-            let response = self.focus_plugin_popup_pane_for_view(&mut view, id, params);
-            self.default_client_view = view;
-            return response;
+            return self.focus_plugin_popup_pane_for_view(view, id, params);
         }
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
@@ -542,12 +549,20 @@ impl App {
         if !self.state.plugin_panes.contains_key(&pane_id) {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
         }
-        self.state.focus_pane_in_workspace(ws_idx, pane_id);
-        self.state.mode = crate::app::Mode::Terminal;
+        let Some(tab_idx) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.find_tab_index_for_pane(pane_id))
+        else {
+            return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
+        };
+        view.focus_pane_in_workspace(&self.state, ws_idx, tab_idx, pane_id);
+        view.mode = crate::app::Mode::Terminal;
         let Some(record) = self.state.plugin_panes.get(&pane_id).cloned() else {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
         };
-        let Some(pane) = self.pane_info(ws_idx, pane_id) else {
+        let Some(pane) = self.pane_info_for_view(view, ws_idx, pane_id) else {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
         };
         encode_success(
@@ -567,11 +582,19 @@ impl App {
         id: String,
         params: PluginPaneCloseParams,
     ) -> String {
+        self.with_default_client_view(|app, view| {
+            app.handle_plugin_pane_close_for_view(view, id, params)
+        })
+    }
+
+    pub(super) fn handle_plugin_pane_close_for_view(
+        &mut self,
+        view: &mut crate::app::ClientViewState,
+        id: String,
+        params: PluginPaneCloseParams,
+    ) -> String {
         if self.parse_popup_public_pane_id(&params.pane_id).is_some() {
-            let mut view = self.default_client_view.clone_reconciled(&self.state);
-            let response = self.close_plugin_popup_pane_for_view(&mut view, id, params);
-            self.default_client_view = view;
-            return response;
+            return self.close_plugin_popup_pane_for_view(view, id, params);
         }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
@@ -580,7 +603,8 @@ impl App {
             return encode_error(id, "plugin_pane_not_found", "plugin pane not found");
         }
         let pane_id = params.pane_id;
-        if let Err(response) = self.close_pane(
+        if let Err(response) = self.close_pane_for_view(
+            view,
             id.clone(),
             &crate::api::schema::PaneTarget {
                 pane_id: pane_id.clone(),
@@ -1568,9 +1592,9 @@ command = ["echo", " a", "first "]
             .expect("test workspace should have a terminal");
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:workbox")
             .expect("test host id should be valid");
         let location = crate::execution_host::ResourceLocation::new(
@@ -1681,9 +1705,9 @@ title = "Plugin Board"
             .expect("test workspace should have a terminal");
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:plugin-shared-resolver")
             .expect("test host id should be valid");
         let location = crate::execution_host::ResourceLocation::new(
@@ -1816,9 +1840,9 @@ command = ["bash", "open.sh"]
         let root_terminal = workspace.terminal_id(root_pane).cloned().unwrap();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
         app.state.terminals.get_mut(&root_terminal).unwrap().cwd = "/tmp".into();
         let target_public_pane_id = app.public_pane_id(0, root_pane).unwrap();
 
@@ -1933,9 +1957,9 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$GARDN_
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("plugin-path-env")];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
         let root = unique_temp_path("plugin-pane-path-env");
         let capture = root.join("capture.txt");
         write_manifest_content(
@@ -2045,9 +2069,9 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$GARDN_PLUGIN_ROOT\" \"$GARDN_PL
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("plugin-tab")];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
 
         let root = unique_temp_path("plugin-pane-tab-events");
         write_manifest_content(
@@ -2477,14 +2501,16 @@ command = ["sh", "-c", "printf '%s\n%s\n%s' \"$GARDN_PLUGIN_ROOT\" \"$GARDN_PLUG
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
+        app.default_client_view.reconcile(&app.state);
         app.terminal_runtimes.insert(
             terminal_id,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"hello plugin\n"),
         );
-        app.state.selection = Some(crate::selection::Selection::range(pane_id, 0, 0, 4, None));
+        app.default_client_view.selection =
+            Some(crate::selection::Selection::range(pane_id, 0, 0, 4, None));
 
         let context = app.current_plugin_context("selection-test");
 
@@ -2503,9 +2529,9 @@ command = ["sh", "-c", "printf '%s\n%s\n%s' \"$GARDN_PLUGIN_ROOT\" \"$GARDN_PLUG
         let client_terminal = client_workspace.terminal_id(client_pane).cloned().unwrap();
         app.state.workspaces = vec![shared_workspace, client_workspace];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
         app.terminal_runtimes.insert(
             shared_terminal,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"shared text\n"),
@@ -2514,7 +2540,7 @@ command = ["sh", "-c", "printf '%s\n%s\n%s' \"$GARDN_PLUGIN_ROOT\" \"$GARDN_PLUG
             client_terminal,
             crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"client text\n"),
         );
-        app.state.selection = Some(crate::selection::Selection::range(
+        app.default_client_view.selection = Some(crate::selection::Selection::range(
             shared_pane,
             0,
             0,
@@ -2578,9 +2604,9 @@ command = ["sh", "-c", "printf '%s' \"$GARDN_PLUGIN_CONTEXT_JSON\" > {}"]
             serde_json::from_str(&std::fs::read_to_string(&capture).expect("plugin context"))
                 .expect("valid plugin context");
         assert_eq!(context.selected_text.as_deref(), Some("client"));
-        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.default_client_view.active_workspace, Some(0));
         assert_eq!(
-            app.state
+            app.default_client_view
                 .selection
                 .as_ref()
                 .map(|selection| selection.pane_id),
@@ -2599,8 +2625,8 @@ command = ["sh", "-c", "printf '%s' \"$GARDN_PLUGIN_CONTEXT_JSON\" > {}"]
             crate::workspace::Workspace::test_new("event-target"),
         ];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         let active_workspace_id = app.public_workspace_id(0);
         let target_workspace = app.workspace_info(1);
 
@@ -2688,8 +2714,8 @@ command = ["sh", "-c", "printf '%s' \"$GARDN_PLUGIN_CONTEXT_JSON\" > {}"]
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("closed-events")];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         let active_pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let active_public_pane_id = app.public_pane_id(0, active_pane_id).unwrap();
         let workspace_id = app.public_workspace_id(0);
@@ -2743,8 +2769,8 @@ command = ["sh", "-c", "printf '%s' \"$GARDN_PLUGIN_CONTEXT_JSON\" > {}"]
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("link-handler")];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let root = unique_temp_path("plugin-link-handler");
         write_manifest_content(
@@ -2949,8 +2975,8 @@ action = "missing"
         app.state.workspaces[0].default_location =
             crate::execution_host::ResourceLocation::local("/tmp/issue").unwrap();
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         app.state.workspaces[0].custom_name = Some("Plugin Work".into());
         let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let pane_public = app.public_pane_id(0, pane_id).unwrap();
@@ -3221,8 +3247,8 @@ command = ["sh", "-c", "echo ok"]
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("plugin-move")];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         let public_pane_id = app.public_pane_id(0, pane_id).unwrap();
         app.state.plugin_panes.insert(
@@ -3268,8 +3294,8 @@ command = ["sh", "-c", "echo ok"]
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("plugin-exit")];
         app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
         app.state.plugin_panes.insert(
             pane_id,
@@ -3747,8 +3773,8 @@ command = []
     async fn popup_focus_and_close_are_client_local_and_clean_runtime() {
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         app.state.ensure_test_terminals();
         let mut owner = crate::app::ClientViewState::from_default_client_state(&app.state);
         let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(40, 12, b"popup");
@@ -3804,8 +3830,8 @@ command = []
     async fn popup_escape_closes_the_client_local_runtime() {
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-escape")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         app.state.ensure_test_terminals();
         let mut view = crate::app::ClientViewState::from_default_client_state(&app.state);
         let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(40, 12, b"popup");
@@ -3827,8 +3853,8 @@ command = []
     async fn popup_mouse_scroll_updates_only_the_client_viewport() {
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-scroll")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         app.state.ensure_test_terminals();
         let mut view = crate::app::ClientViewState::from_default_client_state(&app.state);
         let output = (0..32)
@@ -3841,11 +3867,13 @@ command = []
             output.as_bytes(),
         );
         let (_, terminal_id) = app.install_test_popup_runtime(&mut view, runtime);
-        crate::ui::compute_view_for_client_without_resizing_panes(
+        crate::ui::compute_view(
             &app.state,
             &mut view,
             &app.terminal_runtimes,
             ratatui::layout::Rect::new(0, 0, 80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::ui::PaneResizeAuthority::Denied,
         );
         let (_, inner) = crate::ui::popup_pane_rects_for_view(
             &app.state,
@@ -3883,8 +3911,8 @@ command = []
     async fn popup_render_is_centered_and_includes_terminal_content() {
         let mut app = test_app();
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("popup-render")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
         app.state.ensure_test_terminals();
         let mut view = crate::app::ClientViewState::from_default_client_state(&app.state);
         let runtime =
@@ -3895,22 +3923,19 @@ command = []
             .get_mut(&terminal_id)
             .expect("popup terminal")
             .set_manual_label("Popup Test".into());
-        crate::ui::compute_view_for_client_without_resizing_panes(
+        crate::ui::compute_view(
             &app.state,
             &mut view,
             &app.terminal_runtimes,
             ratatui::layout::Rect::new(0, 0, 80, 24),
+            crate::kitty_graphics::HostCellSize::default(),
+            crate::ui::PaneResizeAuthority::Denied,
         );
         let backend = ratatui::backend::TestBackend::new(80, 24);
         let mut terminal = ratatui::Terminal::new(backend).expect("test backend");
         terminal
             .draw(|frame| {
-                crate::ui::render_with_runtime_registry_for_view(
-                    &app.state,
-                    &view,
-                    &app.terminal_runtimes,
-                    frame,
-                );
+                crate::ui::render(&app.state, &view, &app.terminal_runtimes, frame);
             })
             .expect("render popup");
         let buffer = terminal.backend().buffer();

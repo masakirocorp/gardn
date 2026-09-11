@@ -81,74 +81,11 @@ impl App {
         changed
     }
 
-    async fn execute_repeat_plan(
-        &mut self,
-        lease_key: super::input::InputLeaseKey,
-        key: crate::input::TerminalKey,
-        plan: super::input::RepeatPlan,
-    ) -> bool {
-        match plan {
-            super::input::RepeatPlan::Forwarded(target) => {
-                if !self.forward_terminal_key_to_target(target, key).await {
-                    self.input_leases.remove(&lease_key);
-                }
-                true
-            }
-            super::input::RepeatPlan::Reprocess {
-                context,
-                repetitions,
-                tracked,
-            } => {
-                let key = key
-                    .with_kind(crossterm::event::KeyEventKind::Repeat)
-                    .with_repeat_count(1);
-                let mut forwarded_target: Option<super::input::TerminalKeyTarget> = None;
-                for _ in 0..repetitions {
-                    if let Some(target) = &forwarded_target {
-                        if !self
-                            .forward_terminal_key_to_target(target.clone(), key.clone())
-                            .await
-                        {
-                            self.input_leases.remove(&lease_key);
-                            break;
-                        }
-                        continue;
-                    }
-                    let current_context = self.terminal_input_context();
-                    if !self.input_leases.reprocess_allowed(
-                        lease_key,
-                        &context,
-                        current_context.as_ref(),
-                        tracked,
-                    ) {
-                        break;
-                    }
-                    if context.is_terminal() {
-                        if let Some(target) = self.handle_key(key.clone()).await {
-                            if tracked {
-                                self.input_leases.insert_forwarded(
-                                    lease_key,
-                                    target.clone(),
-                                    key.clone(),
-                                );
-                                forwarded_target = Some(target);
-                            }
-                        }
-                    } else {
-                        let _ = self.handle_key(key.clone()).await;
-                    }
-                }
-                true
-            }
-            super::input::RepeatPlan::Ignore => false,
-        }
-    }
-
     pub(super) fn handle_api_request_message(
         &mut self,
         msg: crate::api::ApiRequestMessage,
     ) -> bool {
-        let previous_mode = self.state.mode;
+        let previous_mode = self.default_client_view.mode;
         let stream_open = match &msg.request.method {
             crate::api::schema::Method::PaneGraphicsStreamOpen(params) => Some(params.clone()),
             _ => None,
@@ -209,79 +146,44 @@ impl App {
         &mut self,
         event: crate::raw_input::RawInputEvent,
     ) -> bool {
-        let previous_mode = self.state.mode;
-        let changed = match event {
-            crate::raw_input::RawInputEvent::Key(key) => {
-                let lease_key = crate::app::input::InputLeaseKey::new(
-                    crate::app::input::LOCAL_INPUT_SOURCE,
-                    &key,
-                );
-                let key = self.input_leases.normalize_press(&lease_key, key);
-                match key.kind {
-                    crossterm::event::KeyEventKind::Press => {
-                        let initial_context = self.terminal_input_context();
-                        let target = self.handle_key(key.clone()).await;
-                        let resulting_context = self.terminal_input_context();
-                        let plan = self.input_leases.complete_press(
-                            lease_key,
-                            &key,
-                            initial_context.as_ref(),
-                            resulting_context.as_ref(),
-                            target,
-                        );
-                        self.execute_repeat_plan(lease_key, key, plan).await;
-                        true
-                    }
-                    crossterm::event::KeyEventKind::Repeat => {
-                        let current_context = self.terminal_input_context();
-                        let plan = self.input_leases.plan_repeat(
-                            lease_key,
-                            &key,
-                            current_context.as_ref(),
-                        );
-                        self.execute_repeat_plan(lease_key, key, plan).await
-                    }
-                    crossterm::event::KeyEventKind::Release => {
-                        if let Some(lease) = self.input_leases.remove_forwarded(&lease_key) {
-                            let _ = self.forward_terminal_key_to_target(lease.target, key).await;
-                        }
-                        false
-                    }
-                }
-            }
+        match event {
+            crate::raw_input::RawInputEvent::Key(key) => self.route_default_client_key(key),
             crate::raw_input::RawInputEvent::TextCommit(commit) => {
-                self.handle_text_commit(commit.into_string()).await;
+                self.route_client_events(
+                    vec![crate::raw_input::RawInputEvent::TextCommit(commit)],
+                    true,
+                );
                 true
             }
             crate::raw_input::RawInputEvent::Paste(text) => {
-                self.handle_paste(text).await;
+                self.route_client_events(vec![crate::raw_input::RawInputEvent::Paste(text)], true);
                 true
             }
             crate::raw_input::RawInputEvent::Mouse(mouse) => {
-                if self.state.mouse_capture {
-                    self.handle_mouse(mouse);
-                } else {
-                    self.state
-                        .handle_pane_mouse_only(&self.terminal_runtimes, mouse);
-                }
-                !matches!(mouse.kind, crossterm::event::MouseEventKind::Moved)
-                    || self.state.mode.mouse_motion_changes_view()
-                    || self.default_client_view.mode.mouse_motion_changes_view()
+                let changed = !matches!(mouse.kind, crossterm::event::MouseEventKind::Moved)
+                    || self.default_client_view.mode.mouse_motion_changes_view();
+                self.route_client_events(vec![crate::raw_input::RawInputEvent::Mouse(mouse)], true);
+                changed
             }
             crate::raw_input::RawInputEvent::OuterFocusGained => {
-                self.send_outer_focus_event(crate::ghostty::FocusEvent::Gained);
+                self.route_client_events(
+                    vec![crate::raw_input::RawInputEvent::OuterFocusGained],
+                    true,
+                );
                 if self.state.redraw_on_focus_gained {
                     self.request_repaint();
                 }
                 self.state.outer_terminal_focus = Some(true);
-                self.state.mark_active_tab_seen();
-                self.query_host_terminal_theme();
+                self.state
+                    .mark_active_tab_seen_for_view(&mut self.default_client_view);
                 true
             }
             crate::raw_input::RawInputEvent::OuterFocusLost => {
-                self.send_outer_focus_event(crate::ghostty::FocusEvent::Lost);
+                self.route_client_events(
+                    vec![crate::raw_input::RawInputEvent::OuterFocusLost],
+                    true,
+                );
                 self.state.outer_terminal_focus = Some(false);
-                self.release_input_source_headless(crate::app::input::LOCAL_INPUT_SOURCE);
                 false
             }
             crate::raw_input::RawInputEvent::HostDefaultColor { kind, color } => {
@@ -293,11 +195,9 @@ impl App {
             crate::raw_input::RawInputEvent::HostCursorColor { color } => {
                 self.update_host_terminal_cursor_color(color)
             }
-            crate::raw_input::RawInputEvent::HostCellSizeReport { .. } => false,
-            crate::raw_input::RawInputEvent::Unsupported => false,
-        };
-        self.sync_prefix_input_source(previous_mode);
-        changed
+            crate::raw_input::RawInputEvent::HostCellSizeReport { .. }
+            | crate::raw_input::RawInputEvent::Unsupported => false,
+        }
     }
 
     fn handle_resize_poll(&mut self) -> bool {
@@ -488,6 +388,7 @@ impl App {
 
         if now >= self.next_command_scan {
             changed |= self.state.refresh_command_catalog_with_hosts(
+                &self.default_client_view,
                 &self.terminal_runtimes,
                 self.execution_hosts.as_mut(),
             );
@@ -527,11 +428,19 @@ impl App {
                 .is_some_and(|deadline| now >= deadline)
         {
             let previous_toast = self.state.toast.clone();
-            let due_deliveries = self
-                .state
-                .drain_due_agent_notifications_with_context(now, |state, ws_idx, pane_id| {
-                    state.pane_is_in_active_tab(ws_idx, pane_id)
-                });
+            let due_deliveries = self.state.drain_due_agent_notifications_with_context(
+                now,
+                |state, ws_idx, pane_id| {
+                    self.default_client_view.active_workspace == Some(ws_idx)
+                        && self
+                            .default_client_view
+                            .active_tab_index_for_workspace(state, ws_idx)
+                            .is_some_and(|active_tab_idx| {
+                                state.workspaces[ws_idx].find_tab_index_for_pane(pane_id)
+                                    == Some(active_tab_idx)
+                            })
+                },
+            );
             let mut deliveries: Vec<_> = self
                 .state
                 .take_agent_notification_deliveries()
@@ -615,24 +524,7 @@ impl App {
 
     /// Clears temporary copied-token highlights, such as after double-click copy.
     pub(crate) fn clear_due_selection_highlight(&mut self, now: Instant) -> bool {
-        if self
-            .selection_highlight_clear_deadline
-            .is_none_or(|deadline| now < deadline)
-        {
-            return false;
-        }
-
-        self.selection_highlight_clear_deadline = None;
-        if self
-            .state
-            .selection
-            .as_ref()
-            .is_some_and(|selection| !selection.is_in_progress())
-        {
-            self.state.clear_selection();
-            return true;
-        }
-        false
+        self.default_client_view.clear_due_selection_highlight(now)
     }
 
     pub(crate) fn sync_agent_metadata_deadline(&mut self) {
@@ -672,12 +564,6 @@ impl App {
     fn has_local_animation(&self) -> bool {
         self.state.status_indicator_animation_active()
             || self
-                .state
-                .settings
-                .connection_editor
-                .as_ref()
-                .is_some_and(crate::app::state::ConnectionEditorState::retirement_in_progress)
-            || self
                 .default_client_view
                 .settings
                 .connection_editor
@@ -686,80 +572,95 @@ impl App {
     }
 
     pub(crate) fn tick_selection_autoscroll(&mut self, now: Instant) {
-        let Some(autoscroll) = self.state.selection_autoscroll.clone() else {
-            // Self-heal: state cleared but deadline leaked
+        let Some(autoscroll) = self.default_client_view.selection_autoscroll.as_ref() else {
             self.selection_autoscroll_deadline = None;
             return;
         };
 
-        // Selection must still be in progress for autoscroll to continue
-        let Some(pane_id) = self.state.selection.as_ref().map(|s| s.pane_id) else {
+        let Some(pane_id) = self
+            .default_client_view
+            .selection
+            .as_ref()
+            .map(|selection| selection.pane_id)
+        else {
             self.stop_selection_autoscroll();
             return;
         };
         if !self
-            .state
+            .default_client_view
             .selection
             .as_ref()
-            .is_some_and(|s| s.is_dragging())
+            .is_some_and(|selection| selection.is_dragging())
         {
             self.stop_selection_autoscroll();
             return;
         }
 
-        // Rect-change detection: if inner_rect changed since drag, stop
         let current_rect = self
-            .state
-            .pane_info_by_id(pane_id)
+            .default_client_view
+            .computed
+            .pane_infos
+            .iter()
+            .find(|info| info.id == pane_id)
             .map(|info| info.inner_rect);
         if current_rect != Some(autoscroll.inner_rect) {
             self.stop_selection_autoscroll();
             return;
         }
 
-        // Scrollback boundary detection via ScrollMetrics — fail-closed if unavailable
-        let Some(metrics) = self
-            .state
-            .pane_scroll_metrics(&self.terminal_runtimes, pane_id)
+        let Some(ws_idx) = self.default_client_view.active_workspace else {
+            self.stop_selection_autoscroll();
+            return;
+        };
+        let Some(metrics) =
+            self.state
+                .pane_scroll_metrics_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
         else {
             self.stop_selection_autoscroll();
             return;
         };
-        match autoscroll.direction {
+        let scroll_up = match autoscroll.direction {
             crate::app::state::SelectionAutoscrollDirection::Up => {
-                let at_top = metrics.offset_from_bottom >= metrics.max_offset_from_bottom;
-                if at_top {
+                if metrics.offset_from_bottom >= metrics.max_offset_from_bottom {
                     self.stop_selection_autoscroll();
                     return;
                 }
-                self.state
-                    .scroll_pane_up(&self.terminal_runtimes, pane_id, 1);
+                true
             }
             crate::app::state::SelectionAutoscrollDirection::Down => {
-                let at_bottom = metrics.offset_from_bottom == 0;
-                if at_bottom {
+                if metrics.offset_from_bottom == 0 {
                     self.stop_selection_autoscroll();
                     return;
                 }
-                self.state
-                    .scroll_pane_down(&self.terminal_runtimes, pane_id, 1);
+                false
             }
+        };
+        let Some(runtime) =
+            self.state
+                .runtime_for_pane_in_workspace(&self.terminal_runtimes, ws_idx, pane_id)
+        else {
+            self.stop_selection_autoscroll();
+            return;
+        };
+        if scroll_up {
+            runtime.scroll_up(1);
+        } else {
+            runtime.scroll_down(1);
         }
 
-        // Extend selection cursor to last known mouse position
-        self.state.update_selection_cursor(
-            &self.terminal_runtimes,
-            pane_id,
-            autoscroll.last_mouse_screen_col,
-            autoscroll.last_mouse_screen_row,
-        );
-
-        // Reschedule
+        if let Some(selection) = self.default_client_view.selection.as_mut() {
+            selection.drag(
+                autoscroll.last_mouse_screen_col,
+                autoscroll.last_mouse_screen_row,
+                autoscroll.inner_rect,
+                Some(metrics),
+            );
+        }
         self.selection_autoscroll_deadline = Some(now + SELECTION_AUTOSCROLL_INTERVAL);
     }
 
     pub(crate) fn stop_selection_autoscroll(&mut self) {
-        self.state.stop_selection_autoscroll_state();
+        self.default_client_view.selection_autoscroll = None;
         self.selection_autoscroll_deadline = None;
     }
 
@@ -987,7 +888,7 @@ impl App {
             self.pending_agent_resume_deadline,
             self.session_save_deadline,
             self.selection_autoscroll_deadline,
-            self.selection_highlight_clear_deadline,
+            self.default_client_view.selection_highlight_clear_deadline,
             render_deadline,
             self.state.pane_mouse_motion_flush_at(),
         ]
@@ -1001,17 +902,14 @@ impl App {
             .iter()
             .enumerate()
             .filter_map(|(ws_idx, ws)| {
-                let cwd =
-                    ws.resolved_identity_cwd_from(&self.state.terminals, &self.terminal_runtimes)?;
+                let cwd = ws.resolved_identity_cwd_from(
+                    None,
+                    &self.state.terminals,
+                    &self.terminal_runtimes,
+                )?;
                 let cwd_fingerprint =
                     ws.git_status_cwds_from(&self.state.terminals, &self.terminal_runtimes);
-                let execution_host_id = ws
-                    .terminal_tab(ws.active_tab_index())
-                    .ok()
-                    .and_then(|tab| tab.terminal_id(tab.layout.focused()))
-                    .and_then(|terminal_id| self.state.terminals.get(terminal_id))
-                    .map(|terminal| terminal.location.execution_host_id.clone())
-                    .unwrap_or_else(|| ws.default_location.execution_host_id.clone());
+                let execution_host_id = ws.default_location.execution_host_id.clone();
                 let location = crate::execution_host::ResourceLocation::new(
                     execution_host_id.clone(),
                     crate::execution_host::HostPath::new(cwd.clone()).ok()?,
@@ -1166,14 +1064,17 @@ mod tests {
         let ws = Workspace::test_new("test");
         let pane_id = ws.terminal_tab(0).unwrap().root_pane;
         app.state.workspaces.push(ws);
-        app.state.active = Some(0);
-        app.state.view.pane_infos.push(crate::layout::PaneInfo {
-            id: pane_id,
-            rect: ratatui::layout::Rect::new(0, 0, 80, 24),
-            inner_rect: ratatui::layout::Rect::new(0, 0, 80, 24),
-            scrollbar_rect: None,
-            is_focused: true,
-        });
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view
+            .computed
+            .pane_infos
+            .push(crate::layout::PaneInfo {
+                id: pane_id,
+                rect: ratatui::layout::Rect::new(0, 0, 80, 24),
+                inner_rect: ratatui::layout::Rect::new(0, 0, 80, 24),
+                scrollbar_rect: None,
+                is_focused: true,
+            });
         (app, pane_id)
     }
 
@@ -1463,8 +1364,8 @@ mod tests {
         let mut sel = crate::selection::Selection::anchor(pane_id, 0, 0, None);
         // Drag to a different cell so it becomes Dragging
         sel.drag(5, 5, ratatui::layout::Rect::new(0, 0, 80, 24), None);
-        app.state.selection = Some(sel);
-        app.state.selection_autoscroll = Some(state::SelectionAutoscroll {
+        app.default_client_view.selection = Some(sel);
+        app.default_client_view.selection_autoscroll = Some(state::SelectionAutoscroll {
             direction: state::SelectionAutoscrollDirection::Down,
             last_mouse_screen_col: 5,
             last_mouse_screen_row: 23,
@@ -1473,7 +1374,7 @@ mod tests {
         app.selection_autoscroll_deadline = Some(now);
         app.tick_selection_autoscroll(now);
         // Should stop because no runtime metrics available
-        assert!(app.state.selection_autoscroll.is_none());
+        assert!(app.default_client_view.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
     }
 
@@ -1486,8 +1387,8 @@ mod tests {
         // Drag to a different cell so it becomes visible, then finish
         sel.drag(5, 5, ratatui::layout::Rect::new(0, 0, 80, 24), None);
         sel.finish(); // now it's Done, not in progress
-        app.state.selection = Some(sel);
-        app.state.selection_autoscroll = Some(state::SelectionAutoscroll {
+        app.default_client_view.selection = Some(sel);
+        app.default_client_view.selection_autoscroll = Some(state::SelectionAutoscroll {
             direction: state::SelectionAutoscrollDirection::Down,
             last_mouse_screen_col: 0,
             last_mouse_screen_row: 23,
@@ -1495,7 +1396,7 @@ mod tests {
         });
         app.selection_autoscroll_deadline = Some(now);
         app.tick_selection_autoscroll(now);
-        assert!(app.state.selection_autoscroll.is_none());
+        assert!(app.default_client_view.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
     }
 
@@ -1503,8 +1404,8 @@ mod tests {
     fn tick_selection_autoscroll_stops_when_selection_cleared() {
         let (mut app, _pane_id) = test_app_with_pane();
         let now = Instant::now();
-        app.state.selection = None;
-        app.state.selection_autoscroll = Some(state::SelectionAutoscroll {
+        app.default_client_view.selection = None;
+        app.default_client_view.selection_autoscroll = Some(state::SelectionAutoscroll {
             direction: state::SelectionAutoscrollDirection::Down,
             last_mouse_screen_col: 0,
             last_mouse_screen_row: 23,
@@ -1512,7 +1413,7 @@ mod tests {
         });
         app.selection_autoscroll_deadline = Some(now);
         app.tick_selection_autoscroll(now);
-        assert!(app.state.selection_autoscroll.is_none());
+        assert!(app.default_client_view.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
     }
 
@@ -1521,8 +1422,9 @@ mod tests {
         // Anchored (click, no drag) should not keep the timer running.
         let (mut app, pane_id) = test_app_with_pane();
         let now = Instant::now();
-        app.state.selection = Some(crate::selection::Selection::anchor(pane_id, 0, 0, None));
-        app.state.selection_autoscroll = Some(state::SelectionAutoscroll {
+        app.default_client_view.selection =
+            Some(crate::selection::Selection::anchor(pane_id, 0, 0, None));
+        app.default_client_view.selection_autoscroll = Some(state::SelectionAutoscroll {
             direction: state::SelectionAutoscrollDirection::Down,
             last_mouse_screen_col: 0,
             last_mouse_screen_row: 23,
@@ -1530,7 +1432,7 @@ mod tests {
         });
         app.selection_autoscroll_deadline = Some(now);
         app.tick_selection_autoscroll(now);
-        assert!(app.state.selection_autoscroll.is_none());
+        assert!(app.default_client_view.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
     }
 
@@ -1557,14 +1459,17 @@ mod tests {
             .runtimes
             .insert(pane_id, runtime);
         app.state.workspaces.push(ws);
-        app.state.active = Some(0);
-        app.state.view.pane_infos.push(crate::layout::PaneInfo {
-            id: pane_id,
-            rect: ratatui::layout::Rect::new(0, 0, cols, rows),
-            inner_rect: ratatui::layout::Rect::new(0, 0, cols, rows),
-            scrollbar_rect: None,
-            is_focused: true,
-        });
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view
+            .computed
+            .pane_infos
+            .push(crate::layout::PaneInfo {
+                id: pane_id,
+                rect: ratatui::layout::Rect::new(0, 0, cols, rows),
+                inner_rect: ratatui::layout::Rect::new(0, 0, cols, rows),
+                scrollbar_rect: None,
+                is_focused: true,
+            });
         (app, pane_id)
     }
 
@@ -1576,8 +1481,8 @@ mod tests {
         let now = Instant::now();
         let mut sel = crate::selection::Selection::anchor(pane_id, 5, 5, None);
         sel.drag(0, 0, ratatui::layout::Rect::new(0, 0, 80, 24), None);
-        app.state.selection = Some(sel);
-        app.state.selection_autoscroll = Some(state::SelectionAutoscroll {
+        app.default_client_view.selection = Some(sel);
+        app.default_client_view.selection_autoscroll = Some(state::SelectionAutoscroll {
             direction: state::SelectionAutoscrollDirection::Up,
             last_mouse_screen_col: 0,
             last_mouse_screen_row: 0,
@@ -1586,7 +1491,7 @@ mod tests {
         app.selection_autoscroll_deadline = Some(now);
         app.tick_selection_autoscroll(now);
         // At scrollback top, can't scroll further up — should stop
-        assert!(app.state.selection_autoscroll.is_none());
+        assert!(app.default_client_view.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
     }
 
@@ -1598,8 +1503,8 @@ mod tests {
         let now = Instant::now();
         let mut sel = crate::selection::Selection::anchor(pane_id, 0, 0, None);
         sel.drag(5, 5, ratatui::layout::Rect::new(0, 0, 80, 24), None);
-        app.state.selection = Some(sel);
-        app.state.selection_autoscroll = Some(state::SelectionAutoscroll {
+        app.default_client_view.selection = Some(sel);
+        app.default_client_view.selection_autoscroll = Some(state::SelectionAutoscroll {
             direction: state::SelectionAutoscrollDirection::Down,
             last_mouse_screen_col: 5,
             last_mouse_screen_row: 23,
@@ -1608,7 +1513,7 @@ mod tests {
         app.selection_autoscroll_deadline = Some(now);
         app.tick_selection_autoscroll(now);
         // At scrollback bottom, can't scroll further down — should stop
-        assert!(app.state.selection_autoscroll.is_none());
+        assert!(app.default_client_view.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
     }
 
@@ -1657,9 +1562,9 @@ mod tests {
             crate::api::EventHub::default(),
         );
         app.state.workspaces = vec![crate::workspace::Workspace::test_new("dispatch-deferred")];
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = super::super::Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = super::super::Mode::Terminal;
         app.state.ensure_test_terminals();
 
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:dispatch-deferred").unwrap();
@@ -1844,7 +1749,7 @@ mod tests {
             ),
         );
         app.state.workspaces.push(ws);
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
 
         let terminal_id = crate::terminal::TerminalId::alloc();
         let (respond_to, response_rx) = std::sync::mpsc::channel();
@@ -1890,7 +1795,7 @@ mod tests {
     #[tokio::test]
     async fn passive_mouse_motion_does_not_request_monolithic_render() {
         let (mut app, _) = test_app_with_pane();
-        app.state.mode = crate::app::Mode::Terminal;
+        app.default_client_view.mode = crate::app::Mode::Terminal;
         let motion = crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
             kind: crossterm::event::MouseEventKind::Moved,
             column: 4,
@@ -1898,7 +1803,7 @@ mod tests {
             modifiers: crossterm::event::KeyModifiers::empty(),
         });
         assert!(!app.handle_raw_input_event(motion).await);
-        app.state.mode = crate::app::Mode::Navigator;
+        app.default_client_view.mode = crate::app::Mode::Navigator;
         let motion = crate::raw_input::RawInputEvent::Mouse(crossterm::event::MouseEvent {
             kind: crossterm::event::MouseEventKind::Moved,
             column: 5,
@@ -1935,12 +1840,8 @@ mod release_forwarding_tests {
             crate::api::EventHub::default(),
         );
         let mut workspace = Workspace::test_new("test");
-        let pane_a = workspace.focused_pane_id().expect("focused pane");
-        let pane_b = workspace
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .split_focused(ratatui::layout::Direction::Horizontal);
+        let pane_a = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane_b = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let make_runtime = || {
             if report_events {
                 TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[>10u", 8)
@@ -1952,15 +1853,13 @@ mod release_forwarding_tests {
         let (runtime_b, rx_b) = make_runtime();
         workspace.insert_test_runtime(pane_a, runtime_a);
         workspace.insert_test_runtime(pane_b, runtime_b);
-        workspace
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(pane_a);
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
+        app.default_client_view.active_workspace = Some(0);
+        app.default_client_view.selected_workspace = 0;
+        app.default_client_view.mode = Mode::Terminal;
+        app.default_client_view.reconcile(&app.state);
+        app.default_client_view
+            .focus_pane_in_workspace(&app.state, 0, 0, pane_a);
         (app, pane_a, pane_b, rx_a, rx_b)
     }
 
@@ -2003,11 +1902,8 @@ mod release_forwarding_tests {
         let (mut app, pane_a, pane_b, rx_a, rx_b) = app_with_two_input_channels(true);
         app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Press)))
             .await;
-        app.state.workspaces[0]
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(pane_b);
+        app.default_client_view
+            .focus_pane_in_workspace(&app.state, 0, 0, pane_b);
         app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Repeat)))
             .await;
         app.handle_raw_input_event(RawInputEvent::Key(key(KeyEventKind::Release)))
@@ -2023,7 +1919,7 @@ mod release_forwarding_tests {
             .await;
 
         let mut replacement = Workspace::test_new("replacement");
-        let replacement_pane = replacement.focused_pane_id().expect("replacement pane");
+        let replacement_pane = replacement.terminal_tab(0).unwrap().root_pane;
         let (replacement_runtime, mut replacement_rx) =
             TerminalRuntime::test_with_channel_and_scrollback_bytes(80, 24, 0, b"\x1b[>10u", 8);
         replacement.insert_test_runtime(replacement_pane, replacement_runtime);
@@ -2055,11 +1951,8 @@ mod release_forwarding_tests {
     async fn default_client_dispatch_keeps_key_stream_on_press_pane() {
         let (mut app, pane_a, pane_b, rx_a, rx_b) = app_with_two_input_channels(true);
         app.route_client_events(vec![RawInputEvent::Key(key(KeyEventKind::Press))], false);
-        app.state.workspaces[0]
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(pane_b);
+        app.default_client_view
+            .focus_pane_in_workspace(&app.state, 0, 0, pane_b);
         app.route_client_events(
             vec![
                 RawInputEvent::Key(key(KeyEventKind::Repeat)),
@@ -2103,11 +1996,8 @@ mod release_forwarding_tests {
             )],
             false,
         );
-        app.state.workspaces[0]
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(pane_b);
+        app.default_client_view
+            .focus_pane_in_workspace(&app.state, 0, 0, pane_b);
         app.route_client_events(
             vec![RawInputEvent::Key(
                 TerminalKey::new(
@@ -2136,7 +2026,7 @@ mod release_forwarding_tests {
         );
         assert!(rx_a.try_recv().is_err());
         assert!(rx_b.try_recv().is_err());
-        assert!(app.input_leases.is_empty());
+        assert!(app.default_client_view.input_leases.is_empty());
     }
 
     #[tokio::test]
@@ -2154,7 +2044,7 @@ mod release_forwarding_tests {
             rx.try_recv().is_err(),
             "legacy release must encode no bytes"
         );
-        assert!(app.input_leases.is_empty());
+        assert!(app.default_client_view.input_leases.is_empty());
     }
 
     #[tokio::test]
@@ -2221,11 +2111,8 @@ mod release_forwarding_tests {
             vec![RawInputEvent::Key(physical(KeyEventKind::Press))],
             false,
         );
-        app.state.workspaces[0]
-            .terminal_tab_mut(0)
-            .unwrap()
-            .layout
-            .focus_pane(pane_b);
+        app.default_client_view
+            .focus_pane_in_workspace(&app.state, 0, 0, pane_b);
         app.route_client_events(
             vec![
                 RawInputEvent::Key(physical(KeyEventKind::Repeat)),

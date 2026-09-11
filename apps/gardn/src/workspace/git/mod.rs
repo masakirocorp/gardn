@@ -16,6 +16,3 @@ pub(crate) use self::{
     discovery::{discover_github_repositories, git_repo_root},
     status::{git_work_summary, git_work_summary_for_root},
 };
-
-#[cfg(test)]
-pub(super) use self::status::git_ahead_behind;

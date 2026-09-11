@@ -57,7 +57,7 @@ impl App {
                 &self.state.terminals,
                 &self.terminal_runtimes,
                 &default_view,
-                &self.state.agent_follow_up,
+                &default_view.agent_follow_up,
             );
             let history = self.persist_pane_history.then(|| {
                 crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)
@@ -136,9 +136,9 @@ impl super::AppState {
     fn has_default_sidebar_state(&self, default_view: &super::ClientViewState) -> bool {
         !default_view.sidebar_collapsed
             && !default_view.right_sidebar_collapsed
-            && self.right_sidebar_width == 28
-            && (self.sidebar_section_split - 0.5).abs() < f32::EPSILON
+            && default_view.right_sidebar_width == 28
+            && (default_view.sidebar_section_split - 0.5).abs() < f32::EPSILON
             && default_view.group_filter_enabled
-            && self.sidebar_width == self.default_sidebar_width
+            && default_view.sidebar_width == self.default_sidebar_width
     }
 }

@@ -46,6 +46,7 @@ impl App {
     }
 
     pub(crate) fn start_pending_agent_resumes(&mut self, allow_empty_theme: bool) -> bool {
+        self.default_client_view.reconcile(&self.state);
         let pending = self.pending_agent_resume_candidates();
         let changed = self.start_pending_agent_resume_candidates(pending, allow_empty_theme);
 
@@ -117,16 +118,7 @@ impl App {
     }
 
     fn pending_agent_resume_candidates(&self) -> Vec<PendingAgentResumeCandidate> {
-        let Some(ws_idx) = self.state.active else {
-            return Vec::new();
-        };
-        let Some(ws) = self.state.workspaces.get(ws_idx) else {
-            return Vec::new();
-        };
-        let Ok(tab) = ws.terminal_tab(ws.active_tab) else {
-            return Vec::new();
-        };
-        self.pending_agent_resume_candidates_for_tab(tab, &self.state.view.pane_infos)
+        self.pending_agent_resume_candidates_for_client_view(&self.default_client_view)
     }
 
     fn pending_agent_resume_candidates_for_client_view(
@@ -139,9 +131,9 @@ impl App {
         let Some(ws) = self.state.workspaces.get(ws_idx) else {
             return Vec::new();
         };
-        let tab_idx = view
-            .active_tab_for_workspace(&ws.id)
-            .unwrap_or(ws.active_tab);
+        let Some(tab_idx) = view.active_tab_index_for_workspace(&self.state, ws_idx) else {
+            return Vec::new();
+        };
         let Ok(tab) = ws.terminal_tab(tab_idx) else {
             return Vec::new();
         };
@@ -519,13 +511,13 @@ mod tests {
         let workspace = crate::workspace::Workspace::test_new("restored");
         let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace
+        app.default_client_view.computed.pane_infos = workspace
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), pane_id);
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
         app.state.default_shell = "/bin/sh".to_string();
         app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
@@ -642,13 +634,13 @@ mod tests {
         let workspace = crate::workspace::Workspace::test_new("restored");
         let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace
+        app.default_client_view.computed.pane_infos = workspace
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), pane_id);
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
         app.state.default_shell = "/bin/sh".to_string();
         app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
@@ -773,13 +765,13 @@ mod tests {
         let workspace = crate::workspace::Workspace::test_new("restored");
         let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace
+        app.default_client_view.computed.pane_infos = workspace
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), pane_id);
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
         app.state.default_shell = shell.to_string_lossy().into_owned();
         app.state.shell_mode = crate::config::ShellModeConfig::Login;
@@ -841,13 +833,13 @@ mod tests {
         let workspace_id = workspace.id.clone();
         let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace
+        app.default_client_view.computed.pane_infos = workspace
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), pane_id);
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
         app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
             foreground: Some(crate::terminal_theme::RgbColor {
@@ -909,11 +901,11 @@ mod tests {
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), pane_id);
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
-        app.state.view.pane_infos = pane_infos;
+        app.default_client_view.computed.pane_infos = pane_infos;
         let terminal = app
             .state
             .terminals
@@ -992,13 +984,13 @@ mod tests {
         let workspace = crate::workspace::Workspace::test_new("restored");
         let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = workspace
+        app.default_client_view.computed.pane_infos = workspace
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), pane_id);
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
         app.state
             .terminals
@@ -1032,13 +1024,13 @@ mod tests {
         let hidden_workspace = crate::workspace::Workspace::test_new("hidden");
         let hidden_pane = hidden_workspace.terminal_tab(0).unwrap().root_pane;
         let hidden_terminal = hidden_workspace.terminal_id(hidden_pane).cloned().unwrap();
-        app.state.view.pane_infos = active_workspace
+        app.default_client_view.computed.pane_infos = active_workspace
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), active_pane);
         app.state.workspaces = vec![active_workspace, hidden_workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
         app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
             foreground: Some(crate::terminal_theme::RgbColor {
@@ -1087,13 +1079,13 @@ mod tests {
             "hidden restored panes should wait until their tab has computed geometry"
         );
 
-        app.state.active = Some(1);
+        app.default_client_view.active_workspace = Some(1);
         let hidden_pane_infos = app.state.workspaces[1]
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
-        app.state.view.pane_infos = hidden_pane_infos;
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), hidden_pane);
+        app.default_client_view.computed.pane_infos = hidden_pane_infos;
 
         assert!(app.start_pending_agent_resumes(false));
         assert!(app.terminal_runtimes.get(&hidden_terminal).is_some());
@@ -1122,13 +1114,13 @@ mod tests {
             .cloned()
             .unwrap();
         let current_workspace = crate::workspace::Workspace::test_new("current");
-        app.state.view.pane_infos = previous_workspace
+        app.default_client_view.computed.pane_infos = previous_workspace
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), previous_pane);
         app.state.workspaces = vec![previous_workspace, current_workspace];
-        app.state.active = Some(1);
+        app.default_client_view.active_workspace = Some(1);
         app.state.ensure_test_terminals();
         app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
             foreground: Some(crate::terminal_theme::RgbColor {
@@ -1177,13 +1169,13 @@ mod tests {
             "a pane hidden by navigation should wait for a fresh visible geometry snapshot"
         );
 
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         let previous_pane_infos = app.state.workspaces[0]
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
-        app.state.view.pane_infos = previous_pane_infos;
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), previous_pane);
+        app.default_client_view.computed.pane_infos = previous_pane_infos;
 
         assert!(app.start_pending_agent_resumes(false));
         assert!(app.terminal_runtimes.get(&previous_terminal).is_some());
@@ -1208,7 +1200,7 @@ mod tests {
         let mut workspace = crate::workspace::Workspace::test_new("split");
         let pane_id = workspace.test_split(ratatui::layout::Direction::Horizontal);
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.view.pane_infos = vec![crate::layout::PaneInfo {
+        app.default_client_view.computed.pane_infos = vec![crate::layout::PaneInfo {
             id: pane_id,
             rect: ratatui::layout::Rect::new(0, 0, 100, 30),
             inner_rect: ratatui::layout::Rect::new(1, 1, 98, 28),
@@ -1216,7 +1208,7 @@ mod tests {
             is_focused: true,
         }];
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
         app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
             foreground: Some(crate::terminal_theme::RgbColor {
@@ -1267,13 +1259,13 @@ mod tests {
             .terminal_id(pane_id)
             .cloned()
             .expect("test workspace should have a terminal");
-        app.state.view.pane_infos = workspace
+        app.default_client_view.computed.pane_infos = workspace
             .terminal_tab(0)
             .unwrap()
             .layout
-            .panes(ratatui::layout::Rect::new(0, 0, 100, 30));
+            .panes(ratatui::layout::Rect::new(0, 0, 100, 30), pane_id);
         app.state.workspaces = vec![workspace];
-        app.state.active = Some(0);
+        app.default_client_view.active_workspace = Some(0);
         app.state.ensure_test_terminals();
         let host_id = crate::execution_host::ExecutionHostId::new("ssh:workbox")
             .expect("test host id should be valid");
