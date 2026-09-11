@@ -53,7 +53,7 @@ printf '{"conversationId":"gardn-antigravity-fixture"}\n' | \
   bash "$config_dir/hooks/gardn-agent-session.sh" session >/dev/null
 set +e
 GARDN_ENV=1 GARDN_SOCKET_PATH="$socket_path" GARDN_PANE_ID=pane-antigravity \
-  agy -p "$prompt" --output-format json >"$output" 2>"$agent_stderr" &
+  agy -p "$prompt" --output-format json >"$output" 2>"${output}.stderr"
 status=$?
 set -e
 if [[ "$status" -ne 0 ]] || ! grep -Fq "$expected" "$output"; then
