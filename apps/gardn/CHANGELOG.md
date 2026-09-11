@@ -1,3 +1,9 @@
+## gardn@0.10.21
+
+### Harden release verification
+
+Gardn now verifies multi-client control, restored workspace state, and agent status behavior before publishing each release.
+
 ## gardn@0.10.20
 
 ### Review blocked agents

@@ -1,17 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Review blocked agents\n\nMark a blocked agent as reviewed without changing its process or Follow Up placement. Gardn moves reviewed agents into the Blocked section and returns them to Triage after a later blocked transition.\n"
-    filename: review-blocked-agents.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Harden release verification\n\nGardn now verifies multi-client control, restored workspace state, and agent status behavior before publishing each release.\n"
+    filename: release-qa-maintenance.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
+  - id: cargo:portable-pty
+    updated: false
   - changelogIds:
-      - review-blocked-agents.md
+      - release-qa-maintenance.md
     id: cargo:gardn
     updated: true
   - id: cargo:gardn-local-api
-    updated: false
-  - id: cargo:portable-pty
     updated: false
 npm:packages:
   - id: npm:@gardn/website
