@@ -5,13 +5,13 @@ core:changelogs:
 core:packages:
   - id: npm:@gardn/website
     updated: false
+  - id: cargo:gardn-local-api
+    updated: false
   - id: cargo:portable-pty
     updated: false
   - changelogIds:
       - release-qa-maintenance.md
     id: cargo:gardn
     updated: true
-  - id: cargo:gardn-local-api
-    updated: false
 npm:packages:
   - id: npm:@gardn/website
