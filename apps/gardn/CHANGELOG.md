@@ -1,3 +1,9 @@
+## gardn@0.10.20
+
+### Review blocked agents
+
+Mark a blocked agent as reviewed without changing its process or Follow Up placement. Gardn moves reviewed agents into the Blocked section and returns them to Triage after a later blocked transition.
+
 ## gardn@0.10.19
 
 ### Filter the sidebar by connection
