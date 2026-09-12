@@ -322,7 +322,8 @@ pub(crate) struct ClientViewState {
     group_ids: Option<Vec<String>>,
     pub(crate) group_filter_enabled: bool,
     pub(crate) agent_panel_scope: crate::app::state::AgentPanelScope,
-    pub(crate) connection_scope: crate::app::connection_scope::ConnectionScope,
+    pub(crate) workspace_connection_scope: crate::app::connection_scope::ConnectionScope,
+    pub(crate) agent_connection_scope: crate::app::connection_scope::ConnectionScope,
     pub(crate) agent_view_override: Option<crate::api::schema::AgentViewSetParams>,
     pub(crate) agent_follow_up: Vec<crate::app::state::AgentFollowUpEntry>,
     pub(crate) workspace_scroll: usize,
@@ -451,7 +452,8 @@ impl ClientViewState {
             group_ids: Some(state.groups.iter().map(|group| group.id.clone()).collect()),
             group_filter_enabled: false,
             agent_panel_scope: crate::app::state::AgentPanelScope::CurrentWorkspace,
-            connection_scope: crate::app::connection_scope::ConnectionScope::All,
+            workspace_connection_scope: crate::app::connection_scope::ConnectionScope::All,
+            agent_connection_scope: crate::app::connection_scope::ConnectionScope::All,
             agent_view_override: None,
             agent_follow_up: Vec::new(),
             workspace_scroll: 0,
@@ -600,7 +602,8 @@ impl ClientViewState {
         view.tab_control_request = None;
         view.tab_canvas_origins.clear();
         view.tab_canvas_view = None;
-        view.connection_scope = crate::app::connection_scope::ConnectionScope::All;
+        view.workspace_connection_scope = crate::app::connection_scope::ConnectionScope::All;
+        view.agent_connection_scope = crate::app::connection_scope::ConnectionScope::All;
         view.group_filter_enabled = false;
         view.sidebar_collapsed = false;
         view.right_sidebar_collapsed = false;
@@ -796,16 +799,21 @@ impl ClientViewState {
         // Connection editor drafts (including install/forget substate) remain owned by
         // this client view. Shared host status is reconciled separately.
 
-        if let crate::app::connection_scope::ConnectionScope::Only(
-            crate::app::connection_scope::ConnectionIdentity::Profile(profile_id),
-        ) = &self.connection_scope
-        {
-            if !state
-                .ssh_connection_profiles
-                .iter()
-                .any(|profile| profile.id() == profile_id.as_str())
+        for scope in [
+            &mut self.workspace_connection_scope,
+            &mut self.agent_connection_scope,
+        ] {
+            if let crate::app::connection_scope::ConnectionScope::Only(
+                crate::app::connection_scope::ConnectionIdentity::Profile(profile_id),
+            ) = scope
             {
-                self.connection_scope = crate::app::connection_scope::ConnectionScope::All;
+                if !state
+                    .ssh_connection_profiles
+                    .iter()
+                    .any(|profile| profile.id() == profile_id.as_str())
+                {
+                    *scope = crate::app::connection_scope::ConnectionScope::All;
+                }
             }
         }
         let group_list_unchanged = self.group_ids.as_ref().is_some_and(|previous| {
@@ -890,7 +898,7 @@ impl ClientViewState {
                 && crate::app::connection_scope::workspace_matches(
                     state,
                     idx,
-                    &self.connection_scope,
+                    &self.workspace_connection_scope,
                 )
         };
         let first_group_workspace = || {
@@ -1647,7 +1655,7 @@ impl ClientViewState {
             state,
             self.active_group,
             self.group_filter_enabled,
-            &self.connection_scope,
+            &self.workspace_connection_scope,
         )
         .collect()
     }
@@ -1665,7 +1673,7 @@ impl ClientViewState {
                     && crate::app::connection_scope::workspace_matches(
                         state,
                         idx,
-                        &self.connection_scope,
+                        &self.workspace_connection_scope,
                     ))
                 .then_some(idx)
             })
@@ -2003,7 +2011,7 @@ mod tests {
         let mut view = ClientViewState::from_default_client_state(&state);
         view.active_workspace = Some(0);
         view.selected_workspace = 1;
-        view.connection_scope = crate::app::connection_scope::ConnectionScope::Only(
+        view.workspace_connection_scope = crate::app::connection_scope::ConnectionScope::Only(
             crate::app::connection_scope::ConnectionIdentity::Coordinator,
         );
         view.reconcile(&state);

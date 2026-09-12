@@ -215,7 +215,7 @@ pub(crate) fn agent_panel_toggle_layout_for_view(
         AgentPanelScope::AllWorkspaces => None,
         scope => Some(agent_panel_toggle_label(scope)),
     };
-    let label = filter_summary_label(app, primary_label, &client_view.connection_scope);
+    let label = filter_summary_label(app, primary_label, &client_view.agent_connection_scope);
     let rect = if area.width == 0 || area.height < 2 {
         Rect::default()
     } else {
@@ -239,7 +239,7 @@ pub(crate) fn agent_panel_entries_for_view(
         view.agent_panel_scope,
         view.active_workspace,
         view.active_group,
-        &view.connection_scope,
+        &view.agent_connection_scope,
     );
     crate::app::agent_view::apply_agent_view(app, view, &mut entries);
     entries
@@ -275,7 +275,7 @@ pub(crate) fn agent_panel_sections_all_workspaces_for_view(
             AgentPanelScope::AllWorkspaces,
             view.active_workspace,
             view.active_group,
-            &view.connection_scope,
+            &view.agent_connection_scope,
         ),
         true,
     )
@@ -1554,7 +1554,7 @@ fn collapsed_workspace_row_entries_for_view(
                 && crate::app::connection_scope::workspace_matches(
                     app,
                     ws_idx,
-                    &view.connection_scope,
+                    &view.workspace_connection_scope,
                 )
             {
                 entries.push(CollapsedWorkspaceRowEntry::Workspace { ws_idx, ordinal });
@@ -1590,7 +1590,7 @@ fn visible_workspace_indices_for_view(app: &AppState, view: &ClientViewState) ->
         app,
         view.active_group,
         view.group_filter_enabled,
-        &view.connection_scope,
+        &view.workspace_connection_scope,
     )
     .collect()
 }
@@ -1630,7 +1630,7 @@ fn workspace_list_entries_for_view(
                     && crate::app::connection_scope::workspace_matches(
                         app,
                         ws_idx,
-                        &view.connection_scope,
+                        &view.workspace_connection_scope,
                     ))
                 .then_some(ws_idx)
             })
@@ -1771,7 +1771,7 @@ fn collapsed_group_line_for_view(app: &AppState, view: &ClientViewState) -> Line
         app,
         primary,
         Style::default().fg(color).add_modifier(Modifier::BOLD),
-        &view.connection_scope,
+        &view.workspace_connection_scope,
     )
 }
 
@@ -1787,7 +1787,7 @@ fn collapsed_agent_scope_line_for_view(app: &AppState, view: &ClientViewState) -
         Style::default()
             .fg(app.palette.overlay1)
             .add_modifier(Modifier::BOLD),
-        &view.connection_scope,
+        &view.agent_connection_scope,
     )
 }
 
@@ -3202,7 +3202,11 @@ fn group_selector_label_for_view(app: &AppState, client_view: &ClientViewState) 
     } else {
         None
     };
-    filter_summary_label(app, primary_label.as_deref(), &client_view.connection_scope)
+    filter_summary_label(
+        app,
+        primary_label.as_deref(),
+        &client_view.workspace_connection_scope,
+    )
 }
 
 fn workspace_summary_spans(
@@ -3957,13 +3961,13 @@ mod tests {
             ),
         ] {
             view.group_filter_enabled = group_filter_enabled;
-            view.connection_scope = connection_scope;
+            view.workspace_connection_scope = connection_scope;
 
             assert_eq!(
                 rendered_group_filter_summary(&app, &view),
                 expected,
                 "group_filter_enabled={group_filter_enabled}, connection_scope={:?}",
-                view.connection_scope
+                view.workspace_connection_scope
             );
         }
     }
@@ -3996,13 +4000,13 @@ mod tests {
             ),
         ] {
             view.agent_panel_scope = agent_scope;
-            view.connection_scope = connection_scope;
+            view.agent_connection_scope = connection_scope;
 
             assert_eq!(
                 rendered_agent_filter_summary(&app, &view),
                 expected,
                 "agent_scope={agent_scope:?}, connection_scope={:?}",
-                view.connection_scope
+                view.agent_connection_scope
             );
         }
     }
@@ -4147,7 +4151,7 @@ mod tests {
         let app = AppState::test_new();
         let mut view = ClientViewState::from_default_client_state(&app);
         view.agent_panel_scope = AgentPanelScope::AllWorkspaces;
-        view.connection_scope = ConnectionScope::All;
+        view.agent_connection_scope = ConnectionScope::All;
         let toggle = agent_panel_toggle_layout_for_view(&app, &view, Rect::new(0, 0, 28, 6));
 
         assert_eq!(toggle.rect, Rect::new(23, 0, 5, 1));

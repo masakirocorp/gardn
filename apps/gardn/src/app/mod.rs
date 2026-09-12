@@ -108,7 +108,7 @@ pub(crate) fn client_group_menu_rows(
         state,
         view.group_filter_enabled,
         view.active_group,
-        &view.connection_scope,
+        &view.workspace_connection_scope,
     )
 }
 
@@ -148,7 +148,7 @@ pub(crate) fn client_agent_menu_rows(
     state: &AppState,
     view: &ClientViewState,
 ) -> Vec<input::FilterMenuRow<input::AgentMenuAction>> {
-    input::agent_menu_rows(state, view.agent_panel_scope, &view.connection_scope)
+    input::agent_menu_rows(state, view.agent_panel_scope, &view.agent_connection_scope)
 }
 
 pub(crate) fn client_agent_menu_rect(state: &AppState, view: &ClientViewState) -> Rect {
@@ -5234,7 +5234,7 @@ impl App {
                 Self::leave_client_view_command_mode(client_view);
             }
             input::GroupMenuAction::Connection(scope) => {
-                client_view.connection_scope = scope;
+                client_view.workspace_connection_scope = scope;
                 connection_scope::reanchor_view_selection(&self.state, client_view);
                 client_view.workspace_scroll = 0;
                 client_view.agent_panel_scroll = 0;
@@ -5352,9 +5352,7 @@ impl App {
                 client_view.agent_panel_scope = state::AgentPanelScope::AllWorkspaces;
             }
             input::AgentMenuAction::Connection(scope) => {
-                client_view.connection_scope = scope;
-                connection_scope::reanchor_view_selection(&self.state, client_view);
-                client_view.workspace_scroll = 0;
+                client_view.agent_connection_scope = scope;
             }
         }
         client_view.agent_panel_scroll = 0;
@@ -5487,7 +5485,7 @@ impl App {
                 client_view.mode = Mode::Resize;
             }
             crate::app::command_palette::CommandPaletteAction::OpenGroupMenu => {
-                let highlighted = match &client_view.connection_scope {
+                let highlighted = match &client_view.workspace_connection_scope {
                     connection_scope::ConnectionScope::All => {
                         if client_view.group_filter_enabled {
                             client_view.active_group + 2
@@ -5552,7 +5550,7 @@ impl App {
                 );
             }
             crate::app::command_palette::CommandPaletteAction::OpenAgentMenu => {
-                let highlighted = match &client_view.connection_scope {
+                let highlighted = match &client_view.agent_connection_scope {
                     connection_scope::ConnectionScope::All => match client_view.agent_panel_scope {
                         state::AgentPanelScope::AllWorkspaces => 1,
                         state::AgentPanelScope::CurrentWorkspace => 2,
@@ -5804,7 +5802,7 @@ impl App {
             ws_idx,
             client_view.active_group,
             client_view.group_filter_enabled,
-            &client_view.connection_scope,
+            &client_view.workspace_connection_scope,
         )
     }
 
@@ -5813,7 +5811,7 @@ impl App {
             &self.state,
             client_view.active_group,
             client_view.group_filter_enabled,
-            &client_view.connection_scope,
+            &client_view.workspace_connection_scope,
         )
         .next()
     }
@@ -11324,7 +11322,7 @@ impl App {
     }
 
     fn open_client_view_group_menu(&self, client_view: &mut ClientViewState) {
-        let highlighted = match &client_view.connection_scope {
+        let highlighted = match &client_view.workspace_connection_scope {
             connection_scope::ConnectionScope::All => {
                 if client_view.group_filter_enabled {
                     client_view.active_group + 2
@@ -11343,7 +11341,7 @@ impl App {
     }
 
     fn open_client_view_agent_menu(&self, client_view: &mut ClientViewState) {
-        let highlighted = match &client_view.connection_scope {
+        let highlighted = match &client_view.agent_connection_scope {
             connection_scope::ConnectionScope::All => match client_view.agent_panel_scope {
                 state::AgentPanelScope::AllWorkspaces => 1,
                 state::AgentPanelScope::CurrentWorkspace => 2,
@@ -15244,7 +15242,7 @@ mod tests {
         app.default_client_view.selected_workspace = 1;
         app.default_client_view.active_group = 0;
         app.default_client_view.group_filter_enabled = false;
-        app.default_client_view.connection_scope =
+        app.default_client_view.workspace_connection_scope =
             connection_scope::ConnectionScope::Only(connection_scope::ConnectionIdentity::Profile(
                 crate::execution_host::SshProfileId::new("workbox").expect("valid profile id"),
             ));
@@ -22338,8 +22336,62 @@ command = "printf literal > '{}'"
             )],
             true,
         );
+        assert_eq!(
+            client.agent_connection_scope,
+            connection_scope::ConnectionScope::Only(
+                connection_scope::ConnectionIdentity::Coordinator
+            )
+        );
 
         assert_eq!(client.visible_workspace_indices(&app.state), vec![0, 1]);
+    }
+
+    #[test]
+    fn spaces_connection_filter_does_not_change_agent_filter() {
+        let mut app = test_app();
+        app.state.ssh_connection_profiles =
+            vec![crate::persist::ssh_profiles::SshConnectionProfile::new(
+                "workbox", "Workbox", "workbox", None,
+            )
+            .expect("valid SSH profile")];
+        let mut remote = Workspace::test_new("remote");
+        remote.default_location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox:1")
+                .expect("valid execution host id"),
+            crate::execution_host::HostPath::new("/work").expect("valid host path"),
+        );
+        app.state.workspaces = vec![Workspace::test_new("local"), remote];
+        app.state.ensure_test_terminals();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.agent_connection_scope = connection_scope::ConnectionScope::Only(
+            connection_scope::ConnectionIdentity::Coordinator,
+        );
+        client.mode = Mode::GroupMenu;
+        client.group_menu = state::ModalListState::new(7);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(
+            client.workspace_connection_scope,
+            connection_scope::ConnectionScope::Only(connection_scope::ConnectionIdentity::Profile(
+                crate::execution_host::SshProfileId::new("workbox").expect("valid profile id")
+            ))
+        );
+        assert_eq!(
+            client.agent_connection_scope,
+            connection_scope::ConnectionScope::Only(
+                connection_scope::ConnectionIdentity::Coordinator
+            )
+        );
     }
 
     #[test]
@@ -26557,7 +26609,7 @@ command = "printf literal > '{}'"
         let mut view = ClientViewState::from_default_client_state(&app.state);
         view.active_workspace = Some(0);
         view.selected_workspace = 1;
-        view.connection_scope =
+        view.workspace_connection_scope =
             connection_scope::ConnectionScope::Only(connection_scope::ConnectionIdentity::Profile(
                 crate::execution_host::SshProfileId::new("workbox").expect("valid profile id"),
             ));
