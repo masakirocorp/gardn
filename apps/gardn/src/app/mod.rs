@@ -22309,6 +22309,40 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn agent_connection_filter_does_not_filter_spaces() {
+        let mut app = test_app();
+        app.state.ssh_connection_profiles =
+            vec![crate::persist::ssh_profiles::SshConnectionProfile::new(
+                "workbox", "Workbox", "workbox", None,
+            )
+            .expect("valid SSH profile")];
+        let mut remote = Workspace::test_new("remote");
+        remote.default_location = crate::execution_host::ResourceLocation::new(
+            crate::execution_host::ExecutionHostId::new("ssh:workbox:1")
+                .expect("valid execution host id"),
+            crate::execution_host::HostPath::new("/work").expect("valid host path"),
+        );
+        app.state.workspaces = vec![Workspace::test_new("local"), remote];
+        app.state.ensure_test_terminals();
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.mode = Mode::AgentMenu;
+        client.agent_menu = state::ModalListState::new(7);
+
+        app.route_client_events_for_view(
+            &mut client,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(client.visible_workspace_indices(&app.state), vec![0, 1]);
+    }
+
+    #[test]
     fn route_client_events_for_view_agent_menu_mouse_click_sets_invoking_client_scope() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
