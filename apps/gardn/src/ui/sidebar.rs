@@ -15,6 +15,7 @@ use super::status::{
 };
 use super::text::display_width;
 use super::widgets::fill_rect;
+use crate::app::connection_scope::ConnectionScope;
 use crate::app::state::{AgentPanelScope, AgentStatusGroup, CollapsedSidebarHover, Palette};
 use crate::app::{AppState, ClientViewState, Mode};
 use crate::detect::AgentState;
@@ -162,6 +163,23 @@ pub(crate) fn agent_panel_toggle_label(scope: AgentPanelScope) -> &'static str {
         AgentPanelScope::CurrentWorkspace => "Space",
         AgentPanelScope::CurrentGroup => "Group",
         AgentPanelScope::AllWorkspaces => "All",
+    }
+}
+fn filter_summary_label(
+    app: &AppState,
+    primary_label: Option<&str>,
+    connection_scope: &ConnectionScope,
+) -> String {
+    match (primary_label, connection_scope) {
+        (None, ConnectionScope::All) => "All".to_string(),
+        (Some(primary), ConnectionScope::All) => primary.to_string(),
+        (None, ConnectionScope::Only(_)) => {
+            crate::app::connection_scope::scope_label(app, connection_scope)
+        }
+        (Some(primary), ConnectionScope::Only(_)) => format!(
+            "{primary} · {}",
+            crate::app::connection_scope::scope_label(app, connection_scope)
+        ),
     }
 }
 
@@ -3162,18 +3180,14 @@ pub(crate) fn group_selector_rect_for_view(app: &AppState, client_view: &ClientV
 }
 
 fn group_selector_label_for_view(app: &AppState, client_view: &ClientViewState) -> String {
-    let spaces = if client_view.group_filter_enabled {
+    let primary_label = if client_view.group_filter_enabled {
         app.groups
             .get(client_view.active_group)
             .map(|group| format!("{} {}", group.icon, group.name))
-            .unwrap_or_else(|| "All".to_string())
     } else {
-        "All".to_string()
+        None
     };
-    format!(
-        "{spaces} · {}",
-        crate::app::connection_scope::scope_label(app, &client_view.connection_scope)
-    )
+    filter_summary_label(app, primary_label.as_deref(), &client_view.connection_scope)
 }
 
 fn workspace_summary_spans(
@@ -3642,10 +3656,13 @@ fn render_agent_detail_from_for_view(
         let style = Style::default().fg(p.overlay1).bg(p.surface0);
         frame.render_widget(
             Paragraph::new(centered_count_line(
-                &format!(
-                    "{} · {}",
-                    agent_panel_toggle_label(client_view.agent_panel_scope),
-                    crate::app::connection_scope::scope_label(app, &client_view.connection_scope)
+                &filter_summary_label(
+                    app,
+                    match client_view.agent_panel_scope {
+                        AgentPanelScope::AllWorkspaces => None,
+                        scope => Some(agent_panel_toggle_label(scope)),
+                    },
+                    &client_view.connection_scope,
                 ),
                 toggle_rect.width,
                 style,
@@ -3907,6 +3924,83 @@ mod tests {
     }
 
     #[test]
+    fn expanded_group_filter_summary_compacts_both_axes() {
+        let mut app = crate::app::state::AppState::test_new();
+        let work_group = app.create_group("Work".to_string());
+        app.groups[work_group].icon = "*".to_string();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.active_group = work_group;
+
+        for (group_filter_enabled, connection_scope, expected) in [
+            (false, ConnectionScope::All, "All"),
+            (true, ConnectionScope::All, "* Work"),
+            (
+                false,
+                ConnectionScope::Only(
+                    crate::app::connection_scope::ConnectionIdentity::Coordinator,
+                ),
+                "test-host",
+            ),
+            (
+                true,
+                ConnectionScope::Only(
+                    crate::app::connection_scope::ConnectionIdentity::Coordinator,
+                ),
+                "* Work · test-host",
+            ),
+        ] {
+            view.group_filter_enabled = group_filter_enabled;
+            view.connection_scope = connection_scope;
+
+            assert_eq!(
+                rendered_group_filter_summary(&app, &view),
+                expected,
+                "group_filter_enabled={group_filter_enabled}, connection_scope={:?}",
+                view.connection_scope
+            );
+        }
+    }
+
+    #[test]
+    fn expanded_agent_filter_summary_compacts_both_axes() {
+        let app = crate::app::state::AppState::test_new();
+        let mut view = ClientViewState::from_default_client_state(&app);
+
+        for (agent_scope, connection_scope, expected) in [
+            (AgentPanelScope::AllWorkspaces, ConnectionScope::All, "All"),
+            (
+                AgentPanelScope::CurrentWorkspace,
+                ConnectionScope::All,
+                "Space",
+            ),
+            (
+                AgentPanelScope::AllWorkspaces,
+                ConnectionScope::Only(
+                    crate::app::connection_scope::ConnectionIdentity::Coordinator,
+                ),
+                "test-host",
+            ),
+            (
+                AgentPanelScope::CurrentGroup,
+                ConnectionScope::Only(
+                    crate::app::connection_scope::ConnectionIdentity::Coordinator,
+                ),
+                "Group · test-host",
+            ),
+        ] {
+            view.agent_panel_scope = agent_scope;
+            view.connection_scope = connection_scope;
+
+            assert_eq!(
+                rendered_agent_filter_summary(&app, &view),
+                expected,
+                "agent_scope={agent_scope:?}, connection_scope={:?}",
+                view.connection_scope
+            );
+        }
+    }
+
+    #[test]
     fn collapsed_sidebar_stacks_help_above_expand_control() {
         let app = crate::app::state::AppState::test_new();
         let mut view = ClientViewState::from_default_client_state(&app);
@@ -4055,6 +4149,48 @@ mod tests {
             sidebar_section_divider_rect(Rect::new(0, 0, 20, 5), 0.5),
             Rect::default()
         );
+    }
+
+    fn rendered_group_filter_summary(app: &AppState, view: &ClientViewState) -> String {
+        let area = Rect::new(0, 0, 28, 12);
+        let mut view = view.clone();
+        view.computed.sidebar_rect = Rect::new(0, 0, area.width + 1, area.height);
+        let runtimes = TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| {
+                render_workspace_list_from_for_view(app, &runtimes, &view, frame, area, false);
+            })
+            .expect("render expanded group filter summary");
+
+        let rect = group_selector_rect_for_view(app, &view);
+        buffer_line(terminal.backend().buffer(), rect)
+    }
+
+    fn rendered_agent_filter_summary(app: &AppState, view: &ClientViewState) -> String {
+        let area = Rect::new(0, 0, 28, 6);
+        let runtimes = TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut terminal = Terminal::new(backend).expect("test backend");
+
+        terminal
+            .draw(|frame| {
+                render_agent_detail_from_for_view(app, &runtimes, view, frame, area, false);
+            })
+            .expect("render expanded agent filter summary");
+
+        let rect = agent_panel_toggle_rect(area, view.agent_panel_scope, false);
+        buffer_line(terminal.backend().buffer(), rect)
+    }
+
+    fn buffer_line(buffer: &Buffer, rect: Rect) -> String {
+        let mut text = String::new();
+        for x in rect.x..rect.x + rect.width {
+            text.push_str(buffer[(x, rect.y)].symbol());
+        }
+        text.trim().to_string()
     }
 
     fn buffer_text(buffer: &Buffer, width: u16, height: u16) -> String {

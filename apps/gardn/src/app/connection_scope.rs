@@ -149,7 +149,7 @@ pub(crate) fn scope_label(state: &AppState, scope: &ConnectionScope) -> String {
 
 pub(crate) fn choices(state: &AppState) -> Vec<(ConnectionScope, String)> {
     let mut choices = vec![
-        (ConnectionScope::All, "All connections".to_string()),
+        (ConnectionScope::All, "All".to_string()),
         (
             ConnectionScope::Only(ConnectionIdentity::Coordinator),
             state.host_display.coordinator().to_string(),
