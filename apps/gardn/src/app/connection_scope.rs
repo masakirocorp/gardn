@@ -194,7 +194,7 @@ pub(crate) fn reanchor_view_selection(
                 state,
                 view.active_group,
                 view.group_filter_enabled,
-                &view.connection_scope,
+                &view.workspace_connection_scope,
             ),
         )
     } else {
@@ -209,7 +209,7 @@ pub(crate) fn reanchor_view_selection(
                         .collapsed_workspace_groups
                         .iter()
                         .any(|group_id| group_id == &workspace.group_id)
-                        && workspace_matches(state, idx, &view.connection_scope))
+                        && workspace_matches(state, idx, &view.workspace_connection_scope))
                     .then_some(idx)
                 }),
         )

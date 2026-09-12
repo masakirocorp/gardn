@@ -143,9 +143,13 @@ impl App {
                     ) if selected.as_str() == profile_id
                 )
             };
-            if selected_profile(&self.default_client_view.connection_scope) {
-                self.default_client_view.connection_scope =
-                    crate::app::connection_scope::ConnectionScope::All;
+            for scope in [
+                &mut self.default_client_view.workspace_connection_scope,
+                &mut self.default_client_view.agent_connection_scope,
+            ] {
+                if selected_profile(scope) {
+                    *scope = crate::app::connection_scope::ConnectionScope::All;
+                }
             }
         }
         if let Some(hosts) = &mut self.execution_hosts {

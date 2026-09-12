@@ -476,7 +476,7 @@ pub(crate) fn command_palette_commands_for_view(
             state,
             view.active_group,
             view.group_filter_enabled,
-            &view.connection_scope,
+            &view.workspace_connection_scope,
         )
         .enumerate()
         .filter_map(|(shortcut_idx, idx)| {

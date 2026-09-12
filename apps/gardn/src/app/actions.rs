@@ -4986,7 +4986,7 @@ mod tests {
         let mut view = ClientViewState::from_default_client_state(&state);
         view.active_workspace = Some(0);
         view.selected_workspace = 1;
-        view.connection_scope = crate::app::connection_scope::ConnectionScope::Only(
+        view.workspace_connection_scope = crate::app::connection_scope::ConnectionScope::Only(
             crate::app::connection_scope::ConnectionIdentity::Profile(
                 crate::execution_host::SshProfileId::new("workbox").expect("valid profile id"),
             ),

@@ -287,7 +287,7 @@ mod tests {
             &app.state,
             false,
             0,
-            &app.default_client_view.connection_scope,
+            &app.default_client_view.workspace_connection_scope,
         )
         .iter()
         .map(|row| row.display_label(true).into_owned())
@@ -321,7 +321,7 @@ mod tests {
         let labels = agent_menu_rows(
             &app.state,
             AgentPanelScope::CurrentWorkspace,
-            &app.default_client_view.connection_scope,
+            &app.default_client_view.agent_connection_scope,
         )
         .into_iter()
         .map(|row| row.label().to_string())
