@@ -1,3 +1,9 @@
+## gardn@0.10.25
+
+### Keep sidebar connection filters independent
+
+Filtering Agents by connection no longer changes which Spaces appear. The Spaces connection filter also leaves the Agents filter unchanged.
+
 ## gardn@0.10.24
 
 ### Fix agent filter width

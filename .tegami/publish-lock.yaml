@@ -1,12 +1,12 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Fix agent filter width\n\nThe Agents filter now uses only the width needed for its visible label.\n"
-    filename: compact-agent-filter.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Keep sidebar connection filters independent\n\nFiltering Agents by connection no longer changes which Spaces appear. The Spaces connection filter also leaves the Agents filter unchanged.\n"
+    filename: independent-sidebar-filters.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - compact-agent-filter.md
+      - independent-sidebar-filters.md
     id: cargo:gardn
     updated: true
   - id: cargo:gardn-local-api
