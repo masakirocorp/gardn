@@ -1,3 +1,9 @@
+## gardn@0.10.24
+
+### Fix agent filter width
+
+The Agents filter now uses only the width needed for its visible label.
+
 ## gardn@0.10.23
 
 ### Simplify sidebar filter labels

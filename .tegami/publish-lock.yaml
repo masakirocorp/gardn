@@ -1,12 +1,12 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Simplify sidebar filter labels\n\nThe Groups and Agents sidebars now omit inactive filter dimensions and use a middle dot when both filters are active.\n"
-    filename: compact-sidebar-filters.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Fix agent filter width\n\nThe Agents filter now uses only the width needed for its visible label.\n"
+    filename: compact-agent-filter.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - compact-sidebar-filters.md
+      - compact-agent-filter.md
     id: cargo:gardn
     updated: true
   - id: cargo:gardn-local-api
