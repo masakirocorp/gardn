@@ -1,17 +1,17 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Harden release verification\n\nGardn now verifies multi-client control, restored workspace state, and agent status behavior before publishing each release.\n"
-    filename: release-qa-maintenance.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Simplify sidebar filter labels\n\nThe Groups and Agents sidebars now omit inactive filter dimensions and use a middle dot when both filters are active.\n"
+    filename: compact-sidebar-filters.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
+  - changelogIds:
+      - compact-sidebar-filters.md
+    id: cargo:gardn
+    updated: true
   - id: cargo:gardn-local-api
     updated: false
   - id: cargo:portable-pty
     updated: false
-  - changelogIds:
-      - release-qa-maintenance.md
-    id: cargo:gardn
-    updated: true
 npm:packages:
   - id: npm:@gardn/website
