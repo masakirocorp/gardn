@@ -187,11 +187,8 @@ fn client_agent_menu_anchor_rect(state: &AppState, view: &ClientViewState) -> Re
         );
         return crate::ui::collapsed_agent_panel_toggle_rect(detail_area);
     }
-    crate::ui::agent_panel_toggle_rect(
-        client_agent_panel_rect(state, view),
-        view.agent_panel_scope,
-        view.computed.right_sidebar_rect == Rect::default(),
-    )
+    crate::ui::agent_panel_toggle_layout_for_view(state, view, client_agent_panel_rect(state, view))
+        .rect
 }
 
 fn client_agent_panel_rect(state: &AppState, view: &ClientViewState) -> Rect {
@@ -11177,20 +11174,14 @@ impl App {
             return Self::rect_contains(rect, mouse.column, mouse.row);
         }
 
-        let (detail_area, leading_separator) =
-            if client_view.computed.right_sidebar_rect != Rect::default() {
-                (
-                    crate::ui::right_sidebar_content_rect(client_view.computed.right_sidebar_rect),
-                    false,
-                )
-            } else {
-                (self.client_view_agent_panel_rect(client_view), true)
-            };
-        let rect = crate::ui::agent_panel_toggle_rect(
-            detail_area,
-            client_view.agent_panel_scope,
-            leading_separator,
-        );
+        let detail_area = if client_view.computed.right_sidebar_rect != Rect::default() {
+            crate::ui::right_sidebar_content_rect(client_view.computed.right_sidebar_rect)
+        } else {
+            self.client_view_agent_panel_rect(client_view)
+        };
+        let rect =
+            crate::ui::agent_panel_toggle_layout_for_view(&self.state, client_view, detail_area)
+                .rect;
         Self::rect_contains(rect, mouse.column, mouse.row)
     }
     fn open_client_view_context_navigator(
@@ -23144,7 +23135,7 @@ command = "printf literal > '{}'"
             client.sidebar_section_split,
         );
         let toggle =
-            crate::ui::agent_panel_toggle_rect(agent_panel, client.agent_panel_scope, true);
+            crate::ui::agent_panel_toggle_layout_for_view(&app.state, &client, agent_panel).rect;
         assert!(
             toggle.width > 0 && toggle.height > 0,
             "expanded agents sidebar should expose the follow-group scope toggle"
