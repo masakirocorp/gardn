@@ -4136,6 +4136,17 @@ mod tests {
     }
 
     #[test]
+    fn expanded_agent_filter_badge_occupies_trailing_five_columns() {
+        let rect = agent_panel_toggle_rect(
+            Rect::new(0, 0, 28, 6),
+            AgentPanelScope::AllWorkspaces,
+            false,
+        );
+
+        assert_eq!(rect, Rect::new(23, 0, 5, 1));
+    }
+
+    #[test]
     fn expanded_sidebar_sections_handle_tiny_heights() {
         let (workspace, agents) = expanded_sidebar_sections(Rect::new(0, 0, 20, 5), 0.9);
 
