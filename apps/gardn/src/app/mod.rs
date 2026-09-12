@@ -118,7 +118,7 @@ pub(crate) fn client_group_menu_rect(state: &AppState, view: &ClientViewState) -
     let rows = client_group_menu_rows(state, view);
     let content_width = rows
         .iter()
-        .map(|row| row.display_label(state.show_counters).chars().count() as u16)
+        .map(|row| crate::ui::display_width_u16(row.display_label(state.show_counters).as_ref()))
         .max()
         .unwrap_or(8)
         .saturating_add(2);
@@ -157,8 +157,7 @@ pub(crate) fn client_agent_menu_rect(state: &AppState, view: &ClientViewState) -
     let rows = client_agent_menu_rows(state, view);
     let content_width = rows
         .iter()
-        .filter(|row| row.action().is_some())
-        .map(|row| row.display_label(state.show_counters).chars().count() as u16)
+        .map(|row| crate::ui::display_width_u16(row.display_label(state.show_counters).as_ref()))
         .max()
         .unwrap_or(8)
         .saturating_add(2);

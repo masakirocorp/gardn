@@ -86,6 +86,7 @@ use self::status::{
     copy_feedback_rect, render_copy_feedback, render_toast_notification, toast_notification_rect,
 };
 use self::tabs::render_tab_bar_for_view;
+pub(crate) use self::text::display_width_u16;
 use self::widgets::fill_rect;
 pub(crate) use self::{
     agent_profile_picker::{

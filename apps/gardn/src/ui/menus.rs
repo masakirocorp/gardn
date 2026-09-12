@@ -635,6 +635,28 @@ mod tests {
     }
 
     #[test]
+    fn client_agent_menu_preserves_connections_heading_with_short_host_name() {
+        let mut app = AppState::test_new();
+        app.host_display =
+            crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname("mac", None);
+        app.ssh_connection_profiles.clear();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.sidebar_rect = Rect::new(0, 0, 24, 20);
+        view.computed.terminal_area = Rect::new(24, 0, 56, 20);
+        view.agent_menu = crate::app::state::ModalListState::new(0);
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("test backend");
+        terminal
+            .draw(|frame| render_agent_menu_for_view(&app, &view, frame))
+            .expect("render client agent menu");
+
+        assert!(
+            first_cell_with_text(terminal.backend().buffer(), 80, 20, "Connections").is_some(),
+            "connections heading should remain fully visible"
+        );
+    }
+
+    #[test]
     fn client_context_menu_renders_new_actions_in_order() {
         let app = AppState::test_new();
         let mut view = ClientViewState::from_default_client_state(&app);
