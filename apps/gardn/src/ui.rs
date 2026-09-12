@@ -116,7 +116,7 @@ pub(crate) use self::{
         agent_panel_body_rect, agent_panel_empty_row_at_for_view, agent_panel_entries_for_view,
         agent_panel_entry_at_row_for_view, agent_panel_header_target_at_row_for_view,
         agent_panel_scroll_metrics_for_view, agent_panel_scrollbar_rect_for_view,
-        agent_panel_toggle_rect, collapsed_agent_panel_entry_at_row_for_view,
+        agent_panel_toggle_layout_for_view, collapsed_agent_panel_entry_at_row_for_view,
         collapsed_agent_panel_header_target_at_row_for_view, collapsed_agent_panel_toggle_rect,
         collapsed_group_header_rect, collapsed_sidebar_sections_for_split,
         collapsed_sidebar_toggle_rect, collapsed_workspace_row_entry_at_for_view,

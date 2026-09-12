@@ -201,15 +201,30 @@ fn agent_panel_has_multiple_groups(app: &AppState) -> bool {
         .any(|workspace| workspace.group_id != first_group_id)
 }
 
-pub(crate) fn agent_panel_toggle_rect(
+pub(crate) struct AgentPanelToggleLayout {
+    pub(crate) label: String,
+    pub(crate) rect: Rect,
+}
+
+pub(crate) fn agent_panel_toggle_layout_for_view(
+    app: &AppState,
+    client_view: &ClientViewState,
     area: Rect,
-    _scope: AgentPanelScope,
-    _leading_separator: bool,
-) -> Rect {
-    if area.width <= 7 || area.height < 2 {
-        return Rect::default();
-    }
-    Rect::new(area.x + 7, area.y, area.width - 7, 1)
+) -> AgentPanelToggleLayout {
+    let primary_label = match client_view.agent_panel_scope {
+        AgentPanelScope::AllWorkspaces => None,
+        scope => Some(agent_panel_toggle_label(scope)),
+    };
+    let label = filter_summary_label(app, primary_label, &client_view.connection_scope);
+    let rect = if area.width == 0 || area.height < 2 {
+        Rect::default()
+    } else {
+        let width = display_width(&label)
+            .saturating_add(2)
+            .min(area.width as usize) as u16;
+        Rect::new(area.x + area.width.saturating_sub(width), area.y, width, 1)
+    };
+    AgentPanelToggleLayout { label, rect }
 }
 
 pub(crate) fn agent_panel_entries_for_view(
@@ -3650,25 +3665,17 @@ fn render_agent_detail_from_for_view(
         Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.overlay0))),
         Rect::new(area.x, header_y.saturating_add(1), area.width, 1),
     );
-    let toggle_rect =
-        agent_panel_toggle_rect(area, client_view.agent_panel_scope, leading_separator);
-    if toggle_rect != Rect::default() {
+    let toggle = agent_panel_toggle_layout_for_view(app, client_view, area);
+    if toggle.rect != Rect::default() {
         let style = Style::default().fg(p.overlay1).bg(p.surface0);
         frame.render_widget(
             Paragraph::new(centered_count_line(
-                &filter_summary_label(
-                    app,
-                    match client_view.agent_panel_scope {
-                        AgentPanelScope::AllWorkspaces => None,
-                        scope => Some(agent_panel_toggle_label(scope)),
-                    },
-                    &client_view.connection_scope,
-                ),
-                toggle_rect.width,
+                &toggle.label,
+                toggle.rect.width,
                 style,
                 style,
             )),
-            toggle_rect,
+            toggle.rect,
         );
     }
 
@@ -4137,13 +4144,13 @@ mod tests {
 
     #[test]
     fn expanded_agent_filter_badge_occupies_trailing_five_columns() {
-        let rect = agent_panel_toggle_rect(
-            Rect::new(0, 0, 28, 6),
-            AgentPanelScope::AllWorkspaces,
-            false,
-        );
+        let app = AppState::test_new();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        view.connection_scope = ConnectionScope::All;
+        let toggle = agent_panel_toggle_layout_for_view(&app, &view, Rect::new(0, 0, 28, 6));
 
-        assert_eq!(rect, Rect::new(23, 0, 5, 1));
+        assert_eq!(toggle.rect, Rect::new(23, 0, 5, 1));
     }
 
     #[test]
@@ -4192,7 +4199,7 @@ mod tests {
             })
             .expect("render expanded agent filter summary");
 
-        let rect = agent_panel_toggle_rect(area, view.agent_panel_scope, false);
+        let rect = agent_panel_toggle_layout_for_view(app, view, area).rect;
         buffer_line(terminal.backend().buffer(), rect)
     }
 
