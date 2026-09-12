@@ -90,7 +90,7 @@ pub(crate) fn group_menu_rows(
 
     let all_marker = if group_filter_enabled { " " } else { "✓" };
     let mut rows = vec![
-        FilterMenuRow::Heading("Spaces".to_string()),
+        FilterMenuRow::Heading("Groups".to_string()),
         FilterMenuRow::Item {
             label: format!("{all_marker} All"),
             count: Some(all_count),
@@ -269,32 +269,54 @@ mod tests {
     }
 
     #[test]
-    fn group_menu_lists_all_spaces_before_groups() {
+    fn group_menu_keeps_row_order_with_compact_section_labels() {
         let mut app = app_for_mouse_test();
+        app.state.groups[0].name = "Home".to_string();
+        app.state.groups[0].icon = "*".to_string();
         let work_group = app.state.create_group("Work".to_string());
+        app.state.groups[work_group].icon = "+".to_string();
         app.state.workspaces = vec![Workspace::test_new("a"), Workspace::test_new("b")];
         app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
+        app.state.ssh_connection_profiles =
+            vec![crate::persist::ssh_profiles::SshConnectionProfile::new(
+                "workbox", "Work box", "workbox", None,
+            )
+            .expect("valid SSH profile")];
 
-        let rows = group_menu_rows(
+        let labels = group_menu_rows(
             &app.state,
             false,
             0,
             &app.default_client_view.connection_scope,
-        );
-        let labels = rows
-            .iter()
-            .map(|row| row.display_label(true).into_owned())
-            .collect::<Vec<_>>();
+        )
+        .iter()
+        .map(|row| row.display_label(true).into_owned())
+        .collect::<Vec<_>>();
 
-        assert_eq!(labels[0], "Spaces");
-        assert!(labels[1].contains("All 2"));
-        assert!(labels[2].contains("Group 1 1"));
-        assert!(labels[3].contains("Work 1"));
+        assert_eq!(
+            labels,
+            vec![
+                "Groups",
+                "✓ All 2",
+                "  * Home 1",
+                "  + Work 1",
+                "---",
+                "Connections",
+                "✓ All",
+                "  test-host",
+                "  Work box",
+                "---",
+                "New",
+                "  Space",
+                "  Group",
+            ]
+        );
     }
 
     #[test]
-    fn agent_menu_uses_short_scope_labels() {
-        let app = app_for_mouse_test();
+    fn agent_menu_retains_primary_choices_and_compact_connection_label() {
+        let mut app = app_for_mouse_test();
+        app.state.ssh_connection_profiles.clear();
 
         let labels = agent_menu_rows(
             &app.state,
@@ -305,7 +327,18 @@ mod tests {
         .map(|row| row.label().to_string())
         .collect::<Vec<_>>();
 
-        assert!(labels.iter().any(|label| label == "✓ Space"));
-        assert!(labels.iter().any(|label| label == "  Group"));
+        assert_eq!(
+            labels,
+            vec![
+                "Agents",
+                "  All",
+                "✓ Space",
+                "  Group",
+                "---",
+                "Connections",
+                "✓ All",
+                "  test-host",
+            ]
+        );
     }
 }
