@@ -635,7 +635,7 @@ mod tests {
     }
 
     #[test]
-    fn client_agent_menu_preserves_connections_heading_with_short_host_name() {
+    fn client_agent_menu_renders_connection_type_label_without_truncation() {
         let mut app = AppState::test_new();
         app.host_display =
             crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname("mac", None);
@@ -650,9 +650,14 @@ mod tests {
             .draw(|frame| render_agent_menu_for_view(&app, &view, frame))
             .expect("render client agent menu");
 
+        let buffer = terminal.backend().buffer();
         assert!(
-            first_cell_with_text(terminal.backend().buffer(), 80, 20, "Connections").is_some(),
+            first_cell_with_text(buffer, 80, 20, "Connections").is_some(),
             "connections heading should remain fully visible"
+        );
+        assert!(
+            first_cell_with_text(buffer, 80, 20, "mac (local)").is_some(),
+            "connection type label should remain fully visible"
         );
     }
 
