@@ -1049,6 +1049,18 @@ impl App {
         }
     }
 
+    pub(crate) fn handle_ambient_api_request_disposition_for_view(
+        &mut self,
+        client_view: &mut ClientViewState,
+        request: crate::api::schema::Request,
+    ) -> crate::api::ApiRequestDisposition {
+        self.handle_api_request_disposition_with_origin(
+            client_view,
+            request,
+            invocation::ApiInvocationOrigin::Ambient,
+        )
+    }
+
     #[cfg(test)]
     pub(crate) fn handle_api_request_disposition_for_view(
         &mut self,

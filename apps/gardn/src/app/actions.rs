@@ -2152,14 +2152,36 @@ impl AppState {
         let Some(tab_idx) = view.active_tab_index_for_workspace(self, ws_idx) else {
             return false;
         };
-        let hold = view
+        let focused = view
             .focused_pane_for_workspace(self, ws_idx)
-            .and_then(|(_, pane_id)| self.unseen_idle_hold_for_pane(ws_idx, pane_id));
+            .and_then(|(_, pane_id)| {
+                self.workspaces
+                    .get(ws_idx)
+                    .map(|workspace| (workspace.id.clone(), pane_id))
+            });
+        let hold = focused
+            .as_ref()
+            .and_then(|(_, pane_id)| self.unseen_idle_hold_for_pane(ws_idx, *pane_id));
+        let focused_is_idle = focused.as_ref().is_some_and(|(_, pane_id)| {
+            self.workspaces
+                .get(ws_idx)
+                .and_then(|workspace| {
+                    workspace
+                        .find_tab_index_for_pane(*pane_id)
+                        .map(|tab_idx| (workspace, tab_idx))
+                })
+                .and_then(|(workspace, tab_idx)| {
+                    workspace.terminal_tab(tab_idx).ok()?.panes.get(pane_id)
+                })
+                .is_some_and(|pane| self.pane_is_idle_agent(pane))
+        });
         let changed = self
             .workspaces
             .get_mut(ws_idx)
             .is_some_and(|workspace| workspace.mark_tab_seen(tab_idx));
-        view.triage_hold = hold;
+        if view.triage_hold.as_ref() != focused.as_ref() || !focused_is_idle {
+            view.triage_hold = hold;
+        }
         changed
     }
 
@@ -3796,6 +3818,63 @@ mod tests {
         }
         state.ensure_test_terminals();
         state
+    }
+
+    #[test]
+    fn repeated_seen_updates_preserve_focused_triage_hold() {
+        let mut state = app_with_workspaces(&["done"]);
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let pane = state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap();
+        pane.detected_agent = Some(Agent::Pi);
+        pane.state = AgentState::Idle;
+        pane.seen = false;
+        let workspace_id = state.workspaces[0].id.clone();
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(0);
+        view.focus_pane_in_workspace(&state, 0, 0, pane_id);
+
+        assert!(state.mark_active_tab_seen_for_view(&mut view));
+        assert_eq!(view.triage_hold, Some((workspace_id.clone(), pane_id)));
+
+        assert!(!state.mark_active_tab_seen_for_view(&mut view));
+        assert_eq!(view.triage_hold, Some((workspace_id, pane_id)));
+    }
+
+    #[test]
+    fn seen_update_clears_triage_hold_when_focused_agent_resumes_working() {
+        let mut state = app_with_workspaces(&["done"]);
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let pane = state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap();
+        pane.detected_agent = Some(Agent::Pi);
+        pane.state = AgentState::Idle;
+        pane.seen = false;
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(0);
+        view.focus_pane_in_workspace(&state, 0, 0, pane_id);
+
+        assert!(state.mark_active_tab_seen_for_view(&mut view));
+        assert!(view.triage_hold.is_some());
+
+        state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap()
+            .state = AgentState::Working;
+
+        assert!(!state.mark_active_tab_seen_for_view(&mut view));
+        assert_eq!(view.triage_hold, None);
     }
 
     fn temp_project(name: &str) -> std::path::PathBuf {

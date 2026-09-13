@@ -43,6 +43,10 @@ enum HostTerminal {
         _ = app.activate(from: NSRunningApplication.current)
     }
 
+    static func isGardnClientProcess(_ process: String) -> Bool {
+        process == "gardn" || process == "gardn-dev" || process == "gardn-cli"
+    }
+
     private static func clientPids(matchingApiSocket apiSocketPath: String) -> [pid_t] {
         var capacity = proc_listallpids(nil, 0)
         guard capacity > 0 else { return [] }
@@ -54,7 +58,7 @@ enum HostTerminal {
             var name = [CChar](repeating: 0, count: Int(MAXPATHLEN))
             guard proc_name(pid, &name, UInt32(name.count)) > 0 else { return false }
             let process = String(cString: name)
-            guard process == "gardn" || process == "gardn-dev" else { return false }
+            guard isGardnClientProcess(process) else { return false }
             let info = procArgs(pid)
             if info.args.contains("server") {
                 return false

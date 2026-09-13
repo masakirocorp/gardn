@@ -546,8 +546,16 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
 }
 fn restored_connection_profile_ids(
     profiles: &[crate::persist::ssh_profiles::SshConnectionProfile],
-    host_ids: &HashSet<crate::execution_host::ExecutionHostId>,
+    workspaces: &[crate::workspace::Workspace],
+    restored_terminal_host_ids: &HashSet<crate::execution_host::ExecutionHostId>,
 ) -> Vec<String> {
+    let mut host_ids = restored_terminal_host_ids.clone();
+    host_ids.extend(
+        workspaces
+            .iter()
+            .filter(|workspace| !workspace.default_location.is_local())
+            .map(|workspace| workspace.default_location.execution_host_id.clone()),
+    );
     profiles
         .iter()
         .filter(|profile| host_ids.contains(&profile.execution_host_id()))
@@ -1114,9 +1122,11 @@ impl App {
                     }
                 }
             }
-            for profile_id in
-                restored_connection_profile_ids(&state.ssh_connection_profiles, &restored_host_ids)
-            {
+            for profile_id in restored_connection_profile_ids(
+                &state.ssh_connection_profiles,
+                &state.workspaces,
+                &restored_host_ids,
+            ) {
                 if let Err(error) = hosts.request_for(
                     crate::execution_host::auth::AuthenticationOwner::SYSTEM,
                     &profile_id,
@@ -4576,7 +4586,12 @@ impl App {
         match key.code {
             crossterm::event::KeyCode::Enter => {
                 let new_name = client_view.name_input.trim().to_string();
-                if !self.can_mutate_current_tab() {
+                let creates_first_tab = client_view.mode == Mode::RenameTab
+                    && client_view.creating_new_tab
+                    && client_view.active_workspace.is_some_and(|ws_idx| {
+                        self.workspace_can_create_first_tab_without_control(ws_idx)
+                    });
+                if !self.can_mutate_current_tab() && !creates_first_tab {
                     Self::reject_client_view_shared_mutation(client_view);
                     return;
                 }
@@ -6430,7 +6445,16 @@ impl App {
             client_view.mode = Mode::ContextMenu;
             return;
         }
+        let creates_first_tab = match (&menu.kind, item) {
+            (
+                state::ContextMenuKind::Workspace { ws_idx, .. }
+                | state::ContextMenuKind::NewTabButton { ws_idx, .. },
+                Some("tab"),
+            ) => self.workspace_can_create_first_tab_without_control(*ws_idx),
+            _ => false,
+        };
         if !self.can_mutate_current_tab()
+            && !creates_first_tab
             && !matches!(item, Some("agent" | "settings" | "zoom" | "restore panes"))
         {
             Self::reject_client_view_shared_mutation(client_view);
@@ -7050,6 +7074,13 @@ impl App {
         }
     }
 
+    fn workspace_can_create_first_tab_without_control(&self, ws_idx: usize) -> bool {
+        self.state
+            .workspaces
+            .get(ws_idx)
+            .is_some_and(|workspace| workspace.tabs.is_empty())
+    }
+
     fn client_view_action_requires_tab_control(action: input::NavigateAction) -> bool {
         matches!(
             action,
@@ -7083,7 +7114,14 @@ impl App {
         action: input::NavigateAction,
         context: input::ActionContext,
     ) {
-        if !self.can_mutate_current_tab() && Self::client_view_action_requires_tab_control(action) {
+        let creates_first_tab = action == input::NavigateAction::NewTab
+            && client_view
+                .active_workspace
+                .is_some_and(|ws_idx| self.workspace_can_create_first_tab_without_control(ws_idx));
+        if !self.can_mutate_current_tab()
+            && !creates_first_tab
+            && Self::client_view_action_requires_tab_control(action)
+        {
             Self::reject_client_view_shared_mutation(client_view);
             return;
         }
@@ -12425,8 +12463,31 @@ mod tests {
         let restored_host_ids = HashSet::from([robotbox.execution_host_id()]);
 
         assert_eq!(
-            restored_connection_profile_ids(&[robotbox, workbox], &restored_host_ids),
+            restored_connection_profile_ids(&[robotbox, workbox], &[], &restored_host_ids,),
             vec!["robotbox"]
+        );
+    }
+
+    #[test]
+    fn empty_remote_spaces_select_their_connection_profiles_for_reconnect() {
+        let eva = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "eva-01", "Eva 01", "eva-01", None,
+        )
+        .unwrap();
+        let unused = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "unused", "Unused", "unused", None,
+        )
+        .unwrap();
+        let mut workspace = Workspace::test_new("empty remote");
+        workspace.tabs.clear();
+        workspace.default_location = crate::execution_host::ResourceLocation::new(
+            eva.execution_host_id(),
+            crate::execution_host::HostPath::new("/srv/eva").unwrap(),
+        );
+
+        assert_eq!(
+            restored_connection_profile_ids(&[eva, unused], &[workspace], &HashSet::new()),
+            vec!["eva-01"]
         );
     }
 
@@ -17082,6 +17143,97 @@ command = "printf literal > '{}'"
             Some(1)
         );
         assert_eq!(app.state.workspaces[0].tabs.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn empty_remote_space_can_create_first_terminal_without_tab_control() {
+        let mut app = test_app();
+        let host_id = crate::execution_host::ExecutionHostId::new("ssh:eva-01").unwrap();
+        let location = crate::execution_host::ResourceLocation::new(
+            host_id.clone(),
+            crate::execution_host::HostPath::new("/srv/eva").unwrap(),
+        );
+        let mut workspace = Workspace::test_new("empty remote");
+        workspace.tabs.clear();
+        workspace.default_location = location.clone();
+        app.state.workspaces = vec![workspace];
+        app.state.prompt_new_tab_name = false;
+        app.execution_hosts
+            .as_mut()
+            .unwrap()
+            .connect_test_host(host_id);
+
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.active_workspace = Some(0);
+        client.selected_workspace = 0;
+        client.context_menu = Some(state::ContextMenuState {
+            kind: state::ContextMenuKind::NewTabButton {
+                ws_idx: 0,
+                project_commands: state::ProjectCommandAvailability::NONE,
+            },
+            x: 4,
+            y: 4,
+            list: state::ModalListState::new(1),
+        });
+        client.mode = Mode::ContextMenu;
+        let unavailable = ClientTabContext {
+            control: ClientTabControl::Unavailable,
+            canvas_size: None,
+        };
+
+        app.route_client_events_for_view_with_tab_context(
+            &mut client,
+            unavailable,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(app.state.request_new_tab_for_client, Some((0, None)));
+        assert!(app.process_deferred_workspace_requests());
+        let pending = app
+            .pending_remote_creations
+            .values()
+            .next()
+            .expect("first terminal should use remote creation");
+        assert_eq!(pending.requested_location(), &location);
+
+        let mut protected_app = test_app();
+        protected_app.state.workspaces = vec![Workspace::test_new("controlled")];
+        protected_app.state.prompt_new_tab_name = false;
+        let mut watcher = ClientViewState::from_default_client_state(&protected_app.state);
+        watcher.active_workspace = Some(0);
+        watcher.context_menu = Some(state::ContextMenuState {
+            kind: state::ContextMenuKind::NewTabButton {
+                ws_idx: 0,
+                project_commands: state::ProjectCommandAvailability::NONE,
+            },
+            x: 4,
+            y: 4,
+            list: state::ModalListState::new(1),
+        });
+        watcher.mode = Mode::ContextMenu;
+        let watched = ClientTabContext {
+            control: ClientTabControl::WatchingControlled { epoch: 7 },
+            canvas_size: None,
+        };
+
+        protected_app.route_client_events_for_view_with_tab_context(
+            &mut watcher,
+            watched,
+            vec![raw_key(
+                KeyCode::Enter,
+                KeyModifiers::empty(),
+                KeyEventKind::Press,
+            )],
+            true,
+        );
+
+        assert_eq!(protected_app.state.request_new_tab_for_client, None);
+        assert_eq!(protected_app.state.workspaces[0].tabs.len(), 1);
     }
 
     #[test]
