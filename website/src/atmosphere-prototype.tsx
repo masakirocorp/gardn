@@ -314,7 +314,7 @@ export function AtmospherePrototype() {
         </a>
         <nav className="atmo-nav-links" aria-label="Site">
           <a href="/docs">Docs</a>
-          <a href="/docs/getting-started/install">Install</a>
+          <a href="/download">Download</a>
           <button
             type="button"
             className="atmo-theme"
@@ -337,6 +337,9 @@ export function AtmospherePrototype() {
           <div className="atmo-cta">
             <a className="atmo-btn" data-primary="true" href="/docs">
               Read the documentation
+            </a>
+            <a className="atmo-btn" href="/download">
+              Download for macOS
             </a>
           </div>
         </div>

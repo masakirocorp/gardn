@@ -7,17 +7,17 @@ export default function ReleasesPage() {
       <title>Release status | Gardn</title>
       <meta
         name="description"
-        content="Public release status and the verification contract for Gardn artifacts and release notes."
+        content="Read the latest Gardn release notes and download the verified macOS app."
       />
       <meta property="og:title" content="Release status | Gardn" />
       <meta
         property="og:description"
-        content="How Gardn will publish verified binaries, compatibility details, and release notes."
+        content="Download Gardn 0.10.26 for macOS or review the latest release notes."
       />
       <meta name="twitter:title" content="Release status | Gardn" />
       <meta
         name="twitter:description"
-        content="How verified binaries, compatibility details, and release notes will be published."
+        content="Download Gardn 0.10.26 and read the latest release notes."
       />
       <link rel="canonical" href={canonicalUrl("/releases")} />
       <meta property="og:url" content={canonicalUrl("/releases")} />
@@ -26,24 +26,25 @@ export default function ReleasesPage() {
         <section className="gardn-shell gardn-status-hero" aria-labelledby="page-title">
           <div className="gardn-status-row">
             <p className="gardn-eyebrow">Release status</p>
-            <p className="gardn-status" data-tone="holding">
-              Pre-public
-            </p>
+            <p className="gardn-status gardn-status--live">v0.10.26 available</p>
           </div>
           <h1 id="page-title" className="gardn-title">
-            Release history starts at the gate.
+            Gardn 0.10.26 is available.
           </h1>
           <p className="gardn-copy gardn-copy-large">
-            There is no public binary release to announce yet. This page will show only tagged,
-            verified releases—never preview content promoted by accident.
+            Download the signed and notarized macOS app, or review every artifact in the GitHub
+            release.
           </p>
           <div className="gardn-actions">
             <Link className="gardn-action" data-primary="true" href="/download">
-              See installation options
+              Download for macOS
             </Link>
-            <Link className="gardn-action" href="/docs/guides/updates-and-handoff">
-              Understand updates and handoff
-            </Link>
+            <a
+              className="gardn-action"
+              href="https://github.com/masakirocorp/gardn/releases/tag/v0.10.26"
+            >
+              Read the v0.10.26 release notes
+            </a>
           </div>
         </section>
 
@@ -89,33 +90,28 @@ export default function ReleasesPage() {
 
         <section
           className="gardn-shell gardn-section gardn-gate"
-          aria-labelledby="release-now-title"
+          aria-labelledby="latest-release-title"
         >
           <div>
-            <p className="gardn-eyebrow">Right now</p>
-            <h2 id="release-now-title" className="gardn-section-title">
-              Build first. Verify the boundary.
+            <p className="gardn-eyebrow">Latest release</p>
+            <h2 id="latest-release-title" className="gardn-section-title">
+              Verified binaries are ready.
             </h2>
           </div>
           <div className="gardn-gate-copy">
             <p>
-              The documented source checkout and Nix flake are the available installation paths. Old
-              or private artifacts are not evidence of public availability.
-            </p>
-            <p>
-              If preserving live panes matters, read the update guide before replacing a running
-              server. A restart and a handoff do not preserve the same state.
+              The release workflow builds Gardn for macOS, Linux, and Windows. It signs and
+              notarizes the universal macOS app.
             </p>
             <div className="gardn-actions">
-              <Link className="gardn-action" href="/docs/getting-started/install">
-                Open the install guide
+              <Link className="gardn-action" href="/docs/guides/updates-and-handoff">
+                Read the update guide
               </Link>
               <a
                 className="gardn-action"
-                href="https://github.com/masakirocorp/gardn"
-                rel="noreferrer"
+                href="https://github.com/masakirocorp/gardn/releases/tag/v0.10.26"
               >
-                Follow the repository
+                View the GitHub release
               </a>
             </div>
           </div>

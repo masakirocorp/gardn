@@ -133,7 +133,7 @@ This setting changes only bridge SSH setup; it does not grant access to the host
 
 The remote host needs a matching Gardn version. The bridge can use a matching binary already installed in the remote user's `~/.local/bin/gardn`; when an install is needed it asks before writing there. Treat that prompt as a trust boundary and approve it only for a host you control.
 
-Verified public `gardn-*` release downloads are not currently available, so do not rely on the automatic release-download path for a new remote host. Build from the source checkout instead:
+Verified release binaries are available for supported targets. The bridge can download a matching release when one exists. Build from source when you need a development binary or an unsupported target:
 
 ```sh
 cargo build --release --package gardn

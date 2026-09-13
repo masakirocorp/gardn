@@ -159,21 +159,15 @@ for (const label of ["home", "download", "releases"]) {
   }
 }
 
-for (const label of ["download", "releases"]) {
-  const html = routeHtml.get(label);
-  if (!html) continue;
-
-  for (const unavailableArtifact of [
-    "/releases/download/",
-    "gardn-linux-x86_64",
-    "gardn-linux-aarch64",
-    "gardn-macos-x86_64",
-    "gardn-macos-aarch64",
-    "gardn-windows-x86_64.exe",
-  ]) {
-    if (html.includes(unavailableArtifact)) {
-      failures.push(`${label}: unavailable artifact control ${unavailableArtifact}`);
-    }
+const downloadHtml = routeHtml.get("download");
+if (downloadHtml) {
+  const macosDmgUrl =
+    /https:\/\/github\.com\/masakirocorp\/gardn\/releases\/download\/v(\d+\.\d+\.\d+)\/Gardn-\1\.dmg/;
+  if (!macosDmgUrl.test(downloadHtml)) {
+    failures.push("download: missing version-matched macOS DMG link");
+  }
+  if (!downloadHtml.includes("Download for macOS (.dmg)")) {
+    failures.push("download: missing macOS download label");
   }
 }
 
