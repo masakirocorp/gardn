@@ -7551,6 +7551,92 @@ next_tab = ""
             "API focus must reclaim the destination tab before the next paint, not flash Take Control"
         );
     }
+
+    #[test]
+    fn ambient_agent_focus_targets_last_active_attached_client() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![
+            crate::workspace::Workspace::test_new("one"),
+            crate::workspace::Workspace::test_new("two"),
+        ];
+        server.app.state.ensure_test_terminals();
+        server.app.default_client_view.active_workspace = Some(0);
+        server.app.default_client_view.selected_workspace = 0;
+        server.app.default_client_view.mode = crate::app::Mode::Terminal;
+
+        let target_pane = server.app.state.workspaces[1]
+            .terminal_tab(0)
+            .expect("target tab")
+            .root_pane;
+        let target_terminal = server.app.state.workspaces[1]
+            .pane_state(target_pane)
+            .expect("target pane")
+            .attached_terminal_id
+            .clone();
+        server
+            .app
+            .state
+            .terminals
+            .get_mut(&target_terminal)
+            .expect("target terminal")
+            .agent_name = Some("omp".into());
+
+        let mut first = test_app_client(Some(true), 1);
+        first.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        let mut last_active = test_app_client(Some(true), 2);
+        last_active.view_state = Some(crate::app::ClientViewState::from_default_client_state(
+            &server.app.state,
+        ));
+        server.clients.insert(1, first);
+        server.clients.insert(2, last_active);
+        server.foreground_client_id = Some(2);
+
+        let (respond_to, response_rx) = std::sync::mpsc::channel();
+        assert!(
+            server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+                request: api::schema::Request {
+                    id: "menu-focus".into(),
+                    method: api::schema::Method::AgentFocus(api::schema::AgentTarget {
+                        target: target_terminal.to_string(),
+                    }),
+                },
+                respond_to,
+                presentation_tx: None,
+                response_written: None,
+                stream_active: None,
+            })
+        );
+        let response = response_rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .expect("agent focus response");
+        let success: api::schema::SuccessResponse =
+            serde_json::from_str(&response).expect("agent focus success");
+        let api::schema::ResponseResult::AgentInfo { agent } = success.result else {
+            panic!("expected agent info response");
+        };
+
+        assert_eq!(agent.terminal_id, target_terminal.to_string());
+        assert_eq!(
+            server.clients[&2]
+                .view_state
+                .as_ref()
+                .expect("last-active client view")
+                .active_workspace,
+            Some(1)
+        );
+        assert_eq!(
+            server.clients[&1]
+                .view_state
+                .as_ref()
+                .expect("other client view")
+                .active_workspace,
+            Some(0)
+        );
+        assert_eq!(server.app.default_client_view.active_workspace, Some(0));
+    }
+
     #[test]
     fn terminal_attach_disconnect_restores_app_pane_size() {
         let rt = tokio::runtime::Builder::new_current_thread()

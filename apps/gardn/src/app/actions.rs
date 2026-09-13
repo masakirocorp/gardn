@@ -3798,6 +3798,31 @@ mod tests {
         state
     }
 
+    #[test]
+    fn repeated_seen_updates_preserve_focused_triage_hold() {
+        let mut state = app_with_workspaces(&["done"]);
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let pane = state.workspaces[0]
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .unwrap();
+        pane.detected_agent = Some(Agent::Pi);
+        pane.state = AgentState::Idle;
+        pane.seen = false;
+        let workspace_id = state.workspaces[0].id.clone();
+        let mut view = ClientViewState::from_default_client_state(&state);
+        view.active_workspace = Some(0);
+        view.focus_pane_in_workspace(&state, 0, 0, pane_id);
+
+        assert!(state.mark_active_tab_seen_for_view(&mut view));
+        assert_eq!(view.triage_hold, Some((workspace_id.clone(), pane_id)));
+
+        assert!(!state.mark_active_tab_seen_for_view(&mut view));
+        assert_eq!(view.triage_hold, Some((workspace_id, pane_id)));
+    }
+
     fn temp_project(name: &str) -> std::path::PathBuf {
         let root = std::env::temp_dir().join(format!(
             "gardn-app-commands-{name}-{}-{}",
