@@ -1,12 +1,6 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Move agents to Follow Up immediately\n\nAgents added from Triage now move to Follow Up immediately, even while focused.\n"
-    filename: follow-up-immediate.md
-    v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Download Gardn for macOS\n\nThe website now links directly to the signed and notarized macOS disk image.\n"
-    filename: macos-download.md
-    v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Improve sidebar context\n\nExpanded agent rows now show the pane connection badge. Workspace Navigator statistics now align to the right and use the available row width before truncation. SSH integration discovery now checks the user's login-shell PATH, so agent tools installed through shell profiles appear as available on remote hosts.\n"
-    filename: sidebar-navigation-polish.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Refresh remote integration status\n\nGardn now checks the selected host again when you open Integrations settings. Remote agents no longer stay marked as Not Found after the host becomes available.\n"
+    filename: refresh-remote-integrations.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
@@ -14,9 +8,7 @@ core:packages:
   - id: cargo:gardn-local-api
     updated: false
   - changelogIds:
-      - follow-up-immediate.md
-      - macos-download.md
-      - sidebar-navigation-polish.md
+      - refresh-remote-integrations.md
     id: cargo:gardn
     updated: true
   - id: cargo:portable-pty

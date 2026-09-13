@@ -1,3 +1,9 @@
+## gardn@0.10.28
+
+### Refresh remote integration status
+
+Gardn now checks the selected host again when you open Integrations settings. Remote agents no longer stay marked as Not Found after the host becomes available.
+
 ## gardn@0.10.27
 
 ### Move agents to Follow Up immediately
