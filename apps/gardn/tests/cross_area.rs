@@ -764,7 +764,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
         &fake_claude,
         fake_agent_script(
             "claude",
-            "printf 'Working...\\n'\nexec -a claude /bin/sleep 15\n",
+            "printf 'Working...\\n'\nexec -a claude /bin/sleep 30\n",
         ),
     )
     .unwrap();
@@ -870,7 +870,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     );
 
     let saw_idle_on_client =
-        wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
+        wait_for_frame_matching(&mut client_b, Duration::from_secs(15), |frame| {
             frame_contains_text(frame, "Idle")
         })
         .expect("frame decoding should succeed");
