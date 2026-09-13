@@ -3245,6 +3245,12 @@ impl App {
             input::SettingsAction::CycleIntegrationHost => {
                 self.cycle_integration_host_for_view(client_view);
             }
+            input::SettingsAction::InspectIntegrations => {
+                self.apply_integration_operation_for_view(
+                    client_view,
+                    crate::integration::host::HostIntegrationOperation::Inspect,
+                );
+            }
             input::SettingsAction::InstallIntegration(target) => {
                 self.apply_integration_operation_for_view(
                     client_view,
@@ -5369,7 +5375,6 @@ impl App {
 
     fn complete_onboarding_for_client_view(&mut self, client_view: &mut ClientViewState) {
         self.mark_onboarding_complete();
-        self.refresh_integration_recommendations();
         client_view.return_to_active_workspace_mode();
         self.open_client_view_settings_at(
             client_view,
@@ -5377,17 +5382,23 @@ impl App {
         );
     }
 
-    fn open_client_view_settings(&self, client_view: &mut ClientViewState) {
+    fn open_client_view_settings(&mut self, client_view: &mut ClientViewState) {
         self.open_client_view_settings_at(client_view, crate::app::state::SettingsSection::Theme);
     }
 
     fn open_client_view_settings_at(
-        &self,
+        &mut self,
         client_view: &mut ClientViewState,
         section: crate::app::state::SettingsSection,
     ) {
         input::prepare_general_settings_state(&self.state, &mut client_view.settings, section);
         client_view.mode = Mode::Settings;
+        if section == crate::app::state::SettingsSection::Integrations {
+            self.apply_integration_operation_for_view(
+                client_view,
+                crate::integration::host::HostIntegrationOperation::Inspect,
+            );
+        }
     }
 
     fn launch_focused_scrollback_editor_for_view(&mut self, client_view: &mut ClientViewState) {
@@ -13181,6 +13192,84 @@ mod tests {
                 .map(Vec::as_slice),
             Some(["installed on workbox".to_string()].as_slice())
         );
+    }
+
+    #[test]
+    fn opening_integrations_replaces_stale_remote_status() {
+        let mut app = test_app();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox", "Workbox", "workbox", None,
+        )
+        .unwrap();
+        let host_id = profile.execution_host_id();
+        app.state.ssh_connection_profiles.push(profile);
+        let messages = app
+            .execution_hosts
+            .as_mut()
+            .expect("test app should have an execution host manager")
+            .connect_test_host(host_id.clone());
+        app.state.host_integration_observations.insert(
+            host_id.clone(),
+            crate::integration::host::HostIntegrationObservation::Ready(
+                crate::integration::host::HostIntegrationSnapshot {
+                    entries: vec![crate::integration::host::HostIntegrationEntry {
+                        target: crate::api::schema::IntegrationTarget::Codex,
+                        available: false,
+                        state: crate::integration::IntegrationStatusKind::NotInstalled,
+                        missing_profile_hooks: 0,
+                    }],
+                },
+            ),
+        );
+        app.default_client_view.settings.integration_host_profile_id = Some("workbox".to_string());
+
+        app.with_default_client_view(|app, view| {
+            app.open_client_view_settings_at(view, state::SettingsSection::Integrations);
+        });
+
+        assert!(matches!(
+            app.state.host_integration_observations.get(&host_id),
+            Some(crate::integration::host::HostIntegrationObservation::Pending)
+        ));
+        let request_id = {
+            let messages = messages.lock().expect("test host messages");
+            assert_eq!(messages.len(), 1);
+            match &messages[0] {
+                crate::execution_host::protocol::CoordinatorMessage::ManageAgentIntegrations {
+                    request_id,
+                    request,
+                } => {
+                    assert_eq!(
+                        request.operation,
+                        crate::integration::host::HostIntegrationOperation::Inspect
+                    );
+                    *request_id
+                }
+                message => panic!("expected integration inspection, got {message:?}"),
+            }
+        };
+        assert!(app.apply_host_integration_update(
+            host_id,
+            request_id,
+            Ok(crate::integration::host::HostIntegrationResult {
+                snapshot: crate::integration::host::HostIntegrationSnapshot {
+                    entries: vec![crate::integration::host::HostIntegrationEntry {
+                        target: crate::api::schema::IntegrationTarget::Codex,
+                        available: true,
+                        state: crate::integration::IntegrationStatusKind::NotInstalled,
+                        missing_profile_hooks: 0,
+                    }],
+                },
+                messages: Vec::new(),
+            }),
+        ));
+        let text = rendered_app_text(&app, 120, 32);
+        assert!(
+            text.lines()
+                .any(|line| line.contains("Codex") && line.contains("Available")),
+            "{text}"
+        );
+        assert!(!text.contains("Not Found"), "{text}");
     }
     #[test]
     fn startup_configuration_diagnostic_creates_transient_toast_and_persistent_issue() {

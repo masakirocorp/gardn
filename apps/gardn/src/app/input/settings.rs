@@ -120,6 +120,7 @@ pub(crate) enum SettingsAction {
     },
     DeleteGroup(usize),
     CycleIntegrationHost,
+    InspectIntegrations,
     InstallIntegration(crate::api::schema::IntegrationTarget),
     UninstallIntegration(crate::api::schema::IntegrationTarget),
     SaveAgentProfile(crate::agent_profiles::UserAgentProfileConfig),
@@ -300,6 +301,9 @@ impl App {
             }
             SettingsAction::SaveKittyGraphics(enabled) => self.save_kitty_graphics(enabled),
             SettingsAction::CycleIntegrationHost => self.cycle_integration_host(),
+            SettingsAction::InspectIntegrations => self.apply_integration_operation(
+                crate::integration::host::HostIntegrationOperation::Inspect,
+            ),
             SettingsAction::InstallIntegration(target) => self.apply_integration_operation(
                 crate::integration::host::HostIntegrationOperation::EnsureCurrent { target },
             ),
@@ -475,14 +479,12 @@ impl App {
         } else {
             None
         };
-        view.settings.integration_host_profile_id = next.clone();
+        view.settings.integration_host_profile_id = next;
         view.settings.list.selected = 0;
-        if next.is_some() {
-            self.apply_integration_operation_for_view(
-                view,
-                crate::integration::host::HostIntegrationOperation::Inspect,
-            );
-        }
+        self.apply_integration_operation_for_view(
+            view,
+            crate::integration::host::HostIntegrationOperation::Inspect,
+        );
     }
 
     pub(super) fn apply_integration_operation(
@@ -3442,6 +3444,14 @@ fn switch_settings_section(
     clear_settings_selection(state);
 }
 
+fn inspect_integrations_on_entry(
+    previous: SettingsSection,
+    current: SettingsSection,
+) -> Option<SettingsAction> {
+    (previous != SettingsSection::Integrations && current == SettingsSection::Integrations)
+        .then_some(SettingsAction::InspectIntegrations)
+}
+
 fn general_settings_section_selection(
     state: &SettingsInput<'_>,
     section: SettingsSection,
@@ -3888,7 +3898,11 @@ fn update_settings_state(state: &mut SettingsInput<'_>, key: KeyEvent) -> Option
         return None;
     }
     if general_settings && state.client.settings.sidebar_focused {
-        return update_settings_sidebar_state(state, key);
+        let previous_section = state.client.settings.section;
+        let action = update_settings_sidebar_state(state, key);
+        return action.or_else(|| {
+            inspect_integrations_on_entry(previous_section, state.client.settings.section)
+        });
     }
 
     let section_before_key = state.client.settings.section;
@@ -4565,7 +4579,7 @@ fn update_settings_state(state: &mut SettingsInput<'_>, key: KeyEvent) -> Option
         clear_settings_selection(state);
     }
 
-    None
+    inspect_integrations_on_entry(section_before_key, state.client.settings.section)
 }
 
 pub(crate) fn update_settings_state_for_view(
@@ -5220,9 +5234,13 @@ impl SettingsInput<'_> {
                 }
 
                 if let Some(entry) = self.settings_sidebar_entry_at(mouse.column, mouse.row) {
+                    let previous_section = self.client.settings.section;
                     self.client.settings.sidebar_focused = true;
                     activate_settings_sidebar_entry(self, entry);
-                    return None;
+                    return inspect_integrations_on_entry(
+                        previous_section,
+                        self.client.settings.section,
+                    );
                 }
 
                 if let Some(section) = self.settings_tab_at(mouse.column, mouse.row) {
@@ -5251,12 +5269,13 @@ impl SettingsInput<'_> {
                         | SettingsSection::WorkspaceGithub
                         | SettingsSection::About => 0,
                     };
+                    let previous_section = self.client.settings.section;
                     switch_settings_section(self, section, selected);
                     self.client.settings.group_icon_picker_open = false;
                     if section == SettingsSection::Theme {
                         ensure_settings_selection_visible(self);
                     }
-                    return None;
+                    return inspect_integrations_on_entry(previous_section, section);
                 }
 
                 self.client.settings.sidebar_focused = false;
@@ -5440,6 +5459,7 @@ mod tests {
                 KeyEvent::new(KeyCode::Char(' '), KeyModifiers::empty()),
             );
         }
+
         for ch in "alpha".chars() {
             update_settings_state_for_view(
                 &mut state,
@@ -5471,6 +5491,25 @@ mod tests {
                 .map(|editor| editor.draft.target.as_str()),
             Some("beta")
         );
+    }
+    #[test]
+    fn selecting_integrations_sidebar_requests_fresh_status() {
+        let mut state = state_with_workspaces(&["test"]);
+        let mut view = ClientViewState::from_default_client_state(&state);
+        prepare_general_settings_state(&state, &mut view.settings, SettingsSection::Agents);
+        view.mode = Mode::Settings;
+        view.settings.sidebar_focused = true;
+        view.settings.sidebar_selection =
+            SettingsSidebarSelection::section(SettingsSection::Integrations);
+
+        let action = update_settings_state_for_view(
+            &mut state,
+            &mut view,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()),
+        );
+
+        assert_eq!(view.settings.section, SettingsSection::Integrations);
+        assert_eq!(action, Some(SettingsAction::InspectIntegrations));
     }
 
     #[test]
