@@ -63,34 +63,12 @@ fn pane_border_label(
 ) -> Option<String> {
     let label = terminal.border_label(show_agent_info, seen);
     let location = &terminal.location;
-    let profile_name = (!location.is_local())
-        .then(|| {
-            app.ssh_connection_profiles
-                .iter()
-                .find(|profile| profile.execution_host_id() == location.execution_host_id)
-                .map(|profile| profile.name().to_string())
-        })
-        .flatten();
     let host = app
         .host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
             &location.execution_host_id,
         ))
         .to_string();
-    let health = if location.is_local() {
-        None
-    } else if profile_name.is_none() {
-        Some("Unavailable")
-    } else {
-        match app.host_connection_states.get(&location.execution_host_id) {
-            None => Some("Offline"),
-            Some(crate::execution_host::ConnectionStatus::Disconnected) => Some("Offline"),
-            Some(crate::execution_host::ConnectionStatus::Reconnecting { .. }) => Some("Lost"),
-            Some(crate::execution_host::ConnectionStatus::AuthenticationRequired) => {
-                Some("Unavailable")
-            }
-            Some(_) => None,
-        }
-    };
+    let health = crate::app::connection_scope::host_health_label(app, &location.execution_host_id);
     let host = match health {
         Some(health) => format!("{host} · {health}"),
         None => host,
