@@ -764,7 +764,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
         &fake_claude,
         fake_agent_script(
             "claude",
-            "printf 'Working...\\n'\nexec -a claude /bin/sleep 30\n",
+            "printf 'AGENT_PROCESS_STARTED\\n'\nexec -a claude /bin/sleep 30\n",
         ),
     )
     .unwrap();
@@ -795,7 +795,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
         .to_string();
 
     let mut client_a = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_a, 14, 100, 30);
+    client_handshake(&mut client_a, 14, 100, 60);
     assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
 
     // Ensure detected agent surface is populated by running fake `claude`.
@@ -848,10 +848,9 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
         wait_for_agent_status(&api_socket, &pane_id, "working", Duration::from_secs(3)),
         "agent status should remain working while detached"
     );
-
     // Reattach and ensure client-side state reflects the persisted working status.
     let mut client_b = connect_unix_socket(&client_socket, Duration::from_secs(5));
-    client_handshake(&mut client_b, 14, 80, 24);
+    client_handshake(&mut client_b, 14, 100, 60);
     let saw_working_on_client =
         wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
             frame_contains_text(frame, "Working")
