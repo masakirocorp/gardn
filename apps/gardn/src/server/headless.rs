@@ -3671,6 +3671,24 @@ impl HeadlessServer {
                     .unwrap_or_else(|_| "{}".to_string())
                 }),
             )
+        } else if matches!(&msg.request.method, api::schema::Method::AgentFocus(_)) {
+            let target_client = latest_app_client(&self.clients).and_then(|client_id| {
+                self.clients
+                    .get_mut(&client_id)
+                    .and_then(|client| client.view_state.take())
+                    .map(|view| (client_id, view))
+            });
+            if let Some((client_id, mut view)) = target_client {
+                let disposition = self
+                    .app
+                    .handle_ambient_api_request_disposition_for_view(&mut view, msg.request);
+                if let Some(client) = self.clients.get_mut(&client_id) {
+                    client.view_state = Some(view);
+                }
+                disposition
+            } else {
+                self.app.handle_api_request_disposition(msg.request)
+            }
         } else {
             self.app.handle_api_request_disposition(msg.request)
         };

@@ -553,12 +553,19 @@ fn groups_from_snapshot(snap: &crate::persist::SessionSnapshot) -> Vec<state::Gr
 }
 fn restored_connection_profile_ids(
     profiles: &[crate::persist::ssh_profiles::SshConnectionProfile],
-    _workspaces: &[crate::workspace::Workspace],
+    workspaces: &[crate::workspace::Workspace],
     restored_terminal_host_ids: &HashSet<crate::execution_host::ExecutionHostId>,
 ) -> Vec<String> {
+    let mut host_ids = restored_terminal_host_ids.clone();
+    host_ids.extend(
+        workspaces
+            .iter()
+            .filter(|workspace| !workspace.default_location.is_local())
+            .map(|workspace| workspace.default_location.execution_host_id.clone()),
+    );
     profiles
         .iter()
-        .filter(|profile| restored_terminal_host_ids.contains(&profile.execution_host_id()))
+        .filter(|profile| host_ids.contains(&profile.execution_host_id()))
         .map(|profile| profile.id().to_string())
         .collect()
 }
@@ -4586,7 +4593,12 @@ impl App {
         match key.code {
             crossterm::event::KeyCode::Enter => {
                 let new_name = client_view.name_input.trim().to_string();
-                if !self.can_mutate_current_tab() {
+                let creates_first_tab = client_view.mode == Mode::RenameTab
+                    && client_view.creating_new_tab
+                    && client_view.active_workspace.is_some_and(|ws_idx| {
+                        self.workspace_can_create_first_tab_without_control(ws_idx)
+                    });
+                if !self.can_mutate_current_tab() && !creates_first_tab {
                     Self::reject_client_view_shared_mutation(client_view);
                     return;
                 }
@@ -6440,7 +6452,16 @@ impl App {
             client_view.mode = Mode::ContextMenu;
             return;
         }
+        let creates_first_tab = match (&menu.kind, item) {
+            (
+                state::ContextMenuKind::Workspace { ws_idx, .. }
+                | state::ContextMenuKind::NewTabButton { ws_idx, .. },
+                Some("tab"),
+            ) => self.workspace_can_create_first_tab_without_control(*ws_idx),
+            _ => false,
+        };
         if !self.can_mutate_current_tab()
+            && !creates_first_tab
             && !matches!(item, Some("agent" | "settings" | "zoom" | "restore panes"))
         {
             Self::reject_client_view_shared_mutation(client_view);
@@ -7060,6 +7081,13 @@ impl App {
         }
     }
 
+    fn workspace_can_create_first_tab_without_control(&self, ws_idx: usize) -> bool {
+        self.state
+            .workspaces
+            .get(ws_idx)
+            .is_some_and(|workspace| workspace.tabs.is_empty())
+    }
+
     fn client_view_action_requires_tab_control(action: input::NavigateAction) -> bool {
         matches!(
             action,
@@ -7093,7 +7121,14 @@ impl App {
         action: input::NavigateAction,
         context: input::ActionContext,
     ) {
-        if !self.can_mutate_current_tab() && Self::client_view_action_requires_tab_control(action) {
+        let creates_first_tab = action == input::NavigateAction::NewTab
+            && client_view
+                .active_workspace
+                .is_some_and(|ws_idx| self.workspace_can_create_first_tab_without_control(ws_idx));
+        if !self.can_mutate_current_tab()
+            && !creates_first_tab
+            && Self::client_view_action_requires_tab_control(action)
+        {
             Self::reject_client_view_shared_mutation(client_view);
             return;
         }

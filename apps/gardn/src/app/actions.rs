@@ -2152,14 +2152,23 @@ impl AppState {
         let Some(tab_idx) = view.active_tab_index_for_workspace(self, ws_idx) else {
             return false;
         };
-        let hold = view
+        let focused = view
             .focused_pane_for_workspace(self, ws_idx)
-            .and_then(|(_, pane_id)| self.unseen_idle_hold_for_pane(ws_idx, pane_id));
+            .and_then(|(_, pane_id)| {
+                self.workspaces
+                    .get(ws_idx)
+                    .map(|workspace| (workspace.id.clone(), pane_id))
+            });
+        let hold = focused
+            .as_ref()
+            .and_then(|(_, pane_id)| self.unseen_idle_hold_for_pane(ws_idx, *pane_id));
         let changed = self
             .workspaces
             .get_mut(ws_idx)
             .is_some_and(|workspace| workspace.mark_tab_seen(tab_idx));
-        view.triage_hold = hold;
+        if view.triage_hold.as_ref() != focused.as_ref() {
+            view.triage_hold = hold;
+        }
         changed
     }
 

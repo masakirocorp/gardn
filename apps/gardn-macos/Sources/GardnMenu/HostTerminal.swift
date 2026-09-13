@@ -44,7 +44,7 @@ enum HostTerminal {
     }
 
     static func isGardnClientProcess(_ process: String) -> Bool {
-        process == "gardn" || process == "gardn-dev"
+        process == "gardn" || process == "gardn-dev" || process == "gardn-cli"
     }
 
     private static func clientPids(matchingApiSocket apiSocketPath: String) -> [pid_t] {
