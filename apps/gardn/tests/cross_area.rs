@@ -868,14 +868,14 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
         "pane agent status should transition to idle"
     );
 
-    let saw_idle_on_client =
+    let saw_idle_state_on_client =
         wait_for_frame_matching(&mut client_b, Duration::from_secs(15), |frame| {
-            frame_contains_text(frame, "Idle")
+            frame_contains_text(frame, "Idle") || frame_contains_text(frame, "Done")
         })
         .expect("frame decoding should succeed");
     assert!(
-        saw_idle_on_client,
-        "reattached client frame should show idle status after transition"
+        saw_idle_state_on_client,
+        "reattached client frame should show idle or unseen-completion status after transition"
     );
 
     cleanup_spawned_gardn(server, base);
