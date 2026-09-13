@@ -1,7 +1,12 @@
 use std::{ffi::OsString, io, path::Path};
 
 #[cfg(unix)]
-use std::process::Command;
+use std::{
+    io::Read,
+    process::{Command, Stdio},
+    sync::mpsc,
+    time::{Duration, Instant},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +22,10 @@ const LOGIN_SHELL_PATH_SUFFIX: &[u8] = b"\x1egardn-login-path-end\x1f";
 #[cfg(unix)]
 const LOGIN_SHELL_PATH_COMMAND: &str =
     "printf '\\n\\036gardn-login-path\\037%s\\036gardn-login-path-end\\037\\n' \"$PATH\"";
+#[cfg(unix)]
+const LOGIN_SHELL_PATH_OUTPUT_LIMIT: usize = 16 * 1024;
+#[cfg(unix)]
+const LOGIN_SHELL_PATH_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -283,25 +292,100 @@ pub(crate) fn inspect(profiles: &[ProfileIntegrationContext]) -> HostIntegration
 }
 
 fn inspection_path() -> Option<OsString> {
-    login_shell_path().or_else(|| std::env::var_os("PATH"))
+    #[cfg(unix)]
+    {
+        return inspection_path_with_limits(
+            LOGIN_SHELL_PATH_TIMEOUT,
+            LOGIN_SHELL_PATH_OUTPUT_LIMIT,
+        );
+    }
+    #[cfg(not(unix))]
+    {
+        std::env::var_os("PATH")
+    }
 }
 
 #[cfg(unix)]
-fn login_shell_path() -> Option<OsString> {
-    let shell = std::env::var_os("SHELL")?;
-    let output = Command::new(shell)
-        .args(["-lc", LOGIN_SHELL_PATH_COMMAND])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    parse_login_shell_path(&output.stdout)
+fn inspection_path_with_limits(timeout: Duration, max_output_bytes: usize) -> Option<OsString> {
+    login_shell_path_with_limits(timeout, max_output_bytes).or_else(|| std::env::var_os("PATH"))
 }
 
-#[cfg(not(unix))]
-fn login_shell_path() -> Option<OsString> {
-    None
+#[cfg(unix)]
+fn login_shell_path_with_limits(timeout: Duration, max_output_bytes: usize) -> Option<OsString> {
+    let shell = std::env::var_os("SHELL")?;
+    let mut command = Command::new(shell);
+    command
+        .args(["-lc", LOGIN_SHELL_PATH_COMMAND])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    crate::platform::configure_cancellable_command(&mut command);
+
+    let mut child = command.spawn().ok()?;
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        crate::platform::terminate_cancellable_child(&mut child);
+        return None;
+    };
+    let (stdout_tx, stdout_rx) = mpsc::sync_channel(1);
+    let stdout_reader = std::thread::spawn(move || {
+        let _ = stdout_tx.send(read_capped_output(stdout, max_output_bytes));
+    });
+    let (stderr_tx, stderr_rx) = mpsc::sync_channel(1);
+    let stderr_reader = std::thread::spawn(move || {
+        let _ = stderr_tx.send(read_capped_output(stderr, max_output_bytes));
+    });
+    let deadline = Instant::now() + timeout;
+
+    let status = loop {
+        if Instant::now() >= deadline {
+            crate::platform::terminate_cancellable_child(&mut child);
+            let _ = stdout_reader.join();
+            let _ = stderr_reader.join();
+            return None;
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
+            Err(_) => {
+                crate::platform::terminate_cancellable_child(&mut child);
+                let _ = stdout_reader.join();
+                let _ = stderr_reader.join();
+                return None;
+            }
+        }
+    };
+
+    let stdout = stdout_rx
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .ok()
+        .and_then(Result::ok);
+    let stderr = stderr_rx
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .ok()
+        .and_then(Result::ok);
+    if stdout.is_none() || stderr.is_none() {
+        crate::platform::terminate_cancellable_child(&mut child);
+    }
+    let _ = stdout_reader.join();
+    let _ = stderr_reader.join();
+
+    let (stdout, stdout_oversized) = stdout?;
+    let (_, stderr_oversized) = stderr?;
+    if !status.success() || stdout_oversized || stderr_oversized {
+        return None;
+    }
+    parse_login_shell_path(&stdout)
+}
+
+#[cfg(unix)]
+fn read_capped_output(reader: impl Read, max_output_bytes: usize) -> io::Result<(Vec<u8>, bool)> {
+    let mut output = Vec::new();
+    reader
+        .take(max_output_bytes.saturating_add(1) as u64)
+        .read_to_end(&mut output)?;
+    let oversized = output.len() > max_output_bytes;
+    output.truncate(max_output_bytes);
+    Ok((output, oversized))
 }
 
 #[cfg(unix)]
@@ -448,6 +532,69 @@ exec /bin/sh -c "$2"
 
         assert_eq!(claude.state, IntegrationStatusKind::NotInstalled);
         assert_eq!(claude.status_label(), "Available");
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn login_shell_timeout_falls_back_to_inherited_path() {
+        let _lock = super::super::integration_env_lock();
+        let base = unique_test_base("path-timeout");
+        let inherited_bin = base.join("inherited-bin");
+        std::fs::create_dir_all(&inherited_bin).expect("create inherited bin");
+
+        let shell = base.join("hanging-login-shell");
+        std::fs::write(&shell, "#!/bin/sh\n/bin/sleep 60\n").expect("write hanging login shell");
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755))
+            .expect("make hanging login shell executable");
+
+        let _path = TestEnvVar::set("PATH", &inherited_bin);
+        let _shell = TestEnvVar::set("SHELL", &shell);
+        let started = Instant::now();
+
+        assert_eq!(
+            inspection_path_with_limits(Duration::from_millis(100), 1024),
+            Some(inherited_bin.clone().into_os_string())
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "login shell timeout did not terminate the process group"
+        );
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn login_shell_output_limit_falls_back_to_inherited_path() {
+        let _lock = super::super::integration_env_lock();
+        let base = unique_test_base("path-output-limit");
+        let inherited_bin = base.join("inherited-bin");
+        std::fs::create_dir_all(&inherited_bin).expect("create inherited bin");
+
+        let shell = base.join("noisy-login-shell");
+        std::fs::write(
+            &shell,
+            r#"#!/bin/sh
+i=0
+while [ "$i" -lt 2048 ]; do
+    printf x
+    i=$((i + 1))
+done
+"#,
+        )
+        .expect("write noisy login shell");
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755))
+            .expect("make noisy login shell executable");
+
+        let _path = TestEnvVar::set("PATH", &inherited_bin);
+        let _shell = TestEnvVar::set("SHELL", &shell);
+
+        assert_eq!(
+            inspection_path_with_limits(Duration::from_secs(1), 128),
+            Some(inherited_bin.clone().into_os_string())
+        );
 
         let _ = std::fs::remove_dir_all(base);
     }
