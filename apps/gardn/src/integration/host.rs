@@ -1,4 +1,7 @@
-use std::{io, path::Path};
+use std::{ffi::OsString, io, path::Path};
+
+#[cfg(unix)]
+use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
@@ -6,6 +9,14 @@ use crate::agent_profiles::{AgentKind, AgentProfileCatalog};
 use crate::api::schema::IntegrationTarget;
 
 use super::{IntegrationStatusKind, INSTALL_WARNING_PREFIX};
+
+#[cfg(unix)]
+const LOGIN_SHELL_PATH_PREFIX: &[u8] = b"\x1egardn-login-path\x1f";
+#[cfg(unix)]
+const LOGIN_SHELL_PATH_SUFFIX: &[u8] = b"\x1egardn-login-path-end\x1f";
+#[cfg(unix)]
+const LOGIN_SHELL_PATH_COMMAND: &str =
+    "printf '\\n\\036gardn-login-path\\037%s\\036gardn-login-path-end\\037\\n' \"$PATH\"";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -255,7 +266,8 @@ pub(crate) fn execute(request: &HostIntegrationRequest) -> io::Result<HostIntegr
 }
 
 pub(crate) fn inspect(profiles: &[ProfileIntegrationContext]) -> HostIntegrationSnapshot {
-    let entries = super::integration_recommendations()
+    let path = inspection_path();
+    let entries = super::integration_recommendations_for_path(path.as_deref())
         .into_iter()
         .map(|recommendation| HostIntegrationEntry {
             target: recommendation.target,
@@ -270,6 +282,43 @@ pub(crate) fn inspect(profiles: &[ProfileIntegrationContext]) -> HostIntegration
     HostIntegrationSnapshot { entries }
 }
 
+fn inspection_path() -> Option<OsString> {
+    login_shell_path().or_else(|| std::env::var_os("PATH"))
+}
+
+#[cfg(unix)]
+fn login_shell_path() -> Option<OsString> {
+    let shell = std::env::var_os("SHELL")?;
+    let output = Command::new(shell)
+        .args(["-lc", LOGIN_SHELL_PATH_COMMAND])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_login_shell_path(&output.stdout)
+}
+
+#[cfg(not(unix))]
+fn login_shell_path() -> Option<OsString> {
+    None
+}
+
+#[cfg(unix)]
+fn parse_login_shell_path(stdout: &[u8]) -> Option<OsString> {
+    use std::os::unix::ffi::OsStringExt;
+
+    let mut paths = stdout.split(|byte| *byte == b'\n').filter_map(|line| {
+        let line = line.strip_suffix(b"\r").unwrap_or(line);
+        let path = line
+            .strip_prefix(LOGIN_SHELL_PATH_PREFIX)?
+            .strip_suffix(LOGIN_SHELL_PATH_SUFFIX)?;
+        (!path.is_empty() && !path.contains(&0)).then(|| OsString::from_vec(path.to_vec()))
+    });
+    let path = paths.next()?;
+    paths.next().is_none().then_some(path)
+}
+
 pub(crate) fn operation_failure_message(error: &io::Error) -> String {
     if error.to_string().starts_with(INSTALL_WARNING_PREFIX) {
         error.to_string()
@@ -281,6 +330,127 @@ pub(crate) fn operation_failure_message(error: &io::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use crate::config::TestEnvVar;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+
+    #[cfg(unix)]
+    fn unique_test_base(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "gardn-host-integration-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock must be after the Unix epoch")
+                .as_nanos()
+        ))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_inspection_uses_login_shell_path_for_agent_availability() {
+        let _lock = super::super::integration_env_lock();
+        let base = unique_test_base("login-path");
+        let inherited_bin = base.join("inherited-bin");
+        let login_bin = base.join("login-bin");
+        let home = base.join("home");
+        std::fs::create_dir_all(&inherited_bin).expect("create inherited bin");
+        std::fs::create_dir_all(&login_bin).expect("create login bin");
+        std::fs::create_dir_all(&home).expect("create home");
+
+        let agent = login_bin.join(super::super::integration_target_command(
+            IntegrationTarget::Claude,
+        ));
+        std::fs::write(&agent, "").expect("write fake agent command");
+        std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755))
+            .expect("make fake agent command executable");
+
+        let shell = base.join("fake-login-shell");
+        std::fs::write(
+            &shell,
+            r#"#!/bin/sh
+if [ "$1" != "-lc" ]; then
+    exit 64
+fi
+printf 'called\n' >> "$GARDN_TEST_SHELL_CALLS"
+PATH="$GARDN_TEST_LOGIN_PATH"
+export PATH
+printf '/profile/chatter/that/is/not/PATH\n'
+exec /bin/sh -c "$2"
+"#,
+        )
+        .expect("write fake login shell");
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755))
+            .expect("make fake login shell executable");
+
+        let shell_calls = base.join("shell-calls");
+        let _path = TestEnvVar::set("PATH", &inherited_bin);
+        let _shell = TestEnvVar::set("SHELL", &shell);
+        let _login_path = TestEnvVar::set("GARDN_TEST_LOGIN_PATH", &login_bin);
+        let _shell_calls = TestEnvVar::set("GARDN_TEST_SHELL_CALLS", &shell_calls);
+        let _home = TestEnvVar::set("HOME", &home);
+        let _claude_config =
+            TestEnvVar::set(super::super::CLAUDE_CONFIG_DIR_ENV_VAR, base.join("claude"));
+
+        let snapshot = inspect(&[]);
+        let claude = snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.target == IntegrationTarget::Claude)
+            .expect("Claude recommendation");
+
+        assert_eq!(claude.state, IntegrationStatusKind::NotInstalled);
+        assert_eq!(claude.status_label(), "Available");
+        assert_eq!(
+            std::fs::read_to_string(&shell_calls).expect("read shell call count"),
+            "called\n"
+        );
+
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn remote_inspection_falls_back_when_login_shell_output_is_invalid() {
+        let _lock = super::super::integration_env_lock();
+        let base = unique_test_base("path-fallback");
+        let inherited_bin = base.join("inherited-bin");
+        let home = base.join("home");
+        std::fs::create_dir_all(&inherited_bin).expect("create inherited bin");
+        std::fs::create_dir_all(&home).expect("create home");
+
+        let agent = inherited_bin.join(super::super::integration_target_command(
+            IntegrationTarget::Claude,
+        ));
+        std::fs::write(&agent, "").expect("write fake agent command");
+        std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755))
+            .expect("make fake agent command executable");
+
+        let shell = base.join("invalid-login-shell");
+        std::fs::write(&shell, "#!/bin/sh\nprintf '/profile/chatter/bin\\n'\n")
+            .expect("write invalid login shell output");
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755))
+            .expect("make invalid login shell executable");
+
+        let _path = TestEnvVar::set("PATH", &inherited_bin);
+        let _shell = TestEnvVar::set("SHELL", &shell);
+        let _home = TestEnvVar::set("HOME", &home);
+        let _claude_config =
+            TestEnvVar::set(super::super::CLAUDE_CONFIG_DIR_ENV_VAR, base.join("claude"));
+
+        let snapshot = inspect(&[]);
+        let claude = snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.target == IntegrationTarget::Claude)
+            .expect("Claude recommendation");
+
+        assert_eq!(claude.state, IntegrationStatusKind::NotInstalled);
+        assert_eq!(claude.status_label(), "Available");
+
+        let _ = std::fs::remove_dir_all(base);
+    }
 
     #[test]
     fn remote_profile_context_omits_arguments_and_unrelated_environment() {

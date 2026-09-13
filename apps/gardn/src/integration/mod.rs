@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -1570,7 +1571,10 @@ fn integration_target_supported_for_platform(
     )
 }
 
-fn integration_target_available(target: crate::api::schema::IntegrationTarget) -> bool {
+fn integration_target_available_for_path(
+    target: crate::api::schema::IntegrationTarget,
+    path: Option<&OsStr>,
+) -> bool {
     if !integration_target_supported(target) {
         return false;
     }
@@ -1579,16 +1583,17 @@ fn integration_target_available(target: crate::api::schema::IntegrationTarget) -
         return true;
     }
     if target == crate::api::schema::IntegrationTarget::Kilo {
-        return command_available("kilo") || command_available("kilo-code");
+        return command_available_for_path("kilo", path)
+            || command_available_for_path("kilo-code", path);
     }
-    command_available(integration_target_command(target))
+    command_available_for_path(integration_target_command(target), path)
 }
 
-fn command_available(command: &str) -> bool {
-    let Some(paths) = std::env::var_os("PATH") else {
+fn command_available_for_path(command: &str, path: Option<&OsStr>) -> bool {
+    let Some(paths) = path else {
         return false;
     };
-    std::env::split_paths(&paths).any(|dir| executable_file_exists(&dir.join(command)))
+    std::env::split_paths(paths).any(|dir| executable_file_exists(&dir.join(command)))
 }
 
 fn executable_file_exists(path: &Path) -> bool {
@@ -1624,21 +1629,28 @@ pub(crate) fn installed_integration_statuses() -> Vec<IntegrationStatus> {
 }
 
 pub(crate) fn integration_recommendations() -> Vec<IntegrationRecommendation> {
+    let path = std::env::var_os("PATH");
+    integration_recommendations_for_path(path.as_deref())
+}
+
+pub(crate) fn integration_recommendations_for_path(
+    path: Option<&OsStr>,
+) -> Vec<IntegrationRecommendation> {
     integration_specs()
         .into_iter()
-        .filter_map(|(target, path, expected_version)| {
+        .filter_map(|(target, integration_path, expected_version)| {
             if !integration_target_supported(target) {
                 return None;
             }
-            let path = path.ok()?;
-            let status = integration_status_at(target, path.clone(), expected_version);
+            let integration_path = integration_path.ok()?;
+            let status = integration_status_at(target, integration_path.clone(), expected_version);
             Some(IntegrationRecommendation {
                 target,
                 label: integration_target_label(target),
                 command: integration_target_command(target),
-                available: integration_target_available(target)
+                available: integration_target_available_for_path(target, path)
                     || status.state != IntegrationStatusKind::NotInstalled,
-                path,
+                path: integration_path,
                 state: status.state,
             })
         })
@@ -4705,7 +4717,7 @@ mod tests {
 
     #[test]
     #[cfg(unix)]
-    fn command_available_requires_executable_file_on_path() {
+    fn command_available_for_path_requires_executable_file() {
         use std::os::unix::fs::PermissionsExt;
 
         let _lock = integration_env_lock();
@@ -4718,10 +4730,10 @@ mod tests {
         let command = bin.join("claude");
         fs::write(&command, "#!/bin/sh\n").unwrap();
         fs::set_permissions(&command, fs::Permissions::from_mode(0o644)).unwrap();
-        assert!(!command_available("claude"));
+        assert!(!command_available_for_path("claude", Some(bin.as_os_str())));
 
         fs::set_permissions(&command, fs::Permissions::from_mode(0o755)).unwrap();
-        assert!(command_available("claude"));
+        assert!(command_available_for_path("claude", Some(bin.as_os_str())));
 
         let _ = fs::remove_dir_all(base);
     }
@@ -4804,8 +4816,9 @@ mod tests {
         let _path = TestEnvVar::set("PATH", "");
 
         assert!(hermes_install_layout_available());
-        assert!(integration_target_available(
-            crate::api::schema::IntegrationTarget::Hermes
+        assert!(integration_target_available_for_path(
+            crate::api::schema::IntegrationTarget::Hermes,
+            Some(OsStr::new("")),
         ));
 
         let _ = fs::remove_dir_all(base);
