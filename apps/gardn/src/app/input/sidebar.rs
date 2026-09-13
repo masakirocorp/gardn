@@ -269,8 +269,10 @@ mod tests {
     }
 
     #[test]
-    fn group_menu_keeps_row_order_with_compact_section_labels() {
+    fn group_menu_renders_connection_type_labels() {
         let mut app = app_for_mouse_test();
+        app.state.host_display =
+            crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname("eva-00", None);
         app.state.groups[0].name = "Home".to_string();
         app.state.groups[0].icon = "*".to_string();
         let work_group = app.state.create_group("Work".to_string());
@@ -279,7 +281,7 @@ mod tests {
         app.state.workspaces[1].group_id = app.state.groups[work_group].id.clone();
         app.state.ssh_connection_profiles =
             vec![crate::persist::ssh_profiles::SshConnectionProfile::new(
-                "workbox", "Work box", "workbox", None,
+                "eva-01", "eva-01", "eva-01", None,
             )
             .expect("valid SSH profile")];
 
@@ -303,8 +305,8 @@ mod tests {
                 "---",
                 "Connections",
                 "✓ All",
-                "  test-host",
-                "  Work box",
+                "  eva-00 (local)",
+                "  eva-01 (ssh)",
                 "---",
                 "New",
                 "  Space",
@@ -314,10 +316,15 @@ mod tests {
     }
 
     #[test]
-    fn agent_menu_retains_primary_choices_and_compact_connection_label() {
+    fn agent_menu_renders_connection_type_labels() {
         let mut app = app_for_mouse_test();
-        app.state.ssh_connection_profiles.clear();
-
+        app.state.host_display =
+            crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname("eva-00", None);
+        app.state.ssh_connection_profiles =
+            vec![crate::persist::ssh_profiles::SshConnectionProfile::new(
+                "eva-01", "eva-01", "eva-01", None,
+            )
+            .expect("valid SSH profile")];
         let labels = agent_menu_rows(
             &app.state,
             AgentPanelScope::CurrentWorkspace,
@@ -337,7 +344,8 @@ mod tests {
                 "---",
                 "Connections",
                 "✓ All",
-                "  test-host",
+                "  eva-00 (local)",
+                "  eva-01 (ssh)",
             ]
         );
     }

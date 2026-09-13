@@ -152,7 +152,7 @@ pub(crate) fn choices(state: &AppState) -> Vec<(ConnectionScope, String)> {
         (ConnectionScope::All, "All".to_string()),
         (
             ConnectionScope::Only(ConnectionIdentity::Coordinator),
-            state.host_display.coordinator().to_string(),
+            format!("{} (local)", state.host_display.coordinator()),
         ),
     ];
     choices.extend(state.ssh_connection_profiles.iter().filter_map(|profile| {
@@ -160,7 +160,7 @@ pub(crate) fn choices(state: &AppState) -> Vec<(ConnectionScope, String)> {
             ConnectionScope::Only(ConnectionIdentity::Profile(SshProfileId::new(
                 profile.id(),
             )?)),
-            profile.name().to_string(),
+            format!("{} (ssh)", profile.name()),
         ))
     }));
     choices
