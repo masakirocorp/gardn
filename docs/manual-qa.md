@@ -1,12 +1,16 @@
 # Manual QA matrix
 
-Use this guide to identify the release claim owner and run checks that require a real terminal, provider, remote host, or published artifact. Do not repeat deterministic checks when the required workflows passed for the candidate commit.
+Use this guide for risk-based checks that require a real terminal, provider, remote host, or
+published artifact. It does not define a release gate. The required automated workflows own the
+release gate.
 
-Run the applicable residual M01, M02, M04, M05, and M07 checks before tagging. Run M08 before tagging and M09 after publication. Run M10 through M12 when the release changes those areas.
+Run the applicable checks when a release changes those surfaces or when an operator needs additional
+evidence. Do not repeat deterministic checks when the required workflows passed for the candidate
+commit.
 
 ## Release record
 
-Record these facts for each candidate:
+When you run optional QA, record these facts:
 
 - the commit SHA and Gardn version
 - the successful CI and Agent Fixture Tests run URLs whose `head_sha` equals the candidate SHA
@@ -153,19 +157,18 @@ Pass when hit areas match their visuals, compact layouts retain required control
 
 Pass when the server and workloads survive, sockets recover, no stuck mouse or input mode remains, and no manual state-file cleanup is required.
 
-## Release gate
+## Automated release gate
 
-Before tagging, require all of the following evidence against the exact candidate SHA:
+The tag-triggered Release workflow blocks publication until all required automated jobs pass for the
+exact tag SHA:
 
-- successful CI and Agent Fixture Tests workflow runs
-- a linked successful trusted canary run
-- every applicable `manual-gui` claim
-- M08 against a real Linux SSH host
-- each selected M10 through M12 check
-- no unresolved failure that risks data, process continuity, input targeting, destructive actions, restore, or release startup
+- `required-ci`
+- `agent-fixtures`
+- `build`
+- `flake-check`
+- `macos-app`
 
-The tag-triggered Release workflow reruns CI and Agent Fixture Tests as local reusable workflows at the tag SHA. The publication job waits for both. The Release workflow does not run or enforce the trusted canary.
-
-After publication, run M09 against the downloaded artifacts. Record the artifact checksums and M09 results before clearing the release.
+Manual checks and trusted canaries provide optional, risk-based evidence. They do not block tagging
+or publication.
 
 After preserving evidence, remove QA sessions, integrations, and remote test state.
