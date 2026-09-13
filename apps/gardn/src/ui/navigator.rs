@@ -1,5 +1,5 @@
 use ratatui::{
-    layout::{Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Clear, Paragraph},
@@ -442,7 +442,9 @@ fn render_row(
                 .bg(p.panel_bg)
         };
         frame.render_widget(
-            Paragraph::new(format!(" {meta}")).style(meta_style),
+            Paragraph::new(format!(" {meta}"))
+                .alignment(Alignment::Right)
+                .style(meta_style),
             meta_rect,
         );
     }
@@ -906,7 +908,7 @@ mod tests {
     }
 
     #[test]
-    fn navigator_row_keeps_full_meta_when_the_row_has_room() {
+    fn navigator_row_right_aligns_full_meta_when_the_row_has_room() {
         let app = AppState::test_new();
         let view = ClientViewState::from_default_client_state(&app);
         let row = NavigatorRow {
@@ -950,6 +952,57 @@ mod tests {
             !text.contains('…'),
             "meta should not ellipsize while the row has room: {text:?}"
         );
+        assert_eq!(
+            terminal.backend().buffer()[(89, 0)].symbol(),
+            "d",
+            "meta should end at the row's trailing edge: {text:?}"
+        );
+    }
+
+    #[test]
+    fn navigator_row_keeps_full_meta_at_the_minimum_title_boundary() {
+        let app = AppState::test_new();
+        let view = ClientViewState::from_default_client_state(&app);
+        let row = NavigatorRow {
+            target: NavigatorTarget::Group { group_idx: 0 },
+            depth: 0,
+            label: "product workspace".to_string(),
+            meta: "2 Spaces · 5 Panes · 1 Blocked".to_string(),
+            status: crate::detect::AgentState::Unknown,
+            seen: true,
+            is_current: true,
+            is_group: true,
+            is_workspace: false,
+            is_tab: false,
+            has_children: true,
+            expanded: true,
+            search_text: String::new(),
+            matched: true,
+        };
+        let render_at_width = |width| {
+            let backend = TestBackend::new(width, 1);
+            let mut terminal = Terminal::new(backend).expect("test backend");
+            terminal
+                .draw(|frame| {
+                    render_row(
+                        &app,
+                        &view.navigator,
+                        frame,
+                        frame.area(),
+                        std::slice::from_ref(&row),
+                        0,
+                        false,
+                    )
+                })
+                .expect("render constrained group row");
+            buffer_text(terminal.backend().buffer(), width, 1)
+        };
+
+        let boundary_text = render_at_width(41);
+        assert_eq!(boundary_text, "▾ product… 2 Spaces · 5 Panes · 1 Blocked\n");
+
+        let narrower_text = render_at_width(40);
+        assert_eq!(narrower_text, "▾ product… 2 Spaces · 5 Panes · 1 Block…\n");
     }
 
     #[test]
