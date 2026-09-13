@@ -808,6 +808,30 @@ fn agent_panel_should_show_agent_labels(sections: &[AgentPanelSection]) -> bool 
     false
 }
 
+fn agent_panel_entry_execution_host_id<'a>(
+    app: &'a AppState,
+    detail: &AgentPanelEntry,
+) -> Option<&'a crate::execution_host::ExecutionHostId> {
+    app.workspaces
+        .get(detail.ws_idx)?
+        .pane_state(detail.pane_id)
+        .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
+        .map(|terminal| &terminal.location.execution_host_id)
+}
+
+fn agent_panel_uses_default_metadata_row(app: &AppState) -> bool {
+    let config = &app.sidebar_config.agents;
+    config.rows_by_agent.is_empty()
+        && matches!(
+            config.rows.as_slice(),
+            [row]
+                if matches!(
+                    row.as_slice(),
+                    [crate::config::AgentSidebarToken::Workspace]
+                )
+        )
+}
+
 fn agent_panel_entry_has_secondary_detail(
     app: &AppState,
     show_status: bool,
@@ -824,6 +848,7 @@ fn agent_panel_entry_has_secondary_detail(
         || detail.custom_status.is_some()
         || detail.last_meaningful_agent_activity_unix_secs.is_some()
         || detail.follow_up_added_at_unix_secs.is_some()
+        || agent_panel_entry_execution_host_id(app, detail).is_some()
 }
 
 fn agent_panel_entry_row_height(
@@ -833,13 +858,13 @@ fn agent_panel_entry_row_height(
     detail: &AgentPanelEntry,
 ) -> u16 {
     let token_rows = resolved_agent_rows(app, detail).len().max(1) as u16;
-    let legacy_rows =
-        if agent_panel_entry_has_secondary_detail(app, show_status, show_agent_label, detail) {
-            2
-        } else {
-            1
-        };
-    token_rows.max(legacy_rows)
+    if agent_panel_uses_default_metadata_row(app)
+        && agent_panel_entry_has_secondary_detail(app, show_status, show_agent_label, detail)
+    {
+        token_rows.max(2)
+    } else {
+        token_rows
+    }
 }
 
 fn agent_panel_entry_status_label(entry: &AgentPanelEntry) -> &'static str {
@@ -963,6 +988,38 @@ fn resolved_space_rows(
     )
 }
 
+fn execution_host_badge(
+    app: &AppState,
+    host_id: &crate::execution_host::ExecutionHostId,
+) -> (Vec<Span<'static>>, usize) {
+    let label = app
+        .host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
+            host_id,
+        ))
+        .to_string();
+    let background = crate::app::connection_scope::profile_for_host(app, host_id)
+        .and_then(|profile| profile.accent())
+        .map(|accent| app.global_palette.theme_accent_color(accent))
+        .unwrap_or(app.palette.surface1);
+    let badge = format!(" {label} ");
+    let mut width = badge.chars().count();
+    let mut spans = vec![Span::styled(
+        badge,
+        Style::default().fg(app.palette.panel_bg).bg(background),
+    )];
+
+    let status = crate::app::connection_scope::host_health_label(app, host_id);
+    if let Some(status) = status {
+        let health = format!(" {status}");
+        width += health.chars().count();
+        spans.push(Span::styled(
+            health,
+            Style::default().fg(app.palette.yellow),
+        ));
+    }
+    (spans, width)
+}
+
 fn workspace_host_badge(
     app: &AppState,
     ws: &crate::workspace::Workspace,
@@ -985,41 +1042,9 @@ fn workspace_host_badge(
             spans.push(Span::raw(" "));
             width += 1;
         }
-        let label = app
-            .host_label(crate::app::host_label::HostLabelTarget::ExecutionHost(
-                host_id,
-            ))
-            .to_string();
-        let background = crate::app::connection_scope::profile_for_host(app, host_id)
-            .and_then(|profile| profile.accent())
-            .map(|accent| app.global_palette.theme_accent_color(accent))
-            .unwrap_or(app.palette.surface1);
-        let badge = format!(" {label} ");
-        width += badge.chars().count();
-        spans.push(Span::styled(
-            badge,
-            Style::default().fg(app.palette.panel_bg).bg(background),
-        ));
-
-        let status = (!host_id.is_local())
-            .then(|| app.host_connection_states.get(host_id))
-            .flatten()
-            .and_then(|status| match status {
-                crate::execution_host::ConnectionStatus::Disconnected => Some("Offline"),
-                crate::execution_host::ConnectionStatus::Reconnecting { .. } => Some("Lost"),
-                crate::execution_host::ConnectionStatus::AuthenticationRequired => {
-                    Some("Unavailable")
-                }
-                _ => None,
-            });
-        if let Some(status) = status {
-            let health = format!(" {status}");
-            width += health.chars().count();
-            spans.push(Span::styled(
-                health,
-                Style::default().fg(app.palette.yellow),
-            ));
-        }
+        let (badge_spans, badge_width) = execution_host_badge(app, host_id);
+        spans.extend(badge_spans);
+        width += badge_width;
     }
     Some((spans, width))
 }
@@ -3278,6 +3303,8 @@ fn render_agent_entry(
     if rows.is_empty() {
         rows.push(Vec::new());
     }
+    let host_badge = agent_panel_entry_execution_host_id(app, detail)
+        .map(|host_id| execution_host_badge(app, host_id).0);
 
     let mut extra = Vec::new();
     if let Some(group_idx) = detail.group_context_idx {
@@ -3327,8 +3354,8 @@ fn render_agent_entry(
         }
         extra.push(Span::styled(age_label, agent_style));
     }
-    if !extra.is_empty() {
-        if app.sidebar_config.agents == crate::config::AgentsSidebarConfig::default() {
+    if host_badge.is_some() || !extra.is_empty() {
+        if agent_panel_uses_default_metadata_row(app) {
             rows.push(Vec::new());
         }
         rows.last_mut()
@@ -3348,6 +3375,14 @@ fn render_agent_entry(
                 name_style,
                 agent_style,
             );
+            if let Some(badge) = &host_badge {
+                let mut spans = badge.clone();
+                if !line.spans.is_empty() || !extra.is_empty() {
+                    spans.push(Span::styled(" · ", agent_style));
+                }
+                spans.append(&mut line.spans);
+                line.spans = spans;
+            }
             line.spans.extend(extra.clone());
             line
         } else {
@@ -4060,6 +4095,185 @@ mod tests {
         assert_eq!(entries[0].primary_tab_label.as_deref(), Some("1"));
         assert_eq!(entries[0].agent_label.as_deref(), Some("pi"));
         assert_eq!(entries[0].state, AgentState::Working);
+    }
+
+    #[test]
+    fn custom_one_row_agent_layout_renders_and_hits_one_badged_row() {
+        let mut app = AppState::test_new();
+        app.sidebar_config.agents = crate::config::AgentsSidebarConfig {
+            rows: vec![vec![
+                crate::config::AgentSidebarToken::StateIcon,
+                crate::config::AgentSidebarToken::Workspace,
+            ]],
+            rows_by_agent: Default::default(),
+        };
+        let workspace = Workspace::test_new("One Row");
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.terminals.get_mut(&terminal_id).unwrap();
+        terminal.detected_agent = Some(Agent::Codex);
+        terminal.state = AgentState::Working;
+
+        let area = Rect::new(0, 0, 40, 12);
+        let runtimes = TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut rendered = Terminal::new(backend).expect("test backend");
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.active_workspace = None;
+        view.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        view.activity_agents_expanded = true;
+
+        rendered
+            .draw(|frame| {
+                render_agent_detail_from_for_view(&app, &runtimes, &view, frame, area, false);
+            })
+            .expect("render custom one-row agent sidebar");
+
+        let text = buffer_text(rendered.backend().buffer(), area.width, area.height);
+        let rendered_rows = text
+            .lines()
+            .enumerate()
+            .filter_map(|(row, line)| {
+                (line.contains("One Row") || line.contains("test-host")).then_some(row as u16)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rendered_rows.len(), 1);
+        let rendered_line = text.lines().nth(rendered_rows[0] as usize).unwrap();
+        assert!(rendered_line.contains("One Row"));
+        assert!(rendered_line.contains("test-host"));
+
+        let body = agent_panel_body_rect(area, false, false);
+        let hit_rows = (body.y..body.y + body.height)
+            .filter(|row| {
+                agent_panel_entry_at_row_for_view(&app, &runtimes, &view, body, *row)
+                    .is_some_and(|entry| entry.pane_id == pane_id)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(hit_rows, rendered_rows);
+    }
+
+    #[test]
+    fn expanded_remote_agent_defaults_missing_state_to_accented_offline_badge() {
+        let mut app = AppState::test_new();
+        let accent = crate::config::TerminalAccent::Magenta;
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new_with_accent(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            None,
+            Some(accent),
+        )
+        .expect("valid SSH profile");
+        let host_id = profile.execution_host_id();
+        let expected_background = app.global_palette.theme_accent_color(accent);
+        app.ssh_connection_profiles.push(profile);
+
+        let workspace = Workspace::test_new("Remote");
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.terminals.get_mut(&terminal_id).unwrap();
+        terminal.location = crate::execution_host::ResourceLocation::new(
+            host_id,
+            crate::execution_host::HostPath::new("/srv/project").expect("valid remote path"),
+        );
+        terminal.cwd = std::path::PathBuf::from("/srv/project");
+        terminal.detected_agent = Some(Agent::Codex);
+        terminal.state = AgentState::Working;
+
+        let area = Rect::new(0, 0, 40, 12);
+        let runtimes = TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut rendered = Terminal::new(backend).expect("test backend");
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.active_workspace = None;
+        view.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        view.activity_agents_expanded = true;
+
+        rendered
+            .draw(|frame| {
+                render_agent_detail_from_for_view(&app, &runtimes, &view, frame, area, false);
+            })
+            .expect("render expanded agent sidebar");
+
+        let buffer = rendered.backend().buffer();
+        let text = buffer_text(buffer, area.width, area.height);
+        let (badge_row, badge_line) = text
+            .lines()
+            .enumerate()
+            .find(|(_, line)| line.contains("Work box"))
+            .expect("visible connection profile label");
+        assert!(badge_line.contains("Work box  Offline"));
+        let badge_col = badge_line.find("Work box").unwrap();
+        assert_eq!(
+            buffer[(badge_col as u16, badge_row as u16)].bg,
+            expected_background
+        );
+
+        let rendered_rows = text
+            .lines()
+            .enumerate()
+            .filter_map(|(row, line)| {
+                (line.contains("Remote") || line.contains("Work box")).then_some(row as u16)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rendered_rows.len(), 2);
+        let body = agent_panel_body_rect(area, false, false);
+        let hit_rows = (body.y..body.y + body.height)
+            .filter(|row| {
+                agent_panel_entry_at_row_for_view(&app, &runtimes, &view, body, *row)
+                    .is_some_and(|entry| entry.pane_id == pane_id)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(hit_rows, rendered_rows);
+    }
+
+    #[test]
+    fn expanded_remote_agent_marks_missing_profile_unavailable() {
+        let mut app = AppState::test_new();
+        let host_id =
+            crate::execution_host::ExecutionHostId::new("ssh:missing:1").expect("valid host id");
+        let workspace = Workspace::test_new("Remote");
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].terminal_tab(0).unwrap().panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.terminals.get_mut(&terminal_id).unwrap();
+        terminal.location = crate::execution_host::ResourceLocation::new(
+            host_id,
+            crate::execution_host::HostPath::new("/srv/project").expect("valid remote path"),
+        );
+        terminal.detected_agent = Some(Agent::Codex);
+        terminal.state = AgentState::Working;
+
+        let area = Rect::new(0, 0, 40, 12);
+        let runtimes = TerminalRuntimeRegistry::new();
+        let backend = TestBackend::new(area.width, area.height);
+        let mut rendered = Terminal::new(backend).expect("test backend");
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.active_workspace = None;
+        view.agent_panel_scope = AgentPanelScope::AllWorkspaces;
+        view.activity_agents_expanded = true;
+
+        rendered
+            .draw(|frame| {
+                render_agent_detail_from_for_view(&app, &runtimes, &view, frame, area, false);
+            })
+            .expect("render expanded agent sidebar");
+
+        let text = buffer_text(rendered.backend().buffer(), area.width, area.height);
+        assert!(text
+            .lines()
+            .any(|line| line.contains("ssh:missing:1  Unavailable")));
     }
 
     #[test]

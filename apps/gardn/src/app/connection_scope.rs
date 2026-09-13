@@ -1,5 +1,5 @@
 use crate::app::state::AppState;
-use crate::execution_host::{ExecutionHostId, SshProfileId};
+use crate::execution_host::{ConnectionStatus, ExecutionHostId, SshProfileId};
 use crate::layout::PaneId;
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -259,6 +259,25 @@ pub(crate) fn profile_for_host<'a>(
         .find(|profile| profile.id() == profile_id)
 }
 
+pub(crate) fn host_health_label(state: &AppState, host: &ExecutionHostId) -> Option<&'static str> {
+    if host.is_local() {
+        return None;
+    }
+    if profile_for_host(state, host).is_none() {
+        return Some("Unavailable");
+    }
+    match state.host_connection_states.get(host) {
+        None | Some(ConnectionStatus::Disconnected) => Some("Offline"),
+        Some(ConnectionStatus::Reconnecting { .. }) => Some("Lost"),
+        Some(ConnectionStatus::AuthenticationRequired) => Some("Unavailable"),
+        Some(
+            ConnectionStatus::Connecting
+            | ConnectionStatus::Connected
+            | ConnectionStatus::Disconnecting,
+        ) => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -276,6 +295,67 @@ mod tests {
         ConnectionScope::Only(ConnectionIdentity::Profile(
             SshProfileId::new(profile_id).expect("valid profile id"),
         ))
+    }
+
+    #[test]
+    fn missing_remote_profile_is_unavailable_even_with_connected_state() {
+        let mut state = AppState::test_new();
+        let host = ExecutionHostId::new("ssh:missing:1").expect("valid host id");
+        state
+            .host_connection_states
+            .insert(host.clone(), ConnectionStatus::Connected);
+
+        assert_eq!(host_health_label(&state, &host), Some("Unavailable"));
+    }
+
+    #[test]
+    fn known_remote_profile_without_state_is_offline() {
+        let mut state = AppState::test_new();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            None,
+        )
+        .expect("valid profile");
+        let host = profile.execution_host_id();
+        state.ssh_connection_profiles.push(profile);
+
+        assert_eq!(host_health_label(&state, &host), Some("Offline"));
+    }
+
+    #[test]
+    fn remote_health_labels_follow_connection_failures() {
+        let mut state = AppState::test_new();
+        let profile = crate::persist::ssh_profiles::SshConnectionProfile::new(
+            "workbox",
+            "Work box",
+            "alice@workbox",
+            None,
+        )
+        .expect("valid profile");
+        let host = profile.execution_host_id();
+        state.ssh_connection_profiles.push(profile);
+
+        for (status, expected) in [
+            (ConnectionStatus::Disconnected, Some("Offline")),
+            (
+                ConnectionStatus::Reconnecting {
+                    error: "connection lost".to_string(),
+                },
+                Some("Lost"),
+            ),
+            (
+                ConnectionStatus::AuthenticationRequired,
+                Some("Unavailable"),
+            ),
+            (ConnectionStatus::Connecting, None),
+            (ConnectionStatus::Connected, None),
+            (ConnectionStatus::Disconnecting, None),
+        ] {
+            state.host_connection_states.insert(host.clone(), status);
+            assert_eq!(host_health_label(&state, &host), expected);
+        }
     }
 
     #[test]
