@@ -1,3 +1,17 @@
+## gardn@0.10.27
+
+### Move agents to Follow Up immediately
+
+Agents added from Triage now move to Follow Up immediately, even while focused.
+
+### Download Gardn for macOS
+
+The website now links directly to the signed and notarized macOS disk image.
+
+### Improve sidebar context
+
+Expanded agent rows now show the pane connection badge. Workspace Navigator statistics now align to the right and use the available row width before truncation. SSH integration discovery now checks the user's login-shell PATH, so agent tools installed through shell profiles appear as available on remote hosts.
+
 ## gardn@0.10.26
 
 ### Clarify connection filter labels

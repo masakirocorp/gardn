@@ -1,20 +1,24 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Clarify connection filter labels\n\nConnection filter menus now identify the coordinator as local and connection profiles as SSH.\n"
-    filename: connection-type-labels.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Move agents to Follow Up immediately\n\nAgents added from Triage now move to Follow Up immediately, even while focused.\n"
+    filename: follow-up-immediate.md
     v: 0.0.0
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Restore focus and remote Spaces\n\nGardn keeps triage focus stable, reconnects hosts used by empty remote Spaces, creates the first terminal in those Spaces, and focuses agents in the active Gardn window from the macOS menu bar.\n"
-    filename: runtime-regressions.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Download Gardn for macOS\n\nThe website now links directly to the signed and notarized macOS disk image.\n"
+    filename: macos-download.md
+    v: 0.0.0
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n# Improve sidebar context\n\nExpanded agent rows now show the pane connection badge. Workspace Navigator statistics now align to the right and use the available row width before truncation. SSH integration discovery now checks the user's login-shell PATH, so agent tools installed through shell profiles appear as available on remote hosts.\n"
+    filename: sidebar-navigation-polish.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
-  - changelogIds:
-      - connection-type-labels.md
-      - runtime-regressions.md
-    id: cargo:gardn
-    updated: true
   - id: cargo:gardn-local-api
     updated: false
+  - changelogIds:
+      - follow-up-immediate.md
+      - macos-download.md
+      - sidebar-navigation-polish.md
+    id: cargo:gardn
+    updated: true
   - id: cargo:portable-pty
     updated: false
 npm:packages:
