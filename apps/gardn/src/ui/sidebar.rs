@@ -537,24 +537,6 @@ fn append_follow_up_fallback_entries(
     }
 }
 
-fn agent_panel_entry_section(
-    app: &AppState,
-    agent_follow_up: &[crate::app::state::AgentFollowUpEntry],
-    triage_hold: Option<&(String, crate::layout::PaneId)>,
-    entry: &AgentPanelEntry,
-) -> Option<AgentStatusGroup> {
-    if triage_hold.is_some_and(|(workspace_id, pane_id)| {
-        *pane_id == entry.pane_id
-            && app
-                .workspaces
-                .get(entry.ws_idx)
-                .is_some_and(|workspace| workspace.id == *workspace_id)
-    }) {
-        return Some(AgentStatusGroup::Triage);
-    }
-    app.agent_sidebar_section(agent_follow_up, entry.ws_idx, entry.pane_id)
-}
-
 fn agent_panel_entry_identity(entry: &AgentPanelEntry) -> (usize, usize, u32) {
     (entry.ws_idx, entry.tab_idx, entry.pane_id.raw())
 }
@@ -613,7 +595,7 @@ fn agent_panel_sections_from_entries(
     let mut working = Vec::new();
     let mut idle = Vec::new();
     for mut entry in scoped_entries {
-        match agent_panel_entry_section(app, agent_follow_up, triage_hold, &entry) {
+        match app.agent_sidebar_section(agent_follow_up, triage_hold, entry.ws_idx, entry.pane_id) {
             Some(AgentStatusGroup::Triage) => triage.push(entry),
             Some(AgentStatusGroup::FollowUp) => {
                 entry.follow_up_added_at_unix_secs =

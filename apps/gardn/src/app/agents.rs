@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use super::{terminal_targets::TerminalTargetError, App, ClientViewState, Mode};
+use super::{
+    state::AgentStatusGroup, terminal_targets::TerminalTargetError, App, ClientViewState, Mode,
+};
 use crate::api::schema::{AgentStartParams, SplitDirection};
 
 impl App {
@@ -621,11 +623,14 @@ impl App {
         let ws = self.state.workspaces.get(ws_idx)?;
         let pane_state = ws.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane_state.attached_terminal_id)?;
-        if !terminal.is_agent_terminal()
-            && !self
-                .state
-                .is_agent_follow_up(&view.agent_follow_up, ws_idx, pane_id)
-        {
+        let section = self.state.agent_sidebar_section(
+            &view.agent_follow_up,
+            view.triage_hold.as_ref(),
+            ws_idx,
+            pane_id,
+        )?;
+        let follow_up = section == AgentStatusGroup::FollowUp;
+        if !terminal.is_agent_terminal() && !follow_up {
             return None;
         }
         let pane = self.pane_info_for_view(view, ws_idx, pane_id)?;
@@ -651,18 +656,8 @@ impl App {
             revision: pane.revision,
             last_meaningful_agent_activity_unix_secs: terminal
                 .last_meaningful_agent_activity_unix_secs(),
-            follow_up: self
-                .state
-                .is_agent_follow_up(&view.agent_follow_up, ws_idx, pane_id),
-            in_triage: view
-                .triage_hold
-                .as_ref()
-                .is_some_and(|(workspace_id, held_pane)| {
-                    workspace_id == &ws.id && *held_pane == pane_id
-                })
-                || self
-                    .state
-                    .pane_is_in_triage(&view.agent_follow_up, ws_idx, pane_id),
+            follow_up,
+            in_triage: section == AgentStatusGroup::Triage,
             follow_up_added_at_unix_secs: self.state.follow_up_added_at(
                 &view.agent_follow_up,
                 ws_idx,
