@@ -4062,13 +4062,19 @@ impl AppState {
     pub(crate) fn agent_sidebar_section(
         &self,
         agent_follow_up: &[AgentFollowUpEntry],
+        triage_hold: Option<&(String, PaneId)>,
         ws_idx: usize,
-        pane_id: crate::layout::PaneId,
+        pane_id: PaneId,
     ) -> Option<AgentStatusGroup> {
         if self.is_agent_follow_up(agent_follow_up, ws_idx, pane_id) {
             return Some(AgentStatusGroup::FollowUp);
         }
         let workspace = self.workspaces.get(ws_idx)?;
+        if triage_hold.is_some_and(|(workspace_id, held_pane)| {
+            workspace_id == &workspace.id && *held_pane == pane_id
+        }) {
+            return Some(AgentStatusGroup::Triage);
+        }
         let pane = workspace.pane_state(pane_id)?;
         let state = self.pane_agent_state(pane);
         if state == AgentState::Blocked {
@@ -4088,16 +4094,6 @@ impl AppState {
         } else {
             AgentStatusGroup::Idle
         })
-    }
-
-    pub(crate) fn pane_is_in_triage(
-        &self,
-        agent_follow_up: &[AgentFollowUpEntry],
-        ws_idx: usize,
-        pane_id: crate::layout::PaneId,
-    ) -> bool {
-        self.agent_sidebar_section(agent_follow_up, ws_idx, pane_id)
-            == Some(AgentStatusGroup::Triage)
     }
 
     pub(crate) fn agent_context_menu_kind(

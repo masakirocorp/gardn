@@ -23984,6 +23984,88 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn adding_focused_triage_agent_moves_it_to_follow_up_on_next_frame() {
+        let mut app = test_app();
+        let mut workspace = Workspace::test_new("test");
+        let pane_id = workspace.terminal_tab(0).unwrap().root_pane;
+        let pane = workspace
+            .terminal_tab_mut(0)
+            .unwrap()
+            .panes
+            .get_mut(&pane_id)
+            .expect("agent pane");
+        pane.detected_agent = Some(Agent::Claude);
+        pane.state = AgentState::Idle;
+        app.state.workspaces = vec![workspace];
+        app.state.ensure_test_terminals();
+        app.state.mouse_capture = true;
+        app.state.sidebar_arrangement = crate::config::SidebarArrangementConfig::Separate;
+
+        let workspace_id = app.state.workspaces[0].id.clone();
+        let area = ratatui::layout::Rect::new(0, 0, 140, 30);
+        let tab_context = crate::app::ClientTabContext {
+            control: ClientTabControl::Controlling { epoch: 7 },
+            canvas_size: None,
+        };
+        let mut client = ClientViewState::from_default_client_state(&app.state);
+        client.triage_hold = Some((workspace_id, pane_id));
+        compute_client_view_with_tab_context(&app, &mut client, tab_context, area);
+        let detail_area = crate::ui::right_sidebar_content_rect(client.computed.right_sidebar_rect);
+        let agent_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.client_view_agent_detail_target_at(&client, detail_area.x + 2, *row)
+                    == Some((0, 0, pane_id))
+            })
+            .expect("triage agent row");
+
+        app.route_client_events_for_view_with_tab_context(
+            &mut client,
+            tab_context,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Right),
+                detail_area.x + 2,
+                agent_row,
+            )],
+            true,
+        );
+        let menu = context_menu_rect_for_client_view(&app, &client);
+        app.route_client_events_for_view_with_tab_context(
+            &mut client,
+            tab_context,
+            vec![raw_mouse(
+                crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                menu.x + 2,
+                menu.y + 1,
+            )],
+            true,
+        );
+
+        assert!(app
+            .state
+            .is_agent_follow_up(&client.agent_follow_up, 0, pane_id));
+        crate::server::render_stream::render_virtual_for_client_view(
+            &mut app.state,
+            &mut client,
+            &app.terminal_runtimes,
+            area,
+            false,
+            crate::kitty_graphics::HostCellSize::default(),
+        );
+        let agent_row = (detail_area.y..detail_area.y + detail_area.height)
+            .find(|row| {
+                app.client_view_agent_detail_target_at(&client, detail_area.x + 2, *row)
+                    == Some((0, 0, pane_id))
+            })
+            .expect("agent row after adding to Follow Up");
+        let section = (detail_area.y..=agent_row)
+            .filter_map(|row| app.client_view_agent_header_target_at(&client, detail_area.x, row))
+            .last()
+            .expect("agent section");
+
+        assert_eq!(section.section, "Follow Up");
+    }
+
+    #[test]
     fn route_client_events_for_view_sidebar_mouse_parity_right_click_opens_context_menu_locally() {
         let mut app = test_app();
         let work_group = app.state.create_group("work".to_string());
