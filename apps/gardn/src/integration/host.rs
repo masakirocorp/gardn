@@ -294,10 +294,7 @@ pub(crate) fn inspect(profiles: &[ProfileIntegrationContext]) -> HostIntegration
 fn inspection_paths() -> Vec<OsString> {
     #[cfg(unix)]
     {
-        return inspection_paths_with_limits(
-            LOGIN_SHELL_PATH_TIMEOUT,
-            LOGIN_SHELL_PATH_OUTPUT_LIMIT,
-        );
+        inspection_paths_with_limits(LOGIN_SHELL_PATH_TIMEOUT, LOGIN_SHELL_PATH_OUTPUT_LIMIT)
     }
     #[cfg(not(unix))]
     {
@@ -373,11 +370,14 @@ fn login_shell_path_with_limits(timeout: Duration, max_output_bytes: usize) -> O
             }
         }
         if let Some(status) = status {
+            if !status.success() {
+                return None;
+            }
+            if let Some(path) = parse_login_shell_path(&stdout_bytes) {
+                return Some(path);
+            }
             if stdout_eof && stderr_eof {
-                return status
-                    .success()
-                    .then(|| parse_login_shell_path(&stdout_bytes))
-                    .flatten();
+                return None;
             }
         }
         if Instant::now() >= deadline {
@@ -665,7 +665,18 @@ done
         let _lock = super::super::integration_env_lock();
         let base = unique_test_base("escaped-pipe-holder");
         let inherited_bin = base.join("inherited-bin");
+        let login_bin = base.join("login-bin");
         std::fs::create_dir_all(&inherited_bin).expect("create inherited bin");
+        std::fs::create_dir_all(&login_bin).expect("create login bin");
+        for (target, directory) in [
+            (IntegrationTarget::Claude, &login_bin),
+            (IntegrationTarget::Pi, &inherited_bin),
+        ] {
+            let agent = directory.join(super::super::integration_target_command(target));
+            std::fs::write(&agent, "").expect("write fake agent command");
+            std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755))
+                .expect("make fake agent command executable");
+        }
 
         let shell = base.join("escaping-login-shell");
         std::fs::write(
@@ -673,7 +684,9 @@ done
             r#"#!/bin/sh
 "$GARDN_TEST_HELPER" --exact integration::host::tests::escaped_pipe_holder_helper --nocapture &
 printf '%s\n' "$!" > "$GARDN_TEST_HELPER_PID"
-exit 0
+PATH="$GARDN_TEST_LOGIN_PATH"
+export PATH
+exec /bin/sh -c "$2"
 "#,
         )
         .expect("write escaping login shell");
@@ -683,6 +696,7 @@ exit 0
         let helper_pid = base.join("helper-pid");
         let _path = TestEnvVar::set("PATH", &inherited_bin);
         let _shell = TestEnvVar::set("SHELL", &shell);
+        let _login_path = TestEnvVar::set("GARDN_TEST_LOGIN_PATH", &login_bin);
         let _helper = TestEnvVar::set(
             "GARDN_TEST_HELPER",
             std::env::current_exe().expect("current test executable"),
@@ -691,10 +705,25 @@ exit 0
         let _escape = TestEnvVar::set("GARDN_TEST_ESCAPE_PIPE", "1");
         let started = Instant::now();
 
+        let paths = inspection_paths_with_limits(Duration::from_millis(100), 1024);
         assert_eq!(
-            inspection_paths_with_limits(Duration::from_millis(100), 1024),
-            vec![inherited_bin.clone().into_os_string()]
+            paths,
+            vec![
+                login_bin.clone().into_os_string(),
+                inherited_bin.clone().into_os_string()
+            ]
         );
+        let recommendations = super::super::integration_recommendations_for_paths(&paths);
+        for target in [IntegrationTarget::Claude, IntegrationTarget::Pi] {
+            assert!(
+                recommendations
+                    .iter()
+                    .find(|recommendation| recommendation.target == target)
+                    .expect("integration recommendation")
+                    .available,
+                "{target:?} should remain available"
+            );
+        }
         assert!(
             started.elapsed() < Duration::from_secs(2),
             "escaped pipe holder blocked past the probe deadline"
@@ -713,6 +742,7 @@ exit 0
     #[cfg(unix)]
     #[test]
     fn escaped_pipe_holder_helper() {
+        let _lock = super::super::integration_env_lock();
         if std::env::var_os("GARDN_TEST_ESCAPE_PIPE").is_none() {
             return;
         }
