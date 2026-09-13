@@ -662,6 +662,31 @@ mod tests {
     }
 
     #[test]
+    fn client_group_menu_renders_long_connection_type_label_without_truncation() {
+        let mut app = AppState::test_new();
+        app.host_display = crate::app::host_label::HostDisplayNameOverlay::from_config_or_hostname(
+            "workstation-with-long-name",
+            None,
+        );
+        app.ssh_connection_profiles.clear();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.sidebar_rect = Rect::new(0, 0, 24, 20);
+        view.computed.terminal_area = Rect::new(24, 0, 56, 20);
+        view.group_menu = crate::app::state::ModalListState::new(0);
+
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).expect("test backend");
+        terminal
+            .draw(|frame| render_group_menu_for_view(&app, &view, frame))
+            .expect("render client group menu");
+
+        let buffer = terminal.backend().buffer();
+        assert!(
+            first_cell_with_text(buffer, 80, 20, "workstation-with-long-name (local)").is_some(),
+            "connection type label should remain fully visible"
+        );
+    }
+
+    #[test]
     fn client_context_menu_renders_new_actions_in_order() {
         let app = AppState::test_new();
         let mut view = ClientViewState::from_default_client_state(&app);

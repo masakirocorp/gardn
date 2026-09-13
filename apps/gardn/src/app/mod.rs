@@ -122,14 +122,7 @@ pub(crate) fn client_group_menu_rect(state: &AppState, view: &ClientViewState) -
         .max()
         .unwrap_or(8)
         .saturating_add(2);
-    let width = if view.sidebar_collapsed {
-        content_width.saturating_add(2).min(screen.width.max(1))
-    } else {
-        content_width
-            .saturating_add(2)
-            .min(view.computed.sidebar_rect.width.max(1))
-            .min(screen.width.max(1))
-    };
+    let width = content_width.saturating_add(2).min(screen.width.max(1));
     let height = (rows.len() as u16 + 2).min(screen.height.max(1));
     Rect::new(
         selector
