@@ -1,3 +1,13 @@
+## gardn@0.10.26
+
+### Clarify connection filter labels
+
+Connection filter menus now identify the coordinator as local and connection profiles as SSH.
+
+### Restore focus and remote Spaces
+
+Gardn keeps triage focus stable, reconnects hosts used by empty remote Spaces, creates the first terminal in those Spaces, and focuses agents in the active Gardn window from the macOS menu bar.
+
 ## gardn@0.10.25
 
 ### Keep sidebar connection filters independent

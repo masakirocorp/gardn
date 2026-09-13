@@ -1,12 +1,16 @@
 core:changelogs:
-  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Keep sidebar connection filters independent\n\nFiltering Agents by connection no longer changes which Spaces appear. The Spaces connection filter also leaves the Agents filter unchanged.\n"
-    filename: independent-sidebar-filters.md
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Clarify connection filter labels\n\nConnection filter menus now identify the coordinator as local and connection profiles as SSH.\n"
+    filename: connection-type-labels.md
+    v: 0.0.0
+  - content: "---\npackages:\n  gardn:\n    type: patch\n---\n\n### Restore focus and remote Spaces\n\nGardn keeps triage focus stable, reconnects hosts used by empty remote Spaces, creates the first terminal in those Spaces, and focuses agents in the active Gardn window from the macOS menu bar.\n"
+    filename: runtime-regressions.md
     v: 0.0.0
 core:packages:
   - id: npm:@gardn/website
     updated: false
   - changelogIds:
-      - independent-sidebar-filters.md
+      - connection-type-labels.md
+      - runtime-regressions.md
     id: cargo:gardn
     updated: true
   - id: cargo:gardn-local-api
