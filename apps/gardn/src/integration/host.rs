@@ -3,8 +3,8 @@ use std::{ffi::OsString, io, path::Path};
 #[cfg(unix)]
 use std::{
     io::Read,
+    os::fd::AsRawFd,
     process::{Command, Stdio},
-    sync::mpsc,
     time::{Duration, Instant},
 };
 
@@ -275,8 +275,8 @@ pub(crate) fn execute(request: &HostIntegrationRequest) -> io::Result<HostIntegr
 }
 
 pub(crate) fn inspect(profiles: &[ProfileIntegrationContext]) -> HostIntegrationSnapshot {
-    let path = inspection_path();
-    let entries = super::integration_recommendations_for_path(path.as_deref())
+    let paths = inspection_paths();
+    let entries = super::integration_recommendations_for_paths(&paths)
         .into_iter()
         .map(|recommendation| HostIntegrationEntry {
             target: recommendation.target,
@@ -291,23 +291,30 @@ pub(crate) fn inspect(profiles: &[ProfileIntegrationContext]) -> HostIntegration
     HostIntegrationSnapshot { entries }
 }
 
-fn inspection_path() -> Option<OsString> {
+fn inspection_paths() -> Vec<OsString> {
     #[cfg(unix)]
     {
-        return inspection_path_with_limits(
+        return inspection_paths_with_limits(
             LOGIN_SHELL_PATH_TIMEOUT,
             LOGIN_SHELL_PATH_OUTPUT_LIMIT,
         );
     }
     #[cfg(not(unix))]
     {
-        std::env::var_os("PATH")
+        std::env::var_os("PATH").into_iter().collect()
     }
 }
 
 #[cfg(unix)]
-fn inspection_path_with_limits(timeout: Duration, max_output_bytes: usize) -> Option<OsString> {
-    login_shell_path_with_limits(timeout, max_output_bytes).or_else(|| std::env::var_os("PATH"))
+fn inspection_paths_with_limits(timeout: Duration, max_output_bytes: usize) -> Vec<OsString> {
+    let mut paths = Vec::with_capacity(2);
+    if let Some(path) = login_shell_path_with_limits(timeout, max_output_bytes) {
+        paths.push(path);
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        paths.push(path);
+    }
+    paths
 }
 
 #[cfg(unix)]
@@ -322,70 +329,111 @@ fn login_shell_path_with_limits(timeout: Duration, max_output_bytes: usize) -> O
     crate::platform::configure_cancellable_command(&mut command);
 
     let mut child = command.spawn().ok()?;
-    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+    let (Some(mut stdout), Some(mut stderr)) = (child.stdout.take(), child.stderr.take()) else {
         crate::platform::terminate_cancellable_child(&mut child);
         return None;
     };
-    let (stdout_tx, stdout_rx) = mpsc::sync_channel(1);
-    let stdout_reader = std::thread::spawn(move || {
-        let _ = stdout_tx.send(read_capped_output(stdout, max_output_bytes));
-    });
-    let (stderr_tx, stderr_rx) = mpsc::sync_channel(1);
-    let stderr_reader = std::thread::spawn(move || {
-        let _ = stderr_tx.send(read_capped_output(stderr, max_output_bytes));
-    });
-    let deadline = Instant::now() + timeout;
+    if set_nonblocking(&stdout).is_err() || set_nonblocking(&stderr).is_err() {
+        crate::platform::terminate_cancellable_child(&mut child);
+        return None;
+    }
 
-    let status = loop {
-        if Instant::now() >= deadline {
-            crate::platform::terminate_cancellable_child(&mut child);
-            let _ = stdout_reader.join();
-            let _ = stderr_reader.join();
-            return None;
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) => std::thread::sleep(Duration::from_millis(10)),
-            Err(_) => {
+    let deadline = Instant::now() + timeout;
+    let mut status = None;
+    let mut stdout_bytes = Vec::new();
+    let mut stderr_bytes = Vec::new();
+    let mut stdout_eof = false;
+    let mut stderr_eof = false;
+
+    loop {
+        match drain_available(&mut stdout, &mut stdout_bytes, max_output_bytes) {
+            Ok(PipeState::Eof) => stdout_eof = true,
+            Ok(PipeState::Open) => {}
+            Ok(PipeState::Oversized) | Err(_) => {
                 crate::platform::terminate_cancellable_child(&mut child);
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
                 return None;
             }
         }
-    };
+        match drain_available(&mut stderr, &mut stderr_bytes, max_output_bytes) {
+            Ok(PipeState::Eof) => stderr_eof = true,
+            Ok(PipeState::Open) => {}
+            Ok(PipeState::Oversized) | Err(_) => {
+                crate::platform::terminate_cancellable_child(&mut child);
+                return None;
+            }
+        }
 
-    let stdout = stdout_rx
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .ok()
-        .and_then(Result::ok);
-    let stderr = stderr_rx
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .ok()
-        .and_then(Result::ok);
-    if stdout.is_none() || stderr.is_none() {
-        crate::platform::terminate_cancellable_child(&mut child);
+        if status.is_none() {
+            match child.try_wait() {
+                Ok(next_status) => status = next_status,
+                Err(_) => {
+                    crate::platform::terminate_cancellable_child(&mut child);
+                    return None;
+                }
+            }
+        }
+        if let Some(status) = status {
+            if stdout_eof && stderr_eof {
+                return status
+                    .success()
+                    .then(|| parse_login_shell_path(&stdout_bytes))
+                    .flatten();
+            }
+        }
+        if Instant::now() >= deadline {
+            crate::platform::terminate_cancellable_child(&mut child);
+            return None;
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
-    let _ = stdout_reader.join();
-    let _ = stderr_reader.join();
-
-    let (stdout, stdout_oversized) = stdout?;
-    let (_, stderr_oversized) = stderr?;
-    if !status.success() || stdout_oversized || stderr_oversized {
-        return None;
-    }
-    parse_login_shell_path(&stdout)
 }
 
 #[cfg(unix)]
-fn read_capped_output(reader: impl Read, max_output_bytes: usize) -> io::Result<(Vec<u8>, bool)> {
-    let mut output = Vec::new();
-    reader
-        .take(max_output_bytes.saturating_add(1) as u64)
-        .read_to_end(&mut output)?;
-    let oversized = output.len() > max_output_bytes;
-    output.truncate(max_output_bytes);
-    Ok((output, oversized))
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PipeState {
+    Open,
+    Eof,
+    Oversized,
+}
+
+#[cfg(unix)]
+fn set_nonblocking(reader: &impl AsRawFd) -> io::Result<()> {
+    let fd = reader.as_raw_fd();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } == -1 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn drain_available(
+    reader: &mut impl Read,
+    output: &mut Vec<u8>,
+    max_output_bytes: usize,
+) -> io::Result<PipeState> {
+    let mut buffer = [0_u8; 4096];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => return Ok(PipeState::Eof),
+            Ok(read) => {
+                let remaining = max_output_bytes.saturating_sub(output.len());
+                let retained = remaining.min(read);
+                output.extend_from_slice(&buffer[..retained]);
+                if retained != read {
+                    return Ok(PipeState::Oversized);
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                return Ok(PipeState::Open);
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -433,7 +481,7 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn remote_inspection_uses_login_shell_path_for_agent_availability() {
+    fn remote_inspection_combines_login_shell_and_inherited_paths() {
         let _lock = super::super::integration_env_lock();
         let base = unique_test_base("login-path");
         let inherited_bin = base.join("inherited-bin");
@@ -443,12 +491,18 @@ mod tests {
         std::fs::create_dir_all(&login_bin).expect("create login bin");
         std::fs::create_dir_all(&home).expect("create home");
 
-        let agent = login_bin.join(super::super::integration_target_command(
+        let login_agent = login_bin.join(super::super::integration_target_command(
             IntegrationTarget::Claude,
         ));
-        std::fs::write(&agent, "").expect("write fake agent command");
-        std::fs::set_permissions(&agent, std::fs::Permissions::from_mode(0o755))
-            .expect("make fake agent command executable");
+        std::fs::write(&login_agent, "").expect("write fake login-path agent command");
+        std::fs::set_permissions(&login_agent, std::fs::Permissions::from_mode(0o755))
+            .expect("make fake login-path agent command executable");
+        let inherited_agent = inherited_bin.join(super::super::integration_target_command(
+            IntegrationTarget::Pi,
+        ));
+        std::fs::write(&inherited_agent, "").expect("write fake inherited-path agent command");
+        std::fs::set_permissions(&inherited_agent, std::fs::Permissions::from_mode(0o755))
+            .expect("make fake inherited-path agent command executable");
 
         let shell = base.join("fake-login-shell");
         std::fs::write(
@@ -486,6 +540,12 @@ exec /bin/sh -c "$2"
 
         assert_eq!(claude.state, IntegrationStatusKind::NotInstalled);
         assert_eq!(claude.status_label(), "Available");
+        let pi = snapshot
+            .entries
+            .iter()
+            .find(|entry| entry.target == IntegrationTarget::Pi)
+            .expect("Pi recommendation");
+        assert_eq!(pi.status_label(), "Available");
         assert_eq!(
             std::fs::read_to_string(&shell_calls).expect("read shell call count"),
             "called\n"
@@ -554,8 +614,8 @@ exec /bin/sh -c "$2"
         let started = Instant::now();
 
         assert_eq!(
-            inspection_path_with_limits(Duration::from_millis(100), 1024),
-            Some(inherited_bin.clone().into_os_string())
+            inspection_paths_with_limits(Duration::from_millis(100), 1024),
+            vec![inherited_bin.clone().into_os_string()]
         );
         assert!(
             started.elapsed() < Duration::from_secs(2),
@@ -592,11 +652,74 @@ done
         let _shell = TestEnvVar::set("SHELL", &shell);
 
         assert_eq!(
-            inspection_path_with_limits(Duration::from_secs(1), 128),
-            Some(inherited_bin.clone().into_os_string())
+            inspection_paths_with_limits(Duration::from_secs(1), 128),
+            vec![inherited_bin.clone().into_os_string()]
         );
 
         let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn login_shell_timeout_ignores_escaped_pipe_holder() {
+        let _lock = super::super::integration_env_lock();
+        let base = unique_test_base("escaped-pipe-holder");
+        let inherited_bin = base.join("inherited-bin");
+        std::fs::create_dir_all(&inherited_bin).expect("create inherited bin");
+
+        let shell = base.join("escaping-login-shell");
+        std::fs::write(
+            &shell,
+            r#"#!/bin/sh
+"$GARDN_TEST_HELPER" --exact integration::host::tests::escaped_pipe_holder_helper --nocapture &
+printf '%s\n' "$!" > "$GARDN_TEST_HELPER_PID"
+exit 0
+"#,
+        )
+        .expect("write escaping login shell");
+        std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755))
+            .expect("make escaping login shell executable");
+
+        let helper_pid = base.join("helper-pid");
+        let _path = TestEnvVar::set("PATH", &inherited_bin);
+        let _shell = TestEnvVar::set("SHELL", &shell);
+        let _helper = TestEnvVar::set(
+            "GARDN_TEST_HELPER",
+            std::env::current_exe().expect("current test executable"),
+        );
+        let _helper_pid = TestEnvVar::set("GARDN_TEST_HELPER_PID", &helper_pid);
+        let _escape = TestEnvVar::set("GARDN_TEST_ESCAPE_PIPE", "1");
+        let started = Instant::now();
+
+        assert_eq!(
+            inspection_paths_with_limits(Duration::from_millis(100), 1024),
+            vec![inherited_bin.clone().into_os_string()]
+        );
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "escaped pipe holder blocked past the probe deadline"
+        );
+
+        if let Ok(pid) = std::fs::read_to_string(&helper_pid) {
+            if let Ok(pid) = pid.trim().parse::<i32>() {
+                unsafe {
+                    libc::kill(pid, libc::SIGKILL);
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn escaped_pipe_holder_helper() {
+        if std::env::var_os("GARDN_TEST_ESCAPE_PIPE").is_none() {
+            return;
+        }
+        unsafe {
+            libc::setsid();
+        }
+        std::thread::sleep(Duration::from_secs(2));
     }
 
     #[test]

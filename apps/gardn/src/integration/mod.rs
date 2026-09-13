@@ -1,4 +1,4 @@
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -1629,12 +1629,12 @@ pub(crate) fn installed_integration_statuses() -> Vec<IntegrationStatus> {
 }
 
 pub(crate) fn integration_recommendations() -> Vec<IntegrationRecommendation> {
-    let path = std::env::var_os("PATH");
-    integration_recommendations_for_path(path.as_deref())
+    let paths: Vec<OsString> = std::env::var_os("PATH").into_iter().collect();
+    integration_recommendations_for_paths(&paths)
 }
 
-pub(crate) fn integration_recommendations_for_path(
-    path: Option<&OsStr>,
+pub(crate) fn integration_recommendations_for_paths(
+    paths: &[OsString],
 ) -> Vec<IntegrationRecommendation> {
     integration_specs()
         .into_iter()
@@ -1648,8 +1648,9 @@ pub(crate) fn integration_recommendations_for_path(
                 target,
                 label: integration_target_label(target),
                 command: integration_target_command(target),
-                available: integration_target_available_for_path(target, path)
-                    || status.state != IntegrationStatusKind::NotInstalled,
+                available: paths.iter().any(|path| {
+                    integration_target_available_for_path(target, Some(path.as_os_str()))
+                }) || status.state != IntegrationStatusKind::NotInstalled,
                 path: integration_path,
                 state: status.state,
             })
