@@ -7,6 +7,16 @@ description: The stable vocabulary used across Gardn sessions.
 
 Gardn organizes work into a persistent session. A session contains spaces, groups, tabs, panes, terminals, and agents. The terms below describe how those objects fit together.
 
+## Gardn instance, coordinator, and execution host
+
+A **Gardn instance** is one independent session and its coordinator. The coordinator owns the session's spaces, groups, panes, agents, saved state, Local API socket, and SSH Connection catalog. The default instance is named **Default**. A named session creates another independent instance.
+
+An **execution host** runs a terminal or agent for the current instance. The coordinator host provides the built-in Local execution host. A saved SSH Connection adds a remote execution host to the same instance. It does not create another Gardn instance.
+
+The macOS menu bar app selects which Gardn instance to monitor. Its selector lists local sessions and saved standalone remote coordinators. It does not list SSH Connections. Agents on an SSH execution host appear under the instance that owns that connection.
+
+Use **Settings > Connections** when you want work inside the current instance to run on another host. Add a remote Gardn instance in the menu bar app only when you want to monitor a separate coordinator with separate session state.
+
 ## Space and workspace
 
 A **space** is the user-facing name for a **workspace**: a project or task area with its own tabs and panes. The UI may say “space,” while commands and status output use “workspace.” They refer to the same persistent area.

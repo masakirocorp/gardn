@@ -2,14 +2,14 @@ import SwiftUI
 
 struct ExtraSettingsView: View {
     enum Pane: String, CaseIterable, Identifiable {
-        case servers
+        case instances
         case about
 
         var id: String { rawValue }
 
         var title: String {
             switch self {
-            case .servers: "Servers"
+            case .instances: "Gardn Instances"
             case .about: "About"
             }
         }
@@ -18,14 +18,14 @@ struct ExtraSettingsView: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var catalog: CoordinatorCatalog
     var checkForUpdates: () -> Void
-    @State private var pane = Pane.servers
+    @State private var pane = Pane.instances
     @State private var remoteTarget = ""
 
     var body: some View {
         Group {
             switch pane {
-            case .servers:
-                servers
+            case .instances:
+                instances
             case .about:
                 ExtraAboutView(checkForUpdates: checkForUpdates)
             }
@@ -45,46 +45,52 @@ struct ExtraSettingsView: View {
         }
     }
 
-    private var servers: some View {
+    private var instances: some View {
         Form {
             Section {
-                ForEach(catalog.coordinators) { coordinator in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Button {
-                            store.selectCoordinator(coordinator.id)
-                        } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Image(
-                                    systemName: coordinator.id == catalog.selectedId
-                                        ? "checkmark.circle.fill" : "circle"
-                                )
-                                .foregroundStyle(
-                                    coordinator.id == catalog.selectedId
-                                        ? Color.accentColor : Color.secondary
-                                )
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(coordinator.title)
-                                    Text(coordinator.subtitle)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                if catalog.isRefreshingLocals {
+                    ProgressView("Refreshing Gardn instances…")
+                } else {
+                    ForEach(catalog.coordinators) { coordinator in
+                        HStack(alignment: .firstTextBaseline, spacing: 10) {
+                            Button {
+                                store.selectCoordinator(coordinator.id)
+                            } label: {
+                                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                    Image(
+                                        systemName: coordinator.id == catalog.selectedId
+                                            ? "checkmark.circle.fill" : "circle"
+                                    )
+                                    .foregroundStyle(
+                                        coordinator.id == catalog.selectedId
+                                            ? Color.accentColor : Color.secondary
+                                    )
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(coordinator.title)
+                                        Text(coordinator.subtitle)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
-                        }
-                        .buttonStyle(.plain)
-                        Spacer(minLength: 8)
-                        if coordinator.kind == .remote {
-                            Button("Remove", role: .destructive) {
-                                catalog.removeRemote(coordinator.id)
-                                store.selectCoordinator(catalog.selectedId)
+                            .buttonStyle(.plain)
+                            Spacer(minLength: 8)
+                            if coordinator.kind == .remote {
+                                Button("Remove", role: .destructive) {
+                                    catalog.removeRemote(coordinator.id)
+                                    store.selectCoordinator(catalog.selectedId)
+                                }
+                                .buttonStyle(.borderless)
                             }
-                            .buttonStyle(.borderless)
                         }
                     }
                 }
             } footer: {
-                Text("Gardn watches one of these servers.")
+                Text(
+                    "This menu app monitors one Gardn instance. SSH Connections belong to an instance and do not appear here."
+                )
             }
-            Section("Add Remote Server") {
+            Section("Add Remote Gardn Instance") {
                 HStack(spacing: 8) {
                     TextField("SSH target", text: $remoteTarget, prompt: Text("user@host"))
                         .labelsHidden()

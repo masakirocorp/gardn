@@ -67,19 +67,23 @@ struct AgentPanelView: View {
                 .font(.system(size: 12, weight: .semibold))
             Spacer(minLength: 8)
             Menu {
-                ForEach(catalog.coordinators) { coordinator in
-                    Button {
-                        store.selectCoordinator(coordinator.id)
-                    } label: {
-                        if coordinator.id == catalog.selectedId {
-                            Label(coordinator.title, systemImage: "checkmark")
-                        } else {
-                            Text(coordinator.title)
+                if catalog.isRefreshingLocals {
+                    Text("Refreshing Gardn instances…")
+                } else {
+                    ForEach(catalog.coordinators) { coordinator in
+                        Button {
+                            store.selectCoordinator(coordinator.id)
+                        } label: {
+                            if coordinator.id == catalog.selectedId {
+                                Label(coordinator.title, systemImage: "checkmark")
+                            } else {
+                                Text(coordinator.title)
+                            }
                         }
                     }
                 }
             } label: {
-                Text(catalog.selected?.title ?? "Server")
+                Text(catalog.isRefreshingLocals ? "Refreshing…" : catalog.selected?.title ?? "Gardn")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
