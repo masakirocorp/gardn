@@ -1,6 +1,6 @@
 [package]
 name = "gardn"
-version = "0.10.28"
+version = "0.10.29"
 edition = "2021"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
