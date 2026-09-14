@@ -41,6 +41,8 @@ The first connection may ask you to verify the host key. Confirm it only when th
 
 Use mixed-host placement when one Gardn session must contain both local and remote panes. This is separate from `gardn --remote`, which moves the whole session server to the SSH host.
 
+The macOS menu bar app's **Gardn Instances** selector chooses a complete coordinator and session. It does not list the SSH Connections configured inside that instance.
+
 Save a connection before creating remote resources:
 
 1. Open **Settings > Connections**, or use the CLI, and save a profile with a display name, OpenSSH target, and optional suggested directory. Saving authorizes Gardn to manage its versioned worker on that host.

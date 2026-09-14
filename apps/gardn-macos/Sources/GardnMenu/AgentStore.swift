@@ -9,7 +9,7 @@ final class AgentStore: ObservableObject {
     @Published private(set) var connected = false
     @Published private(set) var collapsed: Set<AgentRecord.Section>
     @Published private(set) var needsAttention = false
-    let catalog = CoordinatorCatalog()
+    let catalog: CoordinatorCatalog
     var onNeedsAttentionChange: ((Bool) -> Void)?
     var onDidFocus: (() -> Void)?
     var onOpenSettings: (() -> Void)?
@@ -27,7 +27,12 @@ final class AgentStore: ObservableObject {
 
     private static let collapsedKey = "gardn.extra.collapsedSections"
 
-    init(socketPath: String = GardnClient.defaultSocketPath()) {
+    init(
+        socketPath: String = GardnClient.defaultSocketPath(),
+        catalog: CoordinatorCatalog? = nil
+    ) {
+        let catalog = catalog ?? CoordinatorCatalog()
+        self.catalog = catalog
         client = GardnClient(socketPath: socketPath)
         collapsed = Self.loadCollapsed()
         reconnectToSelected()
@@ -103,6 +108,22 @@ final class AgentStore: ObservableObject {
         }
     }
 
+    @discardableResult
+    func refreshCoordinatorCatalog() -> Task<Void, Never> {
+        let selectedCoordinator = catalog.selected
+        let generation = catalog.beginLocalRefresh()
+        return Task { [weak self] in
+            guard let self else { return }
+            guard await catalog.finishLocalRefresh(generation) else { return }
+            let refreshedCoordinator = catalog.selected
+            if refreshedCoordinator?.id != selectedCoordinator?.id
+                || refreshedCoordinator?.socketPath != selectedCoordinator?.socketPath
+            {
+                finishCoordinatorChange()
+            }
+        }
+    }
+
     private func finishCoordinatorChange() {
         runtimeNotice = .unknown
         reconnectToSelected()
@@ -141,7 +162,6 @@ final class AgentStore: ObservableObject {
 
     private func reconnectToSelected() {
         retirePresenterStream()
-        catalog.refreshLocals()
         guard let selected = catalog.selected else {
             client = GardnClient(socketPath: GardnClient.defaultSocketPath())
             return

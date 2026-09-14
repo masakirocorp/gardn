@@ -94,6 +94,7 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
             store.refresh()
             NSApp.activate(ignoringOtherApps: true)
             store.refreshRuntimeStatus()
+            store.refreshCoordinatorCatalog()
             menuPanel.show(relativeTo: button)
         }
     }
@@ -127,6 +128,11 @@ final class ExtraAppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         window.center()
         return window
     }
+    func windowDidBecomeKey(_ notification: Notification) {
+        guard (notification.object as AnyObject?) === settingsWindow else { return }
+        store.refreshCoordinatorCatalog()
+    }
+
 
     func windowWillClose(_ notification: Notification) {
         guard (notification.object as AnyObject?) === settingsWindow else { return }

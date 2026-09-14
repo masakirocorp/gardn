@@ -1,7 +1,7 @@
 import Foundation
 
-struct ExtraCoordinator: Identifiable, Hashable, Codable {
-    enum Kind: String, Codable {
+struct ExtraCoordinator: Identifiable, Hashable, Codable, Sendable {
+    enum Kind: String, Codable, Sendable {
         case local
         case remote
     }
@@ -14,19 +14,21 @@ struct ExtraCoordinator: Identifiable, Hashable, Codable {
     var target: String?
     var session: String?
 
-    var title: String { name }
+    var title: String {
+        kind == .local && session == "default" ? "Default" : name
+    }
 
     var subtitle: String {
         switch kind {
         case .local:
-            return running ? "This Mac · running" : "This Mac · stopped"
+            return running ? "Local coordinator · running" : "Local coordinator · stopped"
         case .remote:
-            return "Remote · \(target ?? name)"
+            return "Remote coordinator · \(target ?? name)"
         }
     }
 }
 
-struct ExtraRemoteRecord: Codable, Hashable, Identifiable {
+struct ExtraRemoteRecord: Codable, Hashable, Identifiable, Sendable {
     var id: String
     var target: String
     var session: String
@@ -38,46 +40,71 @@ final class CoordinatorCatalog: ObservableObject {
     @Published private(set) var coordinators: [ExtraCoordinator] = []
     @Published var selectedId: String
     @Published var addError: String?
+    @Published private(set) var isRefreshingLocals = false
 
+    private var locals: [ExtraCoordinator]
     private var remotes: [ExtraRemoteRecord]
     private var connectProcess: Process?
+    private let localLoader: () async -> [ExtraCoordinator]?
+    private let persistSelection: (String) -> Void
+    private var refreshGeneration = 0
 
     private static let selectedKey = "gardn.extra.selectedCoordinator"
     private static let remotesKey = "gardn.extra.remoteCoordinators"
 
-    init() {
-        remotes = Self.loadRemotes()
-        selectedId = UserDefaults.standard.string(forKey: Self.selectedKey) ?? "local:default"
-        refreshLocals()
+    init(
+        localLoader: (() async -> [ExtraCoordinator]?)? = nil,
+        remoteRecords: [ExtraRemoteRecord]? = nil,
+        selectedId: String? = nil,
+        persistSelection: ((String) -> Void)? = nil
+    ) {
+        self.localLoader =
+            localLoader
+            ?? {
+                await Task.detached {
+                    Self.loadLocalCoordinators()
+                }.value
+            }
+        self.persistSelection =
+            persistSelection
+            ?? { id in UserDefaults.standard.set(id, forKey: Self.selectedKey) }
+        locals = [Self.fallbackLocal]
+        remotes = remoteRecords ?? Self.loadRemotes()
+        self.selectedId =
+            selectedId
+            ?? UserDefaults.standard.string(forKey: Self.selectedKey)
+            ?? "local:default"
+        rebuildCatalog(validateSelection: false)
     }
 
     var selected: ExtraCoordinator? {
         coordinators.first { $0.id == selectedId } ?? coordinators.first
     }
 
-    func refreshLocals() {
-        let locals = Self.loadLocalCoordinators()
-        var combined = locals
-        for remote in remotes {
-            combined.append(ExtraCoordinator(
-                id: remote.id,
-                kind: .remote,
-                name: remote.name,
-                running: false,
-                socketPath: nil,
-                target: remote.target,
-                session: remote.session
-            ))
-        }
-        coordinators = combined
-        if coordinators.contains(where: { $0.id == selectedId }) == false {
-            selectedId = coordinators.first?.id ?? "local:default"
-        }
+    func refreshLocals() async {
+        let generation = beginLocalRefresh()
+        _ = await finishLocalRefresh(generation)
+    }
+
+    func beginLocalRefresh() -> Int {
+        refreshGeneration += 1
+        isRefreshingLocals = true
+        return refreshGeneration
+    }
+
+    func finishLocalRefresh(_ generation: Int) async -> Bool {
+        let loadedLocals = await localLoader()
+        guard generation == refreshGeneration else { return false }
+        isRefreshingLocals = false
+        guard let loadedLocals else { return false }
+        locals = loadedLocals
+        rebuildCatalog()
+        return true
     }
 
     func select(_ id: String) {
         selectedId = id
-        UserDefaults.standard.set(id, forKey: Self.selectedKey)
+        persistSelection(id)
     }
 
     func addRemote(target: String, session: String) -> ExtraCoordinator? {
@@ -90,7 +117,7 @@ final class CoordinatorCatalog: ObservableObject {
         }
         let id = "remote:\(trimmedTarget):\(sessionName)"
         if remotes.contains(where: { $0.id == id }) {
-            addError = "That server is already saved"
+            addError = "That Gardn instance is already saved"
             return nil
         }
         let name = sessionName == "default" ? trimmedTarget : "\(trimmedTarget) (\(sessionName))"
@@ -98,7 +125,7 @@ final class CoordinatorCatalog: ObservableObject {
         remotes.append(record)
         Self.saveRemotes(remotes)
         addError = nil
-        refreshLocals()
+        rebuildCatalog()
         select(id)
         return coordinators.first { $0.id == id }
     }
@@ -106,11 +133,28 @@ final class CoordinatorCatalog: ObservableObject {
     func removeRemote(_ id: String) {
         remotes.removeAll { $0.id == id }
         Self.saveRemotes(remotes)
-        if selectedId == id {
-            selectedId = coordinators.first { $0.kind == .local }?.id ?? "local:default"
-            UserDefaults.standard.set(selectedId, forKey: Self.selectedKey)
+        rebuildCatalog()
+    }
+
+    private func rebuildCatalog(validateSelection: Bool = true) {
+        coordinators =
+            locals
+            + remotes.map { remote in
+                ExtraCoordinator(
+                    id: remote.id,
+                    kind: .remote,
+                    name: remote.name,
+                    running: false,
+                    socketPath: nil,
+                    target: remote.target,
+                    session: remote.session
+                )
+            }
+        if validateSelection,
+           coordinators.contains(where: { $0.id == selectedId }) == false
+        {
+            select(coordinators.first?.id ?? "local:default")
         }
-        refreshLocals()
     }
 
     func socketPath(for coordinator: ExtraCoordinator) throws -> String {
@@ -132,7 +176,7 @@ final class CoordinatorCatalog: ObservableObject {
 
     private func connectRemote(_ coordinator: ExtraCoordinator) throws -> String {
         guard let target = coordinator.target else {
-            throw GardnClientError(message: "Remote coordinator is missing an SSH target")
+            throw GardnClientError(message: "Remote Gardn instance is missing an SSH target")
         }
         stopConnectProcess()
         var arguments = ["extra", "connect", "--remote", target, "--json"]
@@ -174,25 +218,36 @@ final class CoordinatorCatalog: ObservableObject {
         return socketPath
     }
 
-    private static func loadLocalCoordinators() -> [ExtraCoordinator] {
+    nonisolated private static func loadLocalCoordinators() -> [ExtraCoordinator]? {
         let process: Process
         do {
             process = try BundledGardn.process(arguments: ["extra", "list", "--json"])
         } catch {
             BundledGardn.logFailure(error)
-            return [fallbackLocal]
+            return nil
         }
+
         let stdout = Pipe()
         process.standardOutput = stdout
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
         do {
             try process.run()
-            process.waitUntilExit()
+            let timeout = DispatchWorkItem {
+                if process.isRunning { process.terminate() }
+            }
+            DispatchQueue.global(qos: .utility).asyncAfter(
+                deadline: .now() + .seconds(2),
+                execute: timeout
+            )
+            defer { timeout.cancel() }
             let data = stdout.fileHandleForReading.readDataToEndOfFile()
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            process.waitUntilExit()
+            guard process.terminationReason == .exit, process.terminationStatus == 0,
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let rows = json["coordinators"] as? [[String: Any]]
             else {
-                return [fallbackLocal]
+                return nil
             }
             let locals = rows.compactMap { row -> ExtraCoordinator? in
                 guard let id = row["id"] as? String else { return nil }
@@ -210,24 +265,24 @@ final class CoordinatorCatalog: ObservableObject {
             }
             return locals.isEmpty ? [fallbackLocal] : locals
         } catch {
-            return [fallbackLocal]
+            return nil
         }
     }
 
-    private static func localDisplayName(session: String, jsonName: String) -> String {
+    nonisolated private static func localDisplayName(session: String, jsonName: String) -> String {
         if session == "default" || jsonName.isEmpty || jsonName == "default" {
             return thisMacName
         }
         return jsonName
     }
 
-    private static var thisMacName: String {
+    nonisolated private static var thisMacName: String {
         let name = Host.current().localizedName?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let name, !name.isEmpty { return name }
         return "This Mac"
     }
 
-    private static var fallbackLocal: ExtraCoordinator {
+    nonisolated private static var fallbackLocal: ExtraCoordinator {
         ExtraCoordinator(
             id: "local:default",
             kind: .local,
