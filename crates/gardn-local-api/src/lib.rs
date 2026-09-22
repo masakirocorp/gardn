@@ -1244,6 +1244,7 @@ pub enum IntegrationTarget {
     AntigravityCli,
     Cursor,
     Grok,
+    Amp,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]

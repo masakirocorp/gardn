@@ -319,6 +319,8 @@ Each `[[agent_profiles.custom]]` entry has:
 
 System profiles are catalogued from detected supported agent kinds. A custom profile with an invalid command or invalid environment entries is retained as a profile diagnostic and is not launchable.
 
+Amp uses the system profile `system:amp` and launches `amp`. Use `kind = "amp"` for a custom Amp wrapper. Its installed integration reports the selected thread for native restore.
+
 ### `[remote]`
 
 | Key                 | Type    | Default | Description                                                                                                                                                                                 |

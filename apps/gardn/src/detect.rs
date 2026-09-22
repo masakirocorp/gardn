@@ -270,6 +270,7 @@ pub(crate) enum AgentReportMode {
 pub(crate) fn agent_report_mode(source: &str, agent_label: &str) -> Option<AgentReportMode> {
     match (source, agent_label) {
         ("gardn:claude", "claude")
+        | ("gardn:amp", "amp")
         | ("gardn:codex", "codex")
         | ("gardn:copilot", "copilot")
         | ("gardn:cursor", "cursor")

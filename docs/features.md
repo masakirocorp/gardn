@@ -132,6 +132,7 @@ Supported built-in detection includes:
 - **State notifications** — the coordinator produces one typed notification from each accepted effective state transition. It selects one eligible presenter for the configured Gardn, terminal, or system visual and its sound. System delivery prefers the oldest live native presenter. Thin clients provide the foreground terminal fallback.
 - **Integration authority** — installed hooks either report native session identity for restore or report state directly. Kilo and MastraCode hooks own lifecycle state. Qwen Code and Antigravity CLI hooks report session identity only while their screen manifests own lifecycle state.
 - **Pi settled lifecycle** — the Pi integration reports only TUI sessions and keeps an active root agent working through compaction. It reports the root agent idle only after Pi emits `agent_settled` while the root session is actually idle. Stale or non-idle settlement signals do not end active work.
+- **Amp selected-thread lifecycle** — the Amp plugin reports working, approval/error blocked, and idle states for the selected thread. Background threads cannot replace that pane's status or resume identity. Clearing the selection or unloading the plugin releases its reports; process and screen detection remain available.
 - **Missing integration warning** — if screen detection sees an integration-capable agent such as Codex but no accepted Gardn hook, session, or metadata report arrives for that pane, Gardn shows a pane-targeted toast with the matching `gardn integration install <agent>` command.
 - **Host-scoped integration management** — Settings can inspect, install, update, and uninstall agent integrations on the coordinator or a saved SSH Execution Host. Remote operations run through the managed worker in order, and remote hooks report through a restricted authenticated worker endpoint instead of receiving the coordinator's Local API socket.
 
@@ -152,6 +153,7 @@ Gardn resumes supported agents into native agent sessions during session restore
 - Native agent restore suppresses pane-history replay so the resumed agent owns its conversation history.
 - Restored agents launch as one-shot executable or shell-wrapper commands with their saved environment. OMP restores reconcile safe `.omp` and `.omp-*` session paths with the matching profile wrapper and environment before launch.
 - MastraCode restores with `mastracode --thread <id>`. Antigravity CLI restores with `agy --conversation <id>`. Qwen Code and Kilo do not advertise restore support.
+- Amp restores the selected thread with `amp threads continue <id>`. Restore preserves `AMP_SETTINGS_FILE`, `AMP_URL`, and `XDG_CONFIG_HOME`, but does not save `AMP_API_KEY`.
 
 ## Navigation and interaction
 
@@ -284,6 +286,7 @@ Built-in installable integrations:
 - Kilo
 - MastraCode
 - Antigravity CLI
+- Amp
 
 Integration management supports:
 
@@ -294,7 +297,7 @@ Integration management supports:
 - in-app integration management
 - coordinator and configured SSH execution-host selection
 
-Integration install side effects are agent-specific: pi and OMP install extensions; OpenCode and Kilo install JavaScript plugins; Hermes installs and enables a plugin; and the remaining built-in targets install hooks or settings without replacing foreign configuration.
+Integration install side effects are agent-specific: pi and OMP install extensions; OpenCode and Kilo install JavaScript plugins; Amp installs a TypeScript plugin; Hermes installs and enables a plugin; and the remaining built-in targets install hooks or settings without replacing foreign configuration.
 
 Kilo and MastraCode integrations report native session identity and lifecycle state directly. Qwen Code and Antigravity CLI report session identity only, so their screen manifests provide blocked, working, and idle state. MastraCode and Antigravity CLI provide verified native restore commands.
 
@@ -302,6 +305,7 @@ Integration management runs on the selected host. SSH integration operations use
 
 Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `DEVIN_CONFIG_DIR`, `GROK_HOME`, `HERMES_HOME`, `KIMI_CODE_HOME`, `QODER_CONFIG_DIR`, `QWEN_HOME`, `ANTIGRAVITY_CLI_CONFIG_DIR`, and `CURSOR_CONFIG_DIR`. OMP install/status checks scan `.omp` and `.omp-*` extension directories.
 - On Windows, Qwen Code, Kilo, MastraCode, and Antigravity CLI use their upstream-supported PowerShell or JavaScript integration assets.
+- Amp requires version `0.0.1789716701` or newer. It supports macOS, Linux, and WSL, not native Windows. Its plugin installs to `$XDG_CONFIG_HOME/amp/plugins/gardn-agent-state.ts`, or `~/.config/amp/plugins/gardn-agent-state.ts` when the override is unset. Installation does not change Amp settings or permissions.
 
 
 ## Plugins

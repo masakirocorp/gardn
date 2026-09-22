@@ -80,6 +80,8 @@ Use focused checks while editing. Keep the complete quality graph at the deliver
 
    The `--no-tests fail` option prevents a stale filter from succeeding without running a test.
 
+   Agent plugin tests require Bun 1.4 or newer. Run `pnpm turbo run integration:test --filter=gardn` for the socket and lifecycle checks. The same task runs in `pnpm test`, `pnpm check`, and Unix CI.
+
 2. Build and run the checkout for local behavior:
 
    ```bash

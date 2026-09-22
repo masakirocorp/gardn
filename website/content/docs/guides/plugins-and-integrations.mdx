@@ -13,7 +13,7 @@ Use the CLI for integrations on the Coordinator Host. Use **Settings > Integrati
 
 ## Manage built-in agent integrations
 
-The built-in integration writes hooks, extensions, or agent configuration entries into the target agent's own configuration area. The supported targets are `pi`, `omp`, `claude`, `codex`, `devin`, `kimi`, `droid`, `copilot`, `opencode`, `hermes`, `qodercli`, `cursor`, and `grok`.
+The built-in integration writes hooks, extensions, or agent configuration entries into the target agent's own configuration area. The supported targets are `pi`, `omp`, `claude`, `codex`, `devin`, `kimi`, `droid`, `copilot`, `opencode`, `hermes`, `qodercli`, `cursor`, `grok`, `qwen`, `kilo`, `mastracode`, `antigravity-cli`, and `amp`.
 
 1. Check what is installed and whether its embedded version is current:
 
@@ -29,7 +29,7 @@ The built-in integration writes hooks, extensions, or agent configuration entrie
    gardn integration install codex
    ```
 
-   Replace `codex` with one supported target. Install checks agent availability and, for targets with a minimum agent version, reports an error or warning when that check cannot succeed. All targets are supported on both Windows and non-Windows platforms. `kimi` is the only target with an agent-version probe: an old version fails, while an unavailable or unparsable version adds a warning and continues.
+   Replace `codex` with one supported target. Install checks agent availability and minimum versions where required. An old version fails; an unavailable or unparsable version produces a warning. Amp requires version `0.0.1789716701` or newer and supports macOS, Linux, and WSL, not native Windows.
 
 3. Restart the affected agent pane after installing or updating an integration. Existing agent processes do not automatically reload their hook or extension configuration.
 
@@ -44,6 +44,19 @@ The built-in integration writes hooks, extensions, or agent configuration entrie
 Integration paths are platform-aware. By default, Gardn uses `$XDG_CONFIG_HOME/gardn` (or `~/.config/gardn`) on Unix-like systems and `%APPDATA%\\gardn` on Windows; `GARDN_CONFIG_PATH` can select a specific `config.toml`. Agent-specific environment variables such as `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `COPILOT_HOME`, `KIMI_CODE_HOME`, `QODER_CONFIG_DIR`, and `CURSOR_CONFIG_DIR` can move the corresponding agent configuration. The command output is the authoritative path.
 
 > **Managed files:** Re-running an integration install rewrites the Gardn-managed hook, extension, or plugin file at its reported path. Do not edit that file to customize behavior; put custom configuration beside it or remove the integration first. A later install or update can overwrite it.
+
+### Amp
+
+Run `gardn integration install amp`, then restart Amp or run its `plugins: reload` command.
+Gardn writes `$XDG_CONFIG_HOME/amp/plugins/gardn-agent-state.ts`. If `XDG_CONFIG_HOME` is unset or empty, it uses `~/.config/amp/plugins/gardn-agent-state.ts`.
+Installation preserves Amp settings, permissions, and other plugins. It refuses to replace a foreign file at the managed path.
+
+The plugin follows the selected thread. It maps `running` to Working, `awaiting-approval` and `error` to Blocked, and `idle` to Idle. Background threads do not change the pane's state or saved thread. Clearing the selection or unloading the plugin releases its reports.
+
+Session restore uses `amp threads continue <id>`. It preserves the reported `AMP_SETTINGS_FILE`, `AMP_URL`, and `XDG_CONFIG_HOME` values. It does not store `AMP_API_KEY`; Amp must have access to its normal authentication when it resumes.
+
+Install the plugin on the host that runs Amp. Remote Orbs do not inherit a local Gardn pane endpoint.
+See the [Amp plugin API](https://ampcode.com/docs/plugin-api) for its thread-state contract.
 
 ### Manage an integration on an SSH Execution Host
 

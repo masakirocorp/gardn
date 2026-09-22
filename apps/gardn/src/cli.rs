@@ -1991,13 +1991,13 @@ fn parse_integration_target(
 ) -> std::io::Result<Option<IntegrationTarget>> {
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
         eprintln!(
-            "usage: gardn integration {action} <pi|omp|claude|codex|devin|opencode|kilo|mastracode|antigravity-cli|hermes|qodercli|qwen|grok>"
+            "usage: gardn integration {action} <pi|omp|claude|codex|devin|opencode|kilo|mastracode|antigravity-cli|hermes|qodercli|qwen|grok|amp>"
         );
         return Ok(None);
     };
     if args.len() != 1 {
         eprintln!(
-            "usage: gardn integration {action} <pi|omp|claude|codex|devin|opencode|kilo|mastracode|antigravity-cli|hermes|qodercli|qwen|grok>"
+            "usage: gardn integration {action} <pi|omp|claude|codex|devin|opencode|kilo|mastracode|antigravity-cli|hermes|qodercli|qwen|grok|amp>"
         );
         return Ok(None);
     }
@@ -2017,10 +2017,11 @@ fn parse_integration_target(
         "mastracode" => IntegrationTarget::Mastracode,
         "antigravity-cli" | "antigravity_cli" => IntegrationTarget::AntigravityCli,
         "grok" => IntegrationTarget::Grok,
+        "amp" => IntegrationTarget::Amp,
         _ => {
             eprintln!("unknown integration target: {target}");
             eprintln!(
-                "currently supported: pi, omp, claude, codex, devin, copilot, opencode, kilo, mastracode, antigravity-cli, hermes, qodercli, qwen, grok"
+                "currently supported: pi, omp, claude, codex, devin, copilot, opencode, kilo, mastracode, antigravity-cli, hermes, qodercli, qwen, grok, amp"
             );
             return Ok(None);
         }

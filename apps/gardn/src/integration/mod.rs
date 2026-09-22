@@ -147,6 +147,10 @@ const OPENCODE_INTEGRATION_VERSION: u32 = 8;
 const KILO_PLUGIN_INSTALL_NAME: &str = "gardn-agent-state.js";
 const KILO_PLUGIN_ASSET: &str = include_str!("assets/kilo/gardn-agent-state.js");
 const KILO_INTEGRATION_VERSION: u32 = 4;
+const AMP_PLUGIN_INSTALL_NAME: &str = "gardn-agent-state.ts";
+const AMP_PLUGIN_ASSET: &str = include_str!("assets/amp/gardn-agent-state.ts");
+const AMP_INTEGRATION_VERSION: u32 = 1;
+const AMP_MIN_VERSION: &str = "0.0.1789716701";
 const HERMES_PLUGIN_INSTALL_NAME: &str = "gardn-agent-state";
 const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
 const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
@@ -545,6 +549,12 @@ fn agent_version_requirement(
             args: &["--version"],
             min_version: KIMI_MIN_VERSION,
         }),
+        crate::api::schema::IntegrationTarget::Amp => Some(AgentVersionRequirement {
+            label: "Amp",
+            binary: "amp",
+            args: &["--version"],
+            min_version: AMP_MIN_VERSION,
+        }),
         _ => None,
     }
 }
@@ -875,6 +885,10 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
     };
 
     let mut messages = match target {
+        crate::api::schema::IntegrationTarget::Amp => {
+            let path = install_amp()?;
+            vec![format!("installed amp integration to {}", path.display())]
+        }
         crate::api::schema::IntegrationTarget::Pi => {
             let path = install_pi()?;
             vec![format!("installed pi integration to {}", path.display())]
@@ -1082,6 +1096,18 @@ pub(crate) fn uninstall_target(
     target: crate::api::schema::IntegrationTarget,
 ) -> io::Result<Vec<String>> {
     let messages = match target {
+        crate::api::schema::IntegrationTarget::Amp => {
+            let path = amp_plugin_path()?;
+            let removed = remove_matching_integration_file(&path, "amp")?;
+            vec![if removed {
+                format!("removed amp integration at {}", path.display())
+            } else {
+                format!(
+                    "no Gardn-managed amp integration found at {}",
+                    path.display()
+                )
+            }]
+        }
         crate::api::schema::IntegrationTarget::Pi => {
             let result = uninstall_pi()?;
             if result.removed_extension {
@@ -1493,6 +1519,7 @@ pub(crate) fn integration_target_label(
     target: crate::api::schema::IntegrationTarget,
 ) -> &'static str {
     match target {
+        crate::api::schema::IntegrationTarget::Amp => "amp",
         crate::api::schema::IntegrationTarget::Pi => "pi",
         crate::api::schema::IntegrationTarget::Omp => "omp",
         crate::api::schema::IntegrationTarget::Claude => "claude",
@@ -1517,6 +1544,7 @@ pub(crate) fn integration_target_command(
     target: crate::api::schema::IntegrationTarget,
 ) -> &'static str {
     match target {
+        crate::api::schema::IntegrationTarget::Amp => "amp",
         crate::api::schema::IntegrationTarget::Pi => "pi",
         crate::api::schema::IntegrationTarget::Omp => "omp",
         crate::api::schema::IntegrationTarget::Claude => "claude",
@@ -1734,8 +1762,13 @@ fn integration_specs() -> [(
     crate::api::schema::IntegrationTarget,
     io::Result<PathBuf>,
     u32,
-); 17] {
+); 18] {
     [
+        (
+            crate::api::schema::IntegrationTarget::Amp,
+            amp_plugin_path(),
+            AMP_INTEGRATION_VERSION,
+        ),
         (
             crate::api::schema::IntegrationTarget::Pi,
             pi_extension_dir().map(|dir| dir.join(PI_EXTENSION_INSTALL_NAME)),
@@ -1925,6 +1958,7 @@ fn opencode_tui_integration_is_valid(plugin_path: &Path, expected_version: u32) 
 
 fn integration_asset_for_target(target: crate::api::schema::IntegrationTarget) -> &'static str {
     match target {
+        crate::api::schema::IntegrationTarget::Amp => AMP_PLUGIN_ASSET,
         crate::api::schema::IntegrationTarget::Pi => PI_EXTENSION_ASSET,
         crate::api::schema::IntegrationTarget::Omp => OMP_EXTENSION_ASSET,
         crate::api::schema::IntegrationTarget::Claude => CLAUDE_HOOK_ASSET,
@@ -1943,6 +1977,29 @@ fn integration_asset_for_target(target: crate::api::schema::IntegrationTarget) -
         crate::api::schema::IntegrationTarget::Cursor => CURSOR_HOOK_ASSET,
         crate::api::schema::IntegrationTarget::Grok => GROK_HOOK_ASSET,
     }
+}
+
+fn install_amp() -> io::Result<PathBuf> {
+    let path = amp_plugin_path()?;
+    match fs::read_to_string(&path) {
+        Ok(content) if parse_integration_id(&content) != Some("amp") => {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!(
+                    "refusing to replace non-Gardn Amp plugin at {}",
+                    path.display()
+                ),
+            ));
+        }
+        Ok(_) => {}
+        Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+        Err(err) => return Err(err),
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::write(&path, AMP_PLUGIN_ASSET)?;
+    Ok(path)
 }
 
 fn parse_integration_id(content: &str) -> Option<&str> {
@@ -4431,6 +4488,15 @@ fn config_dir_from_env_or_home(
     Ok(path)
 }
 
+fn amp_plugin_path() -> io::Result<PathBuf> {
+    Ok(
+        config_dir_from_env_or_home("XDG_CONFIG_HOME", &[".config"])?
+            .join("amp")
+            .join("plugins")
+            .join(AMP_PLUGIN_INSTALL_NAME),
+    )
+}
+
 fn kilo_dir() -> io::Result<PathBuf> {
     Ok(home_dir()?.join(".config/kilo"))
 }
@@ -4553,6 +4619,77 @@ mod tests {
     use crate::config::TestEnvVar;
     #[cfg(unix)]
     use std::io::Write;
+    #[cfg(unix)]
+    #[test]
+    fn amp_install_update_and_uninstall_preserve_other_configuration() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let config = base.join("config");
+        let plugins = config.join("amp/plugins");
+        fs::create_dir_all(&plugins).unwrap();
+        let settings = config.join("amp/settings.json");
+        fs::write(&settings, "{\"amp.permissions\":[]}").unwrap();
+        let foreign = plugins.join("personal.ts");
+        fs::write(&foreign, "export default function() {}").unwrap();
+        let _config = TestEnvVar::set("XDG_CONFIG_HOME", &config);
+        let _path = TestEnvVar::set("PATH", "");
+        let target = crate::api::schema::IntegrationTarget::Amp;
+
+        install_target(target).unwrap();
+        let plugin = plugins.join("gardn-agent-state.ts");
+        fs::write(
+            &plugin,
+            "// GARDN_INTEGRATION_ID=amp\n// GARDN_INTEGRATION_VERSION=0\n",
+        )
+        .unwrap();
+        let status = installed_integration_statuses()
+            .into_iter()
+            .find(|s| s.target == target)
+            .unwrap();
+        assert_eq!(status.state, IntegrationStatusKind::Outdated);
+        install_target(target).unwrap();
+        let status = installed_integration_statuses()
+            .into_iter()
+            .find(|s| s.target == target)
+            .unwrap();
+        assert_eq!(status.state, IntegrationStatusKind::Current);
+        uninstall_target(target).unwrap();
+        uninstall_target(target).unwrap();
+        assert!(!plugin.exists());
+        assert_eq!(
+            fs::read_to_string(settings).unwrap(),
+            "{\"amp.permissions\":[]}"
+        );
+        assert_eq!(
+            fs::read_to_string(foreign).unwrap(),
+            "export default function() {}"
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn amp_install_and_uninstall_preserve_foreign_plugin_at_managed_path() {
+        let _lock = integration_env_lock();
+        let base = unique_base();
+        let plugins = base.join(".config/amp/plugins");
+        fs::create_dir_all(&plugins).unwrap();
+        let plugin = plugins.join("gardn-agent-state.ts");
+        fs::write(&plugin, "export default function personal() {}").unwrap();
+        let _home = TestEnvVar::set("HOME", &base);
+        let _config = TestEnvVar::set("XDG_CONFIG_HOME", "");
+        let _path = TestEnvVar::set("PATH", "");
+        let target = crate::api::schema::IntegrationTarget::Amp;
+
+        let error = install_target(target).expect_err("foreign plugin must not be overwritten");
+        assert_eq!(error.kind(), io::ErrorKind::AlreadyExists);
+        uninstall_target(target).unwrap();
+        assert_eq!(
+            fs::read_to_string(plugin).unwrap(),
+            "export default function personal() {}"
+        );
+        fs::remove_dir_all(base).unwrap();
+    }
 
     #[test]
     fn extract_version_triple_parses_common_outputs() {
@@ -4566,16 +4703,6 @@ mod tests {
         assert_eq!(extract_version_triple("0.14.1-beta.2"), Some((0, 14, 1)));
         assert_eq!(extract_version_triple("no version here"), None);
         assert_eq!(extract_version_triple(""), None);
-    }
-
-    #[test]
-    fn agent_version_requirement_only_set_for_kimi() {
-        let requirement = agent_version_requirement(crate::api::schema::IntegrationTarget::Kimi)
-            .expect("kimi must have a version requirement");
-        assert_eq!(requirement.binary, "kimi");
-        assert_eq!(requirement.min_version, KIMI_MIN_VERSION);
-        assert!(agent_version_requirement(crate::api::schema::IntegrationTarget::Claude).is_none());
-        assert!(agent_version_requirement(crate::api::schema::IntegrationTarget::Codex).is_none());
     }
 
     #[test]

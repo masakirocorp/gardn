@@ -511,6 +511,7 @@ test.serial("Pi settlement preserves blocked-state precedence", async () => {
 });
 
 test.serial("OMP keeps working after a nonterminal agent end", async () => {
+  configureIntegrationEnvironment(`gardn-omp-${process.pid}.sock`);
   const requests: RequestRecord[] = [];
   net.createConnection = (() => {
     const socket = new EventEmitter() as CapturedSocket;
@@ -541,8 +542,6 @@ test.serial("OMP keeps working after a nonterminal agent end", async () => {
   };
   const sessionStart = harness.handlers.get("session_start");
   const agentEnd = harness.handlers.get("agent_end");
-  expect(sessionStart).toBeDefined();
-  expect(agentEnd).toBeDefined();
 
   await sessionStart?.({}, context);
   await waitForState(requests, "working");

@@ -24,10 +24,12 @@ pub enum AgentKind {
     Cursor,
     Grok,
     Custom,
+    Amp,
 }
 
 impl AgentKind {
-    pub const ALL: [Self; 18] = [
+    pub const ALL: [Self; 19] = [
+        Self::Amp,
         Self::AntigravityCli,
         Self::Claude,
         Self::Codex,
@@ -48,7 +50,8 @@ impl AgentKind {
         Self::Qwen,
     ];
 
-    pub const SYSTEM: [Self; 17] = [
+    pub const SYSTEM: [Self; 18] = [
+        Self::Amp,
         Self::AntigravityCli,
         Self::Claude,
         Self::Codex,
@@ -70,6 +73,7 @@ impl AgentKind {
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Amp => "amp",
             Self::Pi => "pi",
             Self::Omp => "omp",
             Self::Claude => "claude",
@@ -92,6 +96,7 @@ impl AgentKind {
     }
     pub fn display_name(self) -> &'static str {
         match self {
+            Self::Amp => "Amp",
             Self::Pi => "Pi",
             Self::Omp => "OMP",
             Self::Claude => "Claude",
@@ -115,6 +120,7 @@ impl AgentKind {
 
     pub fn system_command(self) -> &'static str {
         match self {
+            Self::Amp => "amp",
             Self::Pi => "pi",
             Self::Omp => "omp",
             Self::Claude => "claude",
@@ -146,6 +152,7 @@ impl AgentKind {
 
     pub fn integration_target(self) -> Option<crate::api::schema::IntegrationTarget> {
         match self {
+            Self::Amp => Some(crate::api::schema::IntegrationTarget::Amp),
             Self::Pi => Some(crate::api::schema::IntegrationTarget::Pi),
             Self::Omp => Some(crate::api::schema::IntegrationTarget::Omp),
             Self::Claude => Some(crate::api::schema::IntegrationTarget::Claude),
@@ -171,6 +178,7 @@ impl AgentKind {
 impl From<crate::api::schema::IntegrationTarget> for AgentKind {
     fn from(value: crate::api::schema::IntegrationTarget) -> Self {
         match value {
+            crate::api::schema::IntegrationTarget::Amp => Self::Amp,
             crate::api::schema::IntegrationTarget::Pi => Self::Pi,
             crate::api::schema::IntegrationTarget::Omp => Self::Omp,
             crate::api::schema::IntegrationTarget::Claude => Self::Claude,

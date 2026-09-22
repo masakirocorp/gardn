@@ -2468,6 +2468,90 @@ mod tests {
     }
 
     #[test]
+    fn amp_thread_selection_persists_the_selected_thread_over_existing_hook_identity() {
+        let mut state = state_with_workspaces(&["amp"]);
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = state.workspaces[0].terminal_id(pane_id).unwrap().clone();
+        state.handle_app_event(crate::events::AppEvent::HookStateReported {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            state: crate::detect::AgentState::Working,
+            message: None,
+            custom_status: None,
+            seq: Some(10),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-background"),
+            launch_env: Vec::new(),
+        });
+        state.handle_app_event(crate::events::AppEvent::HookSessionReported {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            seq: Some(20),
+            session_start_source: Some("select".into()),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-selected"),
+            launch_env: Vec::new(),
+        });
+        state.handle_app_event(crate::events::AppEvent::HookStateReported {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            state: crate::detect::AgentState::Idle,
+            message: None,
+            custom_status: None,
+            seq: Some(21),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-selected"),
+            launch_env: Vec::new(),
+        });
+        state.handle_app_event(crate::events::AppEvent::HookStateReported {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            state: crate::detect::AgentState::Blocked,
+            message: Some("late background approval".into()),
+            custom_status: None,
+            seq: Some(11),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-background"),
+            launch_env: Vec::new(),
+        });
+        state.handle_app_event(crate::events::AppEvent::HookSessionReported {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            seq: Some(12),
+            session_start_source: Some("select".into()),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-background"),
+            launch_env: Vec::new(),
+        });
+
+        assert_eq!(
+            state.terminals.get(&terminal_id).unwrap().state,
+            crate::detect::AgentState::Idle
+        );
+        let snapshot = capture_from_state(&state);
+        let TabSnapshot::Terminal(tab) = &snapshot.workspaces[0].tabs[0] else {
+            panic!("Amp should remain in a terminal pane");
+        };
+        let session = tab.panes[&pane_id.raw()]
+            .agent_session
+            .as_ref()
+            .expect("selected Amp thread should be resumable");
+        let session = crate::agent_resume::session_ref_from_snapshot(
+            &session.source,
+            &session.agent,
+            session.kind,
+            &session.value,
+        )
+        .expect("Amp snapshot should retain a trusted session");
+        assert_eq!(
+            crate::agent_resume::plan(&session.source, &session.agent, &session.session_ref)
+                .unwrap()
+                .argv,
+            ["amp", "threads", "continue", "T-selected"]
+        );
+    }
+
+    #[test]
     fn capture_contract_preserves_restored_agent_session() {
         let mut state = state_with_workspaces(&["one"]);
         let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;

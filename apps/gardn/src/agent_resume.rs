@@ -118,6 +118,7 @@ pub fn launch_env_from_report(
         ("gardn:hermes", "hermes") => &["HERMES_HOME"][..],
         ("gardn:opencode", "opencode") => &["OPENCODE_CONFIG", "XDG_DATA_HOME"][..],
         ("gardn:grok", "grok") => &["GROK_HOME"][..],
+        ("gardn:amp", "amp") => &["AMP_SETTINGS_FILE", "AMP_URL", "XDG_CONFIG_HOME"][..],
         ("gardn:antigravity_cli", "agy") => &["ANTIGRAVITY_CLI_CONFIG_DIR"][..],
         _ => &[],
     };
@@ -199,6 +200,14 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
             vec![
                 "opencode".into(),
                 "--session".into(),
+                session_ref.value.clone(),
+            ]
+        }
+        ("gardn:amp", "amp", AgentSessionRefKind::Id) => {
+            vec![
+                "amp".into(),
+                "threads".into(),
+                "continue".into(),
                 session_ref.value.clone(),
             ]
         }
@@ -448,6 +457,7 @@ pub(crate) fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("gardn:opencode", "opencode")
             | ("gardn:cursor", "cursor")
             | ("gardn:grok", "grok")
+            | ("gardn:amp", "amp")
             | ("gardn:mastracode", "mastracode")
             | ("gardn:antigravity_cli", "agy")
     )
@@ -505,6 +515,60 @@ fn valid_launch_env_value(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn amp_resume_preserves_profile_context_without_persisting_api_keys() {
+        let session = session_ref_from_report(
+            "gardn:amp",
+            "amp",
+            Some("T-selected".into()),
+            Some("/not-an-amp-session".into()),
+        )
+        .expect("Amp reports a native thread ID");
+        let env = launch_env_from_report(
+            "gardn:amp",
+            "amp",
+            BTreeMap::from([
+                (
+                    "AMP_SETTINGS_FILE".into(),
+                    "/profiles/amp/settings.json".into(),
+                ),
+                ("XDG_CONFIG_HOME".into(), "/profiles".into()),
+                ("AMP_URL".into(), "https://amp.example.test".into()),
+                ("AMP_API_KEY".into(), "must-not-be-persisted".into()),
+            ]),
+        );
+        let plan = plan_with_launch_context(
+            "gardn:amp",
+            "amp",
+            &session,
+            Some(&["amp-work".into()]),
+            &env,
+        )
+        .expect("trusted Amp session should produce a resume command");
+        assert_eq!(plan.argv, ["amp-work", "threads", "continue", "T-selected"]);
+        assert_eq!(
+            plan.env,
+            [
+                (
+                    "AMP_SETTINGS_FILE".into(),
+                    "/profiles/amp/settings.json".into()
+                ),
+                ("AMP_URL".into(), "https://amp.example.test".into()),
+                ("XDG_CONFIG_HOME".into(), "/profiles".into()),
+            ]
+        );
+        assert!(
+            session_ref_from_report("custom:amp", "amp", Some("T-selected".into()), None).is_none()
+        );
+        assert!(session_ref_from_snapshot(
+            "gardn:amp",
+            "amp",
+            AgentSessionRefKind::Path,
+            "/tmp/amp-session"
+        )
+        .is_none());
+    }
+
     #[test]
     fn normalize_session_start_source_accepts_known_lifecycle_values() {
         for source in [

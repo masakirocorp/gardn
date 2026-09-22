@@ -77,6 +77,12 @@ jobs:
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Bun for agent plugin tests
+        if: runner.os != 'Windows'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Install Rust tools
@@ -129,6 +135,10 @@ jobs:
       - name: Run Rust tests
         if: runner.os != 'Windows'
         run: pnpm turbo run ci:test --filter=gardn
+
+      - name: Run agent plugin tests
+        if: runner.os != 'Windows'
+        run: pnpm turbo run integration:test --filter=gardn
 
       - name: Run maintenance tests
         if: runner.os == 'Linux'

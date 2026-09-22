@@ -648,6 +648,14 @@ impl TerminalState {
         }
 
         let previous_session = self.current_session_identity_for_persistence();
+        self.commit_hook_sequence(&source, seq, reset_sequence);
+        if let Some(authority) = self
+            .hook_authority
+            .as_mut()
+            .filter(|authority| authority.source == source && authority.agent_label == agent_label)
+        {
+            authority.session_ref = Some(session_ref.clone());
+        }
         self.persisted_agent_session = Some(crate::agent_resume::PersistedAgentSession {
             source,
             agent: agent_label,
@@ -917,6 +925,7 @@ impl TerminalState {
                 Some("startup" | "new" | "resume" | "fork")
             ) | ("gardn:hermes", "hermes", Some("startup" | "new" | "resume"))
                 | ("gardn:opencode", "opencode", Some("select"))
+                | ("gardn:amp", "amp", Some("select"))
                 | (
                     "gardn:qwen",
                     "qwen",
@@ -997,6 +1006,10 @@ impl TerminalState {
         source: &str,
         session_ref: Option<&crate::agent_resume::AgentSessionRef>,
     ) -> bool {
+        // Amp uses one ordered report stream across all thread selections and plugin reloads.
+        if source == "gardn:amp" {
+            return false;
+        }
         let Some(session_ref) = session_ref else {
             return false;
         };
@@ -1308,6 +1321,7 @@ impl TerminalState {
                 | Agent::Devin
                 | Agent::Kimi
                 | Agent::Droid
+                | Agent::Amp
                 | Agent::Cursor
                 | Agent::OpenCode
                 | Agent::Hermes
