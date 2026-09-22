@@ -12,7 +12,6 @@ const originalEnvironment = {
   GARDN_PANE_ID: process.env.GARDN_PANE_ID,
   GARDN_SOCKET_PATH: process.env.GARDN_SOCKET_PATH,
 };
-let importCounter = 0;
 
 afterEach(() => {
   Object.defineProperty(process, "platform", { value: originalPlatform });
@@ -30,7 +29,6 @@ type RecordingSocket = {
   path: string;
   server: Server;
   requests: RequestRecord[];
-  getConnections: () => number;
 };
 
 function isRecord(value: unknown): value is RequestRecord {
@@ -39,8 +37,7 @@ function isRecord(value: unknown): value is RequestRecord {
 
 function freshImport(path: string) {
   // Fresh imports intentionally exercise the extension's reload lifecycle.
-  importCounter += 1;
-  return import(`${path}?test=${importCounter}`);
+  return import(`${path}?test=${crypto.randomUUID()}`);
 }
 
 function configureIntegrationEnvironment(socketPath: string) {
@@ -258,7 +255,7 @@ async function recordingSocket(
   server.once("error", listening.reject);
   server.listen(path, listening.resolve);
   await listening.promise;
-  return { path, server, requests, getConnections: () => connections };
+  return { path, server, requests };
 }
 
 async function closeRecordingSocket(recording: RecordingSocket): Promise<void> {
@@ -603,9 +600,13 @@ test.serial("OMP session resume resets blocked state and reports its lifecycle s
 
 test.serial("Pi retries an unanswered socket report", async () => {
   let recording: RecordingSocket | undefined;
+  const delivered: RequestRecord[] = [];
   try {
-    recording = await recordingSocket((_request, connection, socket) => {
-      if (connection > 1) socket.end("{}\n");
+    recording = await recordingSocket((request, connection, socket) => {
+      if (connection > 1) {
+        delivered.push(request);
+        socket.end("{}\n");
+      }
     });
     process.env.GARDN_ENV = "1";
     process.env.GARDN_SOCKET_PATH = recording.path;
@@ -624,11 +625,15 @@ test.serial("Pi retries an unanswered socket report", async () => {
         getSessionId: () => undefined,
       },
     });
-    const deadline = Date.now() + 3_500;
-    while (Date.now() < deadline && recording.getConnections() < 2) await Bun.sleep(5);
-    expect(recording.getConnections()).toBeGreaterThanOrEqual(2);
-    expect(recording.requests.length).toBeGreaterThanOrEqual(2);
-    expect(recording.requests[1]).toEqual(recording.requests[0]);
+    await waitForState(delivered, "working");
+    expect(delivered).toContainEqual(expect.objectContaining({
+      method: "pane.report_agent",
+      params: expect.objectContaining({
+        pane_id: "test:p4",
+        agent: "pi",
+        state: "working",
+      }),
+    }));
   } finally {
     if (recording) await closeRecordingSocket(recording);
   }

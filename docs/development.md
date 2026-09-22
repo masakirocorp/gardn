@@ -62,11 +62,15 @@ Local `just agent-test-image` builds keep the default builder and its cache.
 The `amp` target runs the real Amp CLI and managed Gardn plugin against an
 emulated local Amp service. The service sends each prompt to OpenRouter, so this
 target exercises real OpenRouter inference without claiming native Amp hosted
-service coverage. The harness records the plugin's Gardn socket lifecycle
-reports, including native thread selection, idle/working/idle transitions,
-assistant responses, graceful release, and resume in a second CLI process.
-Provide `OPENROUTER_API_KEY` when running `just agent-test-amp-status`; the
-bridge also accepts `OPENROUTER_BASE_URL` and `GARDN_TEST_MODEL`.
+service coverage. The harness records the plugin's lifecycle reports at a test
+socket. It does not run the Gardn server. It checks native thread selection,
+idle/working/idle transitions, assistant responses, graceful release, and resume
+in a second CLI process.
+
+The bridge forwards the conversation history and accepts only complete, nonempty
+provider responses. Provider errors fail the test. There is no canned fallback.
+The target needs `OPENROUTER_API_KEY`, not `AMP_API_KEY`. The bridge also accepts
+`OPENROUTER_BASE_URL` and `GARDN_TEST_MODEL`.
 
 The `amp-deterministic` target uses the same real Amp CLI, plugin, and socket
 harness with deterministic replies from the emulated service. It needs no API
@@ -76,10 +80,13 @@ key and runs with external networking disabled:
 just agent-test-amp-deterministic-status
 ```
 
+`Agent Fixture Tests` runs `amp-deterministic` without secrets on pull requests.
+The `Live Agent Tests` matrix includes both targets.
+
 To run the OpenRouter-backed target locally:
 
 ```bash
-OPENROUTER_API_KEY="$OPENROUTER_API_KEY" just agent-test-amp-status
+just agent-test-amp-status
 ```
 
 For an optional native hosted-agent check, run the underlying lifecycle harness
@@ -89,10 +96,10 @@ with an existing Amp login. This uses Amp's hosted service and can use credits:
 GARDN_REPO_DIR="$PWD" python3 ci/agent-tests/amp-status-test.py
 ```
 
-This optional command is not the emulated-service check and does not run the
-full Gardn runtime. Amp execute mode does not expose the selected-thread
-lifecycle, so the harness uses a PTY. Plugin unit tests remain part of `pnpm
-test` and `pnpm check`.
+The optional command uses the same recording socket. It is not a full Gardn
+end-to-end test. Amp execute mode does not expose the selected-thread lifecycle,
+so the harness uses a PTY. Plugin unit tests remain part of `pnpm test` and
+`pnpm check`.
 
 **Demo and capture**
 

@@ -78,6 +78,43 @@ test("returns assistant text from fragmented UTF-8 SSE events", async () => {
   }
 });
 
+test("accepts OpenRouter usage accounting after the terminal choice", async () => {
+  const server = await startServer((_request, response) =>
+    sendSse(response, [
+      'data: {"choices":[{"index":0,"delta":{"content":"GARDN_OK"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"content":"","role":"assistant"},"finish_reason":"stop","native_finish_reason":"stop"}]}\n\n',
+      'data: {"choices":[{"index":0,"delta":{"content":"","role":"assistant"},"finish_reason":"stop","native_finish_reason":"stop"}],"usage":{"completion_tokens":3}}\n\n',
+      "data: [DONE]\n\n",
+    ]),
+  );
+  try {
+    assert.equal(
+      await completeOpenRouterTurn({ messages, model: "openrouter/free", apiKey: "test-key", baseUrl: server.baseUrl }),
+      "GARDN_OK",
+    );
+  } finally {
+    await server.close();
+  }
+});
+
+test("rejects late assistant text even in a usage accounting chunk", async () => {
+  const server = await startServer((_request, response) =>
+    sendSse(response, [
+      event({ choices: [{ delta: { content: "GARDN_OK" }, finish_reason: "stop" }] }),
+      event({ choices: [{ delta: { content: "_LATE" }, finish_reason: "stop" }], usage: { completion_tokens: 4 } }),
+      "data: [DONE]\n\n",
+    ]),
+  );
+  try {
+    await assert.rejects(
+      completeOpenRouterTurn({ messages, model: "openrouter/free", apiKey: "test-key", baseUrl: server.baseUrl }),
+      /stream sent data after the completed response/,
+    );
+  } finally {
+    await server.close();
+  }
+});
+
 test("rejects non-successful provider responses without exposing response data", async () => {
   const server = await startServer((_request, response) => {
     response.writeHead(429, { "content-type": "application/json" });

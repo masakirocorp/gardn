@@ -53,7 +53,6 @@ function parseSseEvent(dataLines, state) {
     if (!state.finished) throw providerError("stream contained an incomplete response");
     return;
   }
-  if (state.finished) throw providerError("stream sent data after the completed response");
 
   for (const choice of payload.choices) {
     if (choice === null || typeof choice !== "object" || Array.isArray(choice)) {
@@ -65,6 +64,10 @@ function parseSseEvent(dataLines, state) {
     }
     if (delta.tool_calls != null || delta.function_call != null) {
       throw providerError("tool-call completion is unsupported");
+    }
+    // OpenRouter repeats the terminal choice in its content-free usage chunk.
+    if (state.finished && (payload.usage == null || (delta.content != null && delta.content !== ""))) {
+      throw providerError("stream sent data after the completed response");
     }
     if (delta.content != null) {
       if (typeof delta.content !== "string") throw providerError("stream contained invalid assistant text");
