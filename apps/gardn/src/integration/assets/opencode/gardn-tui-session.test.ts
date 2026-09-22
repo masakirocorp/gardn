@@ -1,60 +1,93 @@
-import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { expect, test } from "bun:test";
+import net from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import plugin from "./gardn-tui-session.js";
 
-const requests: unknown[] = [];
-const activeDisposers: Array<() => void> = [];
-const requestWaiters: Array<() => void> = [];
-let importCounter = 0;
+type Request = {
+  method: string;
+  params: {
+    pane_id: string;
+    source: string;
+    agent: string;
+    agent_session_id: string;
+    session_start_source: string;
+    seq?: number;
+  };
+};
 
-mock.module("node:net", () => ({
-  default: {
-    createConnection(_path: string, onConnect: () => void) {
-      const handlers = new Map<string, () => void>();
-      const client = {
-        write(input: string) {
-          requests.push(JSON.parse(input.trim()));
-          requestWaiters.shift()?.();
-          queueMicrotask(() => client.emit("data"));
-        },
-        setTimeout() {},
-        on(event: string, handler: () => void) {
-          handlers.set(event, handler);
-        },
-        destroy() {},
-        emit(event: string) {
-          handlers.get(event)?.();
-        },
-      };
-      queueMicrotask(onConnect);
-      return client;
+function integrationEnvironment(socketPath: string) {
+  const values = {
+    GARDN_ENV: "1",
+    GARDN_SOCKET_PATH: socketPath,
+    GARDN_PANE_ID: "test:p1",
+  };
+  const saved = Object.fromEntries(Object.keys(values).map((key) => [key, process.env[key]]));
+  Object.assign(process.env, values);
+  return {
+    [Symbol.dispose]() {
+      for (const [key, value] of Object.entries(saved)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
     },
-  },
-}));
+  };
+}
 
-beforeEach(() => {
-  requests.length = 0;
-  requestWaiters.length = 0;
-  process.env.GARDN_ENV = "1";
-  process.env.GARDN_SOCKET_PATH = "test.sock";
-  process.env.GARDN_PANE_ID = "test:p1";
-});
-
-afterEach(() => {
-  for (const dispose of activeDisposers.splice(0)) {
-    dispose();
-  }
-});
-
-async function loadPlugin() {
-  importCounter += 1;
-  const module = await import(`./gardn-tui-session.js?test=${importCounter}`);
-  return module.default;
+async function recordingSocket() {
+  const directory = await mkdtemp(join(tmpdir(), "gardn-tui-"));
+  const path = join(directory, "gardn.sock");
+  const requests: Request[] = [];
+  const listeners = new Set<() => void>();
+  let readIndex = 0;
+  const server = net.createServer((socket) => {
+    let buffered = "";
+    socket.on("data", (chunk) => {
+      buffered += chunk.toString();
+      const lines = buffered.split("\n");
+      buffered = lines.pop()!;
+      for (const line of lines) {
+        requests.push(JSON.parse(line));
+        socket.end("{}\n");
+        for (const notify of listeners) notify();
+      }
+    });
+  });
+  const listening = Promise.withResolvers<void>();
+  server.once("error", listening.reject);
+  server.listen(path, listening.resolve);
+  await listening.promise;
+  return {
+    path,
+    requests,
+    nextRequest(): Promise<Request> {
+      const index = readIndex++;
+      const { promise, resolve } = Promise.withResolvers<Request>();
+      const check = () => {
+        const request = requests[index];
+        if (request) {
+          listeners.delete(check);
+          resolve(request);
+        }
+      };
+      listeners.add(check);
+      check();
+      return promise;
+    },
+    async [Symbol.asyncDispose]() {
+      const closing = Promise.withResolvers<void>();
+      server.close((error) => (error ? closing.reject(error) : closing.resolve()));
+      await closing.promise;
+      await rm(directory, { recursive: true, force: true });
+    },
+  };
 }
 
 function fakeApi() {
   const sessions = new Map<string, { id: string; parentID?: string }>();
   let current: { name: string; params?: { sessionID: string } } = { name: "home" };
   let dispose: (() => void) | undefined;
-  activeDisposers.push(() => dispose?.());
 
   return {
     api: {
@@ -86,96 +119,92 @@ function fakeApi() {
     dispose() {
       dispose?.();
     },
+    [Symbol.dispose]() {
+      dispose?.();
+    },
   };
 }
 
-function waitForNextRequest(): Promise<void> {
-  return new Promise((resolve) => requestWaiters.push(resolve));
-}
-
-test("reports a root session when only the local route changes", async () => {
-  const plugin = await loadPlugin();
-  const tui = fakeApi();
+test.serial("reports a root session when only the local route changes", async () => {
+  await using socket = await recordingSocket();
+  using env = integrationEnvironment(socket.path);
+  using tui = fakeApi();
   tui.addSession({ id: "session-a" });
   await plugin.tui(tui.api);
 
-  const dispatched = waitForNextRequest();
   tui.select("session-a");
-  await dispatched;
+  const request = await socket.nextRequest();
 
-  expect(requests).toHaveLength(1);
-  expect(requestParam(requests[0], "agent_session_id")).toBe("session-a");
-  expect(requestParam(requests[0], "session_start_source")).toBe("select");
-  expect(requestParam(requests[0], "seq")).toBeUndefined();
+  expect(request).toMatchObject({
+    method: "pane.report_agent_session",
+    params: {
+      pane_id: "test:p1",
+      source: "gardn:opencode",
+      agent: "opencode",
+      agent_session_id: "session-a",
+      session_start_source: "select",
+    },
+  });
+  expect(request.params.seq).toBeUndefined();
 });
 
-test("retries an initial selection while Gardn detects the process", async () => {
-  const plugin = await loadPlugin();
-  const tui = fakeApi();
+test.serial("retries an initial selection while Gardn detects the process", async () => {
+  await using socket = await recordingSocket();
+  using env = integrationEnvironment(socket.path);
+  using tui = fakeApi();
   tui.addSession({ id: "session-a" });
   tui.select("session-a");
 
   await plugin.tui(tui.api);
-  await new Promise((resolve) => setTimeout(resolve, 125));
+  expect((await socket.nextRequest()).params.agent_session_id).toBe("session-a");
+  expect((await socket.nextRequest()).params.agent_session_id).toBe("session-a");
+});
 
-  expect(requests.map((request) => requestParam(request, "agent_session_id"))).toEqual([
+test.serial("reports only the root session selected by this TUI", async () => {
+  await using socket = await recordingSocket();
+  using env = integrationEnvironment(socket.path);
+  using tui = fakeApi();
+  tui.addSession({ id: "session-a" });
+  tui.addSession({ id: "session-b" });
+  tui.addSession({ id: "unselected-session" });
+  tui.select("session-a");
+  await plugin.tui(tui.api);
+  expect((await socket.nextRequest()).params.agent_session_id).toBe("session-a");
+
+  tui.select("session-b");
+  expect((await socket.nextRequest()).params.agent_session_id).toBe("session-b");
+  expect(socket.requests.map((request) => request.params.agent_session_id)).toEqual([
     "session-a",
-    "session-a",
+    "session-b",
   ]);
 });
 
-test("does not report root sessions not selected by this TUI", async () => {
-  const plugin = await loadPlugin();
-  const tui = fakeApi();
-  tui.addSession({ id: "session-a" });
-  tui.addSession({ id: "session-b" });
-  tui.select("session-a");
-  await plugin.tui(tui.api);
-
-  await new Promise((resolve) => setTimeout(resolve, 125));
-
-  expect(requests.length).toBeGreaterThan(0);
-  expect(requests.every((request) => requestParam(request, "agent_session_id") === "session-a")).toBe(
-    true,
-  );
-});
-
-test("does not replace the root session with a selected child session", async () => {
-  const plugin = await loadPlugin();
-  const tui = fakeApi();
+test.serial("does not replace the root session with a selected child session", async () => {
+  await using socket = await recordingSocket();
+  using env = integrationEnvironment(socket.path);
+  using tui = fakeApi();
   tui.addSession({ id: "root-session" });
   tui.addSession({ id: "child-session", parentID: "root-session" });
   tui.select("root-session");
   await plugin.tui(tui.api);
-  expect(requests).toHaveLength(1);
+  await socket.nextRequest();
 
   tui.select("child-session");
-  await new Promise((resolve) => setTimeout(resolve, 125));
+  await Bun.sleep(250);
 
-  expect(requests).toHaveLength(1);
-  expect(requestParam(requests[0], "agent_session_id")).toBe("root-session");
+  expect(socket.requests.map((request) => request.params.agent_session_id)).toEqual(["root-session"]);
 });
 
-test("stops route polling when the TUI plugin is disposed", async () => {
-  const plugin = await loadPlugin();
-  const tui = fakeApi();
+test.serial("stops route polling when the TUI plugin is disposed", async () => {
+  await using socket = await recordingSocket();
+  using env = integrationEnvironment(socket.path);
+  using tui = fakeApi();
   tui.addSession({ id: "session-a" });
   await plugin.tui(tui.api);
   tui.dispose();
   tui.select("session-a");
 
-  await new Promise((resolve) => setTimeout(resolve, 125));
+  await Bun.sleep(250);
 
-  expect(requests).toHaveLength(0);
+  expect(socket.requests).toEqual([]);
 });
-
-function requestParam(request: unknown, name: string): unknown {
-  if (!isRecord(request) || !isRecord(request.params)) {
-    return undefined;
-  }
-  return request.params[name];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
