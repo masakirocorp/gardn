@@ -2552,6 +2552,83 @@ mod tests {
     }
 
     #[test]
+    fn amp_release_clears_selected_thread_without_losing_process_detection() {
+        use crate::detect::{Agent, AgentState};
+        use crate::events::AppEvent;
+
+        let mut state = state_with_workspaces(&["amp"]);
+        let pane_id = state.workspaces[0].terminal_tab(0).unwrap().root_pane;
+        let terminal_id = state.workspaces[0].terminal_id(pane_id).unwrap().clone();
+        state.handle_app_event(AppEvent::StateChanged {
+            pane_id,
+            agent: Some(Agent::Amp),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_idle: true,
+            visible_working: false,
+            process_exited: false,
+            observed_at: std::time::Instant::now(),
+        });
+        state.handle_app_event(AppEvent::HookSessionReported {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            seq: Some(10),
+            session_start_source: Some("select".into()),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-selected"),
+            launch_env: Vec::new(),
+        });
+        state.handle_app_event(AppEvent::HookStateReported {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            state: AgentState::Blocked,
+            message: Some("waiting for approval".into()),
+            custom_status: None,
+            seq: Some(11),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-selected"),
+            launch_env: Vec::new(),
+        });
+
+        state.handle_app_event(AppEvent::HookAgentReleased {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            known_agent: Some(Agent::Amp),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-background"),
+            seq: Some(12),
+        });
+        assert_eq!(state.terminals[&terminal_id].state, AgentState::Blocked);
+        let snapshot = capture_from_state(&state);
+        let tab = snapshot.workspaces[0].tabs[0].as_terminal().unwrap();
+        assert_eq!(
+            tab.panes[&pane_id.raw()]
+                .agent_session
+                .as_ref()
+                .unwrap()
+                .value,
+            "T-selected"
+        );
+
+        state.handle_app_event(AppEvent::HookAgentReleased {
+            pane_id,
+            source: "gardn:amp".into(),
+            agent_label: "amp".into(),
+            known_agent: Some(Agent::Amp),
+            session_ref: crate::agent_resume::AgentSessionRef::id("T-selected"),
+            seq: Some(13),
+        });
+
+        let terminal = &state.terminals[&terminal_id];
+        assert_eq!(terminal.state, AgentState::Idle);
+        assert_eq!(terminal.detected_agent, Some(Agent::Amp));
+        assert!(!terminal.full_lifecycle_hook_authority_active());
+        let snapshot = capture_from_state(&state);
+        let tab = snapshot.workspaces[0].tabs[0].as_terminal().unwrap();
+        assert!(tab.panes[&pane_id.raw()].agent_session.is_none());
+    }
+
+    #[test]
     fn capture_contract_preserves_restored_agent_session() {
         let mut state = state_with_workspaces(&["one"]);
         let root = state.workspaces[0].terminal_tab(0).unwrap().root_pane;

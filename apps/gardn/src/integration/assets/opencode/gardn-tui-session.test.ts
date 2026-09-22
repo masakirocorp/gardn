@@ -1,9 +1,7 @@
 import { expect, test } from "bun:test";
 import net from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import plugin from "./gardn-tui-session.js";
+import { createTestEndpoint } from "../test-endpoint";
 
 type Request = {
   method: string;
@@ -36,8 +34,7 @@ function integrationEnvironment(socketPath: string) {
 }
 
 async function recordingSocket() {
-  const directory = await mkdtemp(join(tmpdir(), "gardn-tui-"));
-  const path = join(directory, "gardn.sock");
+  const endpoint = await createTestEndpoint("gardn-tui");
   const requests: Request[] = [];
   const listeners = new Set<() => void>();
   let readIndex = 0;
@@ -56,10 +53,10 @@ async function recordingSocket() {
   });
   const listening = Promise.withResolvers<void>();
   server.once("error", listening.reject);
-  server.listen(path, listening.resolve);
+  server.listen(endpoint.listenEndpoint, listening.resolve);
   await listening.promise;
   return {
-    path,
+    path: endpoint.value,
     requests,
     nextRequest(): Promise<Request> {
       const index = readIndex++;
@@ -79,7 +76,7 @@ async function recordingSocket() {
       const closing = Promise.withResolvers<void>();
       server.close((error) => (error ? closing.reject(error) : closing.resolve()));
       await closing.promise;
-      await rm(directory, { recursive: true, force: true });
+      await endpoint.cleanup();
     },
   };
 }

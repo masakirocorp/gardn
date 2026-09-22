@@ -1,9 +1,7 @@
 import { afterEach, expect, test, vi } from "bun:test";
 import net, { createServer, type Server, type Socket } from "node:net";
 import { EventEmitter } from "node:events";
-import { rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { createTestEndpoint, type TestEndpoint } from "./test-endpoint";
 
 const originalPlatform = process.platform;
 const originalCreateConnection = net.createConnection;
@@ -28,6 +26,7 @@ type RequestRecord = Record<string, unknown>;
 type RecordingSocket = {
   path: string;
   server: Server;
+  endpoint: TestEndpoint;
   requests: RequestRecord[];
 };
 
@@ -231,8 +230,7 @@ test.serial("Kilo reports session identity and lifecycle states", async () => {
 async function recordingSocket(
   handle: (request: RequestRecord, connection: number, socket: Socket) => void,
 ): Promise<RecordingSocket> {
-  const path = join(tmpdir(), `gardn-agent-state-${process.pid}-${Date.now()}-${Math.random()}.sock`);
-  await rm(path, { force: true });
+  const endpoint = await createTestEndpoint("gardn-agent-state");
   const requests: RequestRecord[] = [];
   let connections = 0;
   const server = createServer((socket) => {
@@ -253,16 +251,16 @@ async function recordingSocket(
   });
   const listening = Promise.withResolvers<void>();
   server.once("error", listening.reject);
-  server.listen(path, listening.resolve);
+  server.listen(endpoint.listenEndpoint, listening.resolve);
   await listening.promise;
-  return { path, server, requests };
+  return { path: endpoint.value, server, endpoint, requests };
 }
 
 async function closeRecordingSocket(recording: RecordingSocket): Promise<void> {
   const closed = Promise.withResolvers<void>();
   recording.server.close((error) => (error ? closed.reject(error) : closed.resolve()));
   await closed.promise;
-  await rm(recording.path, { force: true });
+  await recording.endpoint.cleanup();
   for (const [name, value] of Object.entries(originalEnvironment)) {
     if (value === undefined) delete process.env[name];
     else process.env[name] = value;

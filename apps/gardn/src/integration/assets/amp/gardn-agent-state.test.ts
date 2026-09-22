@@ -1,10 +1,8 @@
 import { expect, test } from "bun:test";
 import net from "node:net";
-import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import gardnAmpAgentState from "./gardn-agent-state";
 import type { PluginAPI } from "@ampcode/plugin";
+import { createTestEndpoint } from "../test-endpoint";
 
 type ThreadState = "idle" | "running" | "awaiting-approval" | "error";
 type ThreadId = `T-${string}`;
@@ -91,8 +89,8 @@ function environment(values: Record<string, string>) {
 }
 
 async function recordingSocket() {
-  const directory = await mkdtemp(join(tmpdir(), "gardn-amp-"));
-  const path = join(directory, "gardn.sock");
+  const endpoint = await createTestEndpoint("gardn-amp", "direct");
+  const path = endpoint.value;
   const reports: Report[] = [];
   const listeners = new Set<() => void>();
   const server = net.createServer((socket) => {
@@ -110,7 +108,7 @@ async function recordingSocket() {
   });
   const listening = Promise.withResolvers<void>();
   server.once("error", listening.reject);
-  server.listen(path, listening.resolve);
+  server.listen(endpoint.listenEndpoint, listening.resolve);
   await listening.promise;
   return {
     path,
@@ -132,7 +130,7 @@ async function recordingSocket() {
       const closing = Promise.withResolvers<void>();
       server.close(() => closing.resolve());
       await closing.promise;
-      await rm(directory, { recursive: true, force: true });
+      await endpoint.cleanup();
     },
   };
 }
