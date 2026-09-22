@@ -1,3 +1,11 @@
+## gardn@0.11.0
+
+### Add Amp integration
+
+Launch Amp from the agent picker and install its managed plugin with `gardn integration install amp`. Gardn follows the selected thread's working, approval, error, and idle states. Session restore continues that thread with Amp's native resume command. Clearing the selection or unloading the plugin clears the saved thread and releases its status reports without hiding the running Amp process.
+
+The integration supports macOS, Linux, and WSL. Installation preserves Amp settings and permissions.
+
 ## gardn@0.10.29
 
 ### Clarify Gardn instances in the menu bar app
