@@ -219,7 +219,7 @@ test("rejects token-limited text instead of accepting a partial answer", async (
   try {
     await assert.rejects(
       completeOpenRouterTurn({ messages, model: "openrouter/free", apiKey: "test-key", baseUrl: server.baseUrl }),
-      /did not finish with a complete assistant response/,
+      /did not finish with a complete assistant response \(length\)/,
     );
   } finally {
     await server.close();

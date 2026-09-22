@@ -1,6 +1,7 @@
 const DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_TIMEOUT_MS = 120_000;
-const MAX_OUTPUT_TOKENS = 256;
+// Free routing can select reasoning models, whose thinking shares the output budget.
+const MAX_OUTPUT_TOKENS = 4096;
 
 function providerError(message) {
   return new Error(`OpenRouter ${message}`);
@@ -75,7 +76,10 @@ function parseSseEvent(dataLines, state) {
     }
     if (choice.finish_reason !== null && choice.finish_reason !== undefined) {
       if (choice.finish_reason !== "stop") {
-        throw providerError("stream did not finish with a complete assistant response");
+        const reason = ["length", "tool_calls", "content_filter", "error"].includes(choice.finish_reason)
+          ? choice.finish_reason
+          : "unknown";
+        throw providerError(`stream did not finish with a complete assistant response (${reason})`);
       }
       state.finished = true;
     }
