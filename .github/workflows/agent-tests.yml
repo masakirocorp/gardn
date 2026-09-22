@@ -63,6 +63,7 @@ jobs:
             echo "QWEN_CODE_VERSION=$(jq -r '.build_args.QWEN_CODE_VERSION' "$cohort_path")"
             echo "KILO_VERSION=$(jq -r '.build_args.KILO_VERSION' "$cohort_path")"
             echo "MASTRACODE_VERSION=$(jq -r '.build_args.MASTRACODE_VERSION' "$cohort_path")"
+            echo "AMP_VERSION=$(jq -r '.build_args.AMP_VERSION' "$cohort_path")"
             echo "KIMI_VERSION=$(jq -r '.build_args.KIMI_VERSION' "$cohort_path")"
             echo "MAKI_VERSION=$(jq -r '.build_args.MAKI_VERSION' "$cohort_path")"
             echo "OMP_REF=$(jq -r '.build_args.OMP_REF' "$cohort_path")"
@@ -83,6 +84,7 @@ jobs:
           QWEN_CODE_VERSION: ${{ steps.cohort.outputs.QWEN_CODE_VERSION }}
           KILO_VERSION: ${{ steps.cohort.outputs.KILO_VERSION }}
           MASTRACODE_VERSION: ${{ steps.cohort.outputs.MASTRACODE_VERSION }}
+          AMP_VERSION: ${{ steps.cohort.outputs.AMP_VERSION }}
           KIMI_VERSION: ${{ steps.cohort.outputs.KIMI_VERSION }}
           MAKI_VERSION: ${{ steps.cohort.outputs.MAKI_VERSION }}
           OMP_REF: ${{ steps.cohort.outputs.OMP_REF }}
@@ -103,6 +105,7 @@ jobs:
             --build-arg "QWEN_CODE_VERSION=${QWEN_CODE_VERSION}" \
             --build-arg "KILO_VERSION=${KILO_VERSION}" \
             --build-arg "MASTRACODE_VERSION=${MASTRACODE_VERSION}" \
+            --build-arg "AMP_VERSION=${AMP_VERSION}" \
             --build-arg "KIMI_VERSION=${KIMI_VERSION}" \
             --build-arg "MAKI_VERSION=${MAKI_VERSION}" \
             --build-arg "OMP_REF=${OMP_REF}" \

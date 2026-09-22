@@ -16,6 +16,7 @@ ARG PI_VERSION
 ARG QWEN_CODE_VERSION
 ARG KILO_VERSION
 ARG MASTRACODE_VERSION
+ARG AMP_VERSION
 ARG PNPM_VERSION=11.6.0
 ARG KIMI_VERSION
 ARG MAKI_VERSION
@@ -56,6 +57,7 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
       QWEN_CODE_VERSION \
       KILO_VERSION \
       MASTRACODE_VERSION \
+      AMP_VERSION \
       KIMI_VERSION \
       MAKI_VERSION \
       OMP_REF; do \
@@ -76,6 +78,7 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
         '  "@kilocode/cli": true' \
         '  "@qwen-code/qwen-code": true' \
         '  "@qwen-code/audio-capture": false' \
+        '  "@ampcode/cli": true' \
         '  "@google/genai": false' \
         '  "agent-browser": false' \
         '  "bufferutil": false' \
@@ -101,12 +104,13 @@ RUN --mount=type=cache,id=gardn-agent-tests-pnpm,target=/pnpm/store \
         "    \"@earendil-works/pi-coding-agent\": \"${PI_VERSION}\"," \
         "    \"@qwen-code/qwen-code\": \"${QWEN_CODE_VERSION}\"," \
         "    \"@kilocode/cli\": \"${KILO_VERSION}\"," \
-        "    \"mastracode\": \"${MASTRACODE_VERSION}\"" \
+        "    \"mastracode\": \"${MASTRACODE_VERSION}\"," \
+        "    \"@ampcode/cli\": \"${AMP_VERSION}\"" \
         '  }' \
         '}' \
         > package.json \
     && pnpm install --prod \
-    && for bin in claude codex opencode copilot hermes droid pi qwen kilo kilocode mastracode; do \
+    && for bin in claude codex opencode copilot hermes droid pi qwen kilo kilocode mastracode amp; do \
         printf '%s\n' '#!/bin/sh' "exec /opt/agent-tests-node/node_modules/.bin/${bin} \"\$@\"" > "/usr/local/bin/${bin}"; \
         chmod +x "/usr/local/bin/${bin}"; \
     done \
@@ -218,11 +222,12 @@ COPY kilo-status-test.sh /usr/local/bin/gardn-agent-tests-kilo-status
 COPY deterministic-provider.mjs /usr/local/lib/gardn-deterministic-provider.mjs
 COPY with-deterministic-provider.sh /usr/local/bin/gardn-agent-tests-with-provider
 COPY mastracode-status-test.sh /usr/local/bin/gardn-agent-tests-mastracode-status
+COPY amp-status-test.py /usr/local/bin/gardn-agent-tests-amp-status
 COPY antigravity-status-test.sh /usr/local/bin/gardn-agent-tests-antigravity-status
 COPY run-target.sh /usr/local/bin/gardn-agent-tests-target
 # Pre-resolved cohort manifest written by resolve-versions.mjs before docker build.
 COPY cohort.json /usr/local/share/gardn-agent-tests/cohort.json
-RUN chmod +x /usr/local/bin/gardn-agent-tests-env /usr/local/bin/gardn-agent-tests-doctor /usr/local/bin/gardn-agent-tests-verify-env /usr/local/bin/gardn-agent-tests-opencode /usr/local/bin/gardn-agent-tests-opencode-status /usr/local/bin/gardn-agent-tests-pi-omp-status /usr/local/bin/gardn-agent-tests-claude-status /usr/local/bin/gardn-agent-tests-codex-status /usr/local/bin/gardn-agent-tests-remaining-status /usr/local/bin/gardn-agent-tests-cursor-proxy-status /usr/local/bin/gardn-agent-tests-qoder-proxy-status /usr/local/bin/gardn-agent-tests-maki-status /usr/local/bin/gardn-agent-tests-qwen-status /usr/local/bin/gardn-agent-tests-kilo-status /usr/local/bin/gardn-agent-tests-mastracode-status /usr/local/bin/gardn-agent-tests-antigravity-status /usr/local/bin/gardn-agent-tests-with-provider /usr/local/bin/gardn-agent-tests-target /usr/local/bin/gardn-agent-cursor-openrouter-proxy /usr/local/bin/gardn-agent-qoder-openrouter-proxy /usr/local/bin/gardn-agent-opencode-plugin-status-test /usr/local/bin/gardn-agent-pi-omp-plugin-status-test /usr/local/lib/gardn-deterministic-provider.mjs \
+RUN chmod +x /usr/local/bin/gardn-agent-tests-env /usr/local/bin/gardn-agent-tests-doctor /usr/local/bin/gardn-agent-tests-verify-env /usr/local/bin/gardn-agent-tests-opencode /usr/local/bin/gardn-agent-tests-opencode-status /usr/local/bin/gardn-agent-tests-pi-omp-status /usr/local/bin/gardn-agent-tests-claude-status /usr/local/bin/gardn-agent-tests-codex-status /usr/local/bin/gardn-agent-tests-remaining-status /usr/local/bin/gardn-agent-tests-cursor-proxy-status /usr/local/bin/gardn-agent-tests-qoder-proxy-status /usr/local/bin/gardn-agent-tests-maki-status /usr/local/bin/gardn-agent-tests-qwen-status /usr/local/bin/gardn-agent-tests-kilo-status /usr/local/bin/gardn-agent-tests-mastracode-status /usr/local/bin/gardn-agent-tests-amp-status /usr/local/bin/gardn-agent-tests-antigravity-status /usr/local/bin/gardn-agent-tests-with-provider /usr/local/bin/gardn-agent-tests-target /usr/local/bin/gardn-agent-cursor-openrouter-proxy /usr/local/bin/gardn-agent-qoder-openrouter-proxy /usr/local/bin/gardn-agent-opencode-plugin-status-test /usr/local/bin/gardn-agent-pi-omp-plugin-status-test /usr/local/lib/gardn-deterministic-provider.mjs \
     && useradd --create-home --shell /bin/bash agenttest \
     && chmod 0644 /usr/local/share/gardn-agent-tests/cohort.json
 

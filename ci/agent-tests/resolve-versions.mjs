@@ -9,7 +9,7 @@
 //   GARDN_RESOLVE_FETCH           optional path to a node module exporting fetch
 //   CLAUDE_CODE_VERSION, CODEX_VERSION, OPENCODE_VERSION, COPILOT_VERSION,
 //   HERMES_VERSION, DROID_VERSION, PI_VERSION, QWEN_CODE_VERSION, KILO_VERSION,
-//   MASTRACODE_VERSION, KIMI_VERSION, MAKI_VERSION, OMP_REF,
+//   MASTRACODE_VERSION, AMP_VERSION, KIMI_VERSION, MAKI_VERSION, OMP_REF,
 //   ANTIGRAVITY_VERSION, ANTIGRAVITY_DOWNLOAD_URL, ANTIGRAVITY_SHA512
 //                                 optional exact overrides (skip remote lookup)
 //   COHORT_PATH                 optional path to also write the JSON document
@@ -72,6 +72,11 @@ const NPM_AGENTS = [
     name: "mastracode",
     buildArg: "MASTRACODE_VERSION",
     packageName: "mastracode",
+  },
+  {
+    name: "amp",
+    buildArg: "AMP_VERSION",
+    packageName: "@ampcode/cli",
   },
 ];
 const KIMI_TAG_PREFIX = "@moonshot-ai/kimi-code@";

@@ -48,9 +48,33 @@ Run `just --list` for the live index. The Justfile comments are the source of tr
 | `just agent-test-pi-omp-plugin-status` | Verify Pi/OMP plugin lifecycle reports without providers. |
 | `just agent-test-claude-status` | Run Claude through OpenRouter and verify Gardn status from the real hook. |
 | `just agent-test-codex-status` | Run Codex through OpenRouter and verify Gardn status from the real hook. |
+| `just agent-test-amp-status` | Run Amp and verify native thread status, graceful exit, and resume. |
 | `just agent-test-remaining-status` | Run remaining installed agents and verify status where hooks exist. |
 | `just agent-test-cursor-proxy-status` | Run Cursor through a local OpenRouter proxy and assert real hook states. |
 | `just agent-test-qoder-proxy-status` | Run Qoder through a local OpenRouter proxy and assert real hook states. |
+
+Amp uses its own service, not the OpenRouter model settings. Set `AMP_API_KEY` to a
+long-lived access token from [Amp settings](https://ampcode.com/settings/security#access-token).
+Store the same token as the repository Actions secret `AMP_API_KEY`. Do not use the
+short-lived session token from `amp login`.
+
+The `amp` target runs in the push, nightly, and manual `Live Agent Tests` matrix.
+The image records the exact Amp version in its cohort manifest. The test loads the
+managed Gardn plugin in the real Amp TUI, completes a provider turn, exits, and
+resumes the same native thread for another turn. It checks thread identity,
+ordered status reports, assistant responses, and graceful release. It creates a
+private test thread and deletes that thread after the test. Missing credentials
+or failed provider calls fail the test; they do not skip it.
+
+To run the same harness with a locally installed Amp CLI and its existing login:
+
+```bash
+GARDN_REPO_DIR="$PWD" python3 ci/agent-tests/amp-status-test.py
+```
+
+Amp execute mode does not expose the selected-thread lifecycle. The harness uses
+a PTY instead. Deterministic plugin tests remain part of `pnpm test` and `pnpm check`;
+they do not replace the authenticated CLI test.
 
 **Demo and capture**
 

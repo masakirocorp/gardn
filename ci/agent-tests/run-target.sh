@@ -44,6 +44,9 @@ case "$target" in
   mastracode)
     exec gardn-agent-tests-with-provider gardn-agent-tests-mastracode-status
     ;;
+  amp)
+    exec gardn-agent-tests-amp-status
+    ;;
   antigravity)
     exec gardn-agent-tests-with-provider gardn-agent-tests-antigravity-status
     ;;

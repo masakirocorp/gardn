@@ -31,6 +31,7 @@ class AgentImageDoctorTests(unittest.TestCase):
                 "kilo",
                 "kilo-code",
                 "mastracode",
+                "amp",
                 "agy",
                 "cursor-agent",
                 "qoder",

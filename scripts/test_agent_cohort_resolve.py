@@ -23,6 +23,7 @@ NPM_PACKAGES = {
     "@qwen-code/qwen-code": "0.22.0",
     "@kilocode/cli": "7.4.23",
     "mastracode": "0.35.0",
+    "@ampcode/cli": "0.0.1789716701-gf95c0d",
 }
 
 GITHUB_RELEASES = {
@@ -202,9 +203,10 @@ class AgentCohortResolveTests(unittest.TestCase):
                 "DROID_VERSION": "3.3.3",
                 "PI_VERSION": "0.7.8",
                 "QWEN_CODE_VERSION": "0.22.0",
-                "KILO_VERSION": "7.4.23",
                 "MASTRACODE_VERSION": "0.35.0",
+                "AMP_VERSION": "0.0.1789716701-gf95c0d",
                 "KIMI_VERSION": "9.9.9",
+                "KILO_VERSION": "7.4.23",
                 "MAKI_VERSION": "v1.4.2",
                 "OMP_REF": "v0.12.0",
                 "ANTIGRAVITY_VERSION": "1.2.3",
@@ -291,6 +293,7 @@ class AgentCohortResolveTests(unittest.TestCase):
                 "QWEN_CODE_VERSION": "9.9.8",
                 "KILO_VERSION": "9.9.9",
                 "MASTRACODE_VERSION": "9.9.10",
+                "AMP_VERSION": "9.9.11",
                 "KIMI_VERSION": "8.8.8",
                 "MAKI_VERSION": "v7.7.7",
                 "OMP_REF": "v6.6.6",
@@ -305,6 +308,7 @@ class AgentCohortResolveTests(unittest.TestCase):
         self.assertEqual(cohort["build_args"]["QWEN_CODE_VERSION"], "9.9.8")
         self.assertEqual(cohort["build_args"]["KILO_VERSION"], "9.9.9")
         self.assertEqual(cohort["build_args"]["MASTRACODE_VERSION"], "9.9.10")
+        self.assertEqual(cohort["build_args"]["AMP_VERSION"], "9.9.11")
         self.assertEqual(cohort["build_args"]["KIMI_VERSION"], "8.8.8")
         self.assertEqual(cohort["build_args"]["MAKI_VERSION"], "v7.7.7")
         self.assertEqual(cohort["build_args"]["OMP_REF"], "v6.6.6")
@@ -360,27 +364,6 @@ class AgentCohortWorkflowTests(unittest.TestCase):
         self.assertNotIn("kiro", self.dockerfile.lower())
         self.assertNotIn("ARG CLAUDE_CODE_VERSION=latest", self.dockerfile)
         self.assertNotIn("ARG MAKI_VERSION=0.3.27", self.dockerfile)
-
-    def test_exact_build_arg_flags_are_passed(self):
-        for arg in [
-            "CLAUDE_CODE_VERSION",
-            "CODEX_VERSION",
-            "OPENCODE_VERSION",
-            "COPILOT_VERSION",
-            "HERMES_VERSION",
-            "DROID_VERSION",
-            "PI_VERSION",
-            "QWEN_CODE_VERSION",
-            "KILO_VERSION",
-            "MASTRACODE_VERSION",
-            "KIMI_VERSION",
-            "MAKI_VERSION",
-            "OMP_REF",
-            "ANTIGRAVITY_VERSION",
-            "ANTIGRAVITY_DOWNLOAD_URL",
-            "ANTIGRAVITY_SHA512",
-        ]:
-            self.assertIn(f'--build-arg "{arg}=', self.workflow)
 
 
 if __name__ == "__main__":

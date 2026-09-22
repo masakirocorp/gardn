@@ -138,6 +138,10 @@ agent-test-claude-status:
 agent-test-codex-status:
     docker run --rm -e OPENROUTER_API_KEY -e GARDN_TEST_MODEL -e GARDN_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" gardn-agent-tests:local gardn-agent-tests-env gardn-agent-tests-codex-status
 
+# Run Amp with its native API token and verify Gardn status reports
+agent-test-amp-status:
+    docker run --rm -e CI=1 -e AMP_API_KEY -v "$PWD:/repo:ro" gardn-agent-tests:local gardn-agent-tests-target amp
+
 # Run remaining installed agents and verify Gardn status reports where hooks exist
 agent-test-remaining-status:
     docker run --rm -e OPENROUTER_API_KEY -e GARDN_TEST_MODEL -e GARDN_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" gardn-agent-tests:local gardn-agent-tests-env gardn-agent-tests-remaining-status

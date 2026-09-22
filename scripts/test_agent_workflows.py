@@ -27,6 +27,7 @@ TARGETS = [
     "qwen-deterministic",
     "kilo-deterministic",
     "mastracode",
+    "amp",
     "antigravity",
     "antigravity-gemini",
 ]
@@ -180,6 +181,7 @@ class AgentTestWorkflowTests(unittest.TestCase):
             "maki": "gardn-agent-tests-maki-status",
             "qwen": "gardn-agent-tests-qwen-status",
             "kilo": "gardn-agent-tests-kilo-status",
+            "amp": "gardn-agent-tests-amp-status",
         }
 
         with tempfile.TemporaryDirectory() as tmp:
