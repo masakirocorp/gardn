@@ -121,6 +121,12 @@ jobs:
       - name: Check deterministic provider behavior
         run: node --test ci/agent-tests/deterministic-provider.test.mjs
 
+      - name: Check real Amp CLI without credentials or external network
+        run: >-
+          docker run --rm --network none
+          -v "${{ github.workspace }}:/repo:ro"
+          gardn-agent-tests:ci gardn-agent-tests-target amp
+
       - name: Check deterministic provider-backed CLIs
         run: |
           set -euo pipefail
@@ -128,12 +134,6 @@ jobs:
             docker run --rm -v "${{ github.workspace }}:/repo:ro" gardn-agent-tests:ci \
               gardn-agent-tests-target "$target"
           done
-      - name: Check real Amp CLI without credentials or external network
-        run: >-
-          docker run --rm --network none
-          -v "${{ github.workspace }}:/repo:ro"
-          gardn-agent-tests:ci gardn-agent-tests-target amp
-
 
       - name: Check provider env wiring
         run: >-

@@ -200,8 +200,8 @@ RUN set -eux; \
     esac; \
     rm -f /tmp/antigravity-payload /tmp/antigravity
 
-# Bun supplies the WebSocket service fixture used by the credential-free Amp test.
-COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/local/bin/bun
+# Keep the Amp fixture runtime off PATH so other CLIs retain their runtime discovery.
+COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /opt/gardn-agent-tests/bun
 
 COPY test-env.sh /usr/local/bin/gardn-agent-tests-env
 COPY doctor.sh /usr/local/bin/gardn-agent-tests-doctor

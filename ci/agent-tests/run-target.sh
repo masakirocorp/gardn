@@ -45,7 +45,7 @@ case "$target" in
     exec gardn-agent-tests-with-provider gardn-agent-tests-mastracode-status
     ;;
   amp)
-    exec bun /usr/local/lib/gardn-amp-fixture-test.mjs /usr/local/bin/gardn-agent-tests-amp-status
+    exec /opt/gardn-agent-tests/bun /usr/local/lib/gardn-amp-fixture-test.mjs /usr/local/bin/gardn-agent-tests-amp-status
     ;;
   antigravity)
     exec gardn-agent-tests-with-provider gardn-agent-tests-antigravity-status
