@@ -121,6 +121,7 @@ import subprocess
 import sys
 import termios
 import time
+import resource
 from pathlib import Path
 
 model, output_path, request_log = sys.argv[1:4]
@@ -155,6 +156,9 @@ def clean(value):
 
 def read_until(predicate, timeout, label, start=0):
     deadline = time.monotonic() + timeout
+    last_report = 0
+    if os.environ.get("GARDN_QWEN_DIAGNOSTICS"):
+        print(f"Qwen phase: {label}", flush=True)
     while time.monotonic() < deadline:
         readable, _, _ = select.select([master], [], [], 0.5)
         if readable:
@@ -163,6 +167,15 @@ def read_until(predicate, timeout, label, start=0):
             except OSError:
                 break
         view = bytes(raw[start:])
+        if os.environ.get("GARDN_QWEN_DIAGNOSTICS") and time.monotonic() - last_report >= 2:
+            last_report = time.monotonic()
+            print(f"Qwen capture bytes={len(raw)} harness_maxrss={resource.getrusage(resource.RUSAGE_SELF).ru_maxrss}", flush=True)
+            for status_path in Path("/proc").glob("[0-9]*/status"):
+                try:
+                    status = dict(line.split(":", 1) for line in status_path.read_text().splitlines())
+                except FileNotFoundError:
+                    continue
+                print({key: status.get(key, "").strip() for key in ("Name", "Pid", "PPid", "VmRSS")}, flush=True)
         if predicate(view, clean(view)):
             return
         if proc.poll() is not None and not readable:

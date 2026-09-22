@@ -131,7 +131,7 @@ jobs:
         run: |
           set -euo pipefail
           for target in qwen-deterministic kilo-deterministic mastracode antigravity; do
-            docker run --rm -v "${{ github.workspace }}:/repo:ro" gardn-agent-tests:ci \
+            docker run --rm --memory 2g --memory-swap 2g -e GARDN_QWEN_DIAGNOSTICS=1 -v "${{ github.workspace }}:/repo:ro" gardn-agent-tests:ci \
               gardn-agent-tests-target "$target"
           done
 
