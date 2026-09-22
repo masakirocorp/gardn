@@ -200,7 +200,7 @@ RUN set -eux; \
     esac; \
     rm -f /tmp/antigravity-payload /tmp/antigravity
 
-# Keep the Amp fixture runtime off PATH so other CLIs retain their runtime discovery.
+# Keep the Amp bridge runtime off PATH so other CLIs retain their runtime discovery.
 COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /opt/gardn-agent-tests/bun
 
 COPY test-env.sh /usr/local/bin/gardn-agent-tests-env
@@ -226,7 +226,8 @@ COPY deterministic-provider.mjs /usr/local/lib/gardn-deterministic-provider.mjs
 COPY with-deterministic-provider.sh /usr/local/bin/gardn-agent-tests-with-provider
 COPY mastracode-status-test.sh /usr/local/bin/gardn-agent-tests-mastracode-status
 COPY amp-status-test.py /usr/local/bin/gardn-agent-tests-amp-status
-COPY amp-fixture-test.mjs /usr/local/lib/gardn-amp-fixture-test.mjs
+COPY amp-proxy-test.mjs /usr/local/lib/gardn-amp-proxy-test.mjs
+COPY amp-openrouter.mjs /usr/local/lib/amp-openrouter.mjs
 COPY antigravity-status-test.sh /usr/local/bin/gardn-agent-tests-antigravity-status
 COPY run-target.sh /usr/local/bin/gardn-agent-tests-target
 # Pre-resolved cohort manifest written by resolve-versions.mjs before docker build.

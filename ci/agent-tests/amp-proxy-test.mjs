@@ -1,8 +1,20 @@
 #!/usr/bin/env bun
-// Amp owns inference in a thread actor, not an OpenAI-compatible endpoint.
-// Stub only that service boundary; the CLI, plugin, PTY, and Gardn RPC are real.
+// Test-only Amp actor bridge, not Amp's hosted agent implementation.
+// The mode selects live OpenRouter inference or explicitly deterministic replies.
 import { mkdtemp, rm } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { completeOpenRouterTurn } from './amp-openrouter.mjs';
+
+const [mode, harness = fileURLToPath(new URL('./amp-status-test.py', import.meta.url))] = process.argv.slice(2);
+if (mode !== 'openrouter' && mode !== 'deterministic') {
+  throw new Error('Usage: amp-proxy-test.mjs <openrouter|deterministic> [harness-path]');
+}
+const apiKey = mode === 'openrouter' ? process.env.OPENROUTER_API_KEY : undefined;
+if (mode === 'openrouter' && !apiKey) throw new Error('OPENROUTER_API_KEY is required');
+const model = process.env.GARDN_TEST_MODEL || 'openrouter/free';
+const shutdown = new AbortController();
+let pendingTurn = false;
+let child;
 
 const threadId = `T-${crypto.randomUUID()}`;
 const thread = {
@@ -11,15 +23,54 @@ const thread = {
 };
 let created = false;
 let protocolFailed = false;
-const token = 'gardn-local-fixture';
+const token = 'gardn-local-bridge';
 const prompts = [
   'Join "GARDN_AMP" and "CI_OK" with an underscore. Reply with only the result. Do not use tools.',
   'Reply with your previous assistant response followed by _RESUMED. Do not use tools.',
 ];
 
 function fail(message) {
+  const firstFailure = !protocolFailed;
   protocolFailed = true;
-  console.error(`Amp service fixture: ${message}`);
+  console.error(`Amp actor bridge: ${message}`);
+  // Interrupt the harness so its cleanup runs; never synthesize a successful turn.
+  if (firstFailure && child?.exitCode === null) child.kill('SIGINT');
+}
+
+async function completeTurn(notify) {
+  pendingTurn = true;
+  try {
+    let text;
+    if (mode === 'deterministic') {
+      // Only the offline target synthesizes a provider response and its latency.
+      await Bun.sleep(300);
+      const previous = thread.messages.findLast(message => message.role === 'assistant');
+      text = previous ? `${previous.content[0].text}_RESUMED` : 'GARDN_AMP_CI_OK';
+    } else {
+      text = await completeOpenRouterTurn({
+        messages: thread.messages.map(message => ({
+          role: message.role,
+          content: message.content.map(block => block.text).join(''),
+        })),
+        model,
+        apiKey,
+        baseUrl: process.env.OPENROUTER_BASE_URL || undefined,
+        signal: shutdown.signal,
+      });
+      console.log(`Amp bridge: OpenRouter-compatible response completed (${model})`);
+    }
+    const assistant = {
+      threadId, messageId: `M-${String(thread.v).padStart(22, '0')}`, role: 'assistant',
+      content: [{ type: 'text', text }], state: { type: 'complete' },
+    };
+    thread.messages.push(assistant);
+    notify('message_added', { message: assistant, seq: ++thread.v });
+    notify('agent_state', { state: 'idle', agentMode: 'medium' });
+  } catch (error) {
+    fail(error.message);
+  } finally {
+    pendingTurn = false;
+  }
 }
 
 const server = Bun.serve({
@@ -105,29 +156,24 @@ const server = Bun.serve({
           notify('executor_connected', { executorId: request.params.clientId, registeredToolCount: 0, guidanceInventory: [], resumeBootstrap: true });
           break;
         case 'client_append_user_msg': {
-          const responses = thread.messages.filter(message => message.role === 'assistant');
-          const prompt = request.params.content.map(block => block.text).join('');
-          if (prompt !== prompts[responses.length]) {
-            fail(`Unexpected prompt for turn ${responses.length + 1}`);
-            notify('agent_state', { state: 'error' });
+          const content = request.params?.content;
+          if (pendingTurn || !Array.isArray(content) || content.length === 0
+            || content.some(block => block.type !== 'text' || typeof block.text !== 'string')) {
+            fail('Expected one text-only turn at a time');
             return;
           }
-          const user = { threadId, messageId: request.params.messageId, role: 'user', content: request.params.content };
+          if (mode === 'deterministic') {
+            const turn = thread.messages.filter(message => message.role === 'assistant').length;
+            if (content.map(block => block.text).join('') !== prompts[turn]) {
+              fail(`Unexpected deterministic prompt for turn ${turn + 1}`);
+              return;
+            }
+          }
+          const user = { threadId, messageId: request.params.messageId, role: 'user', content };
           thread.messages.push(user);
           notify('message_added', { message: user, seq: ++thread.v });
           notify('agent_state', { state: 'working', agentMode: 'medium' });
-          // Keep the turn open briefly, as a streaming provider would.
-          setTimeout(() => {
-            const previous = responses.at(-1);
-            const text = previous ? `${previous.content[0].text}_RESUMED` : 'GARDN_AMP_CI_OK';
-            const assistant = {
-              threadId, messageId: `M-${String(thread.v).padStart(22, '0')}`, role: 'assistant',
-              content: [{ type: 'text', text }], state: { type: 'complete' },
-            };
-            thread.messages.push(assistant);
-            notify('message_added', { message: assistant, seq: ++thread.v });
-            notify('agent_state', { state: 'idle', agentMode: 'medium' });
-          }, 300);
+          void completeTurn(notify);
           break;
         }
         case 'client_resume':
@@ -153,10 +199,9 @@ const server = Bun.serve({
 
 const home = await mkdtemp('/tmp/gardn-amp-home-');
 try {
-  const harness = process.argv[2] ?? fileURLToPath(new URL('./amp-status-test.py', import.meta.url));
-  const child = Bun.spawn(['python3', harness], {
+  child = Bun.spawn(['python3', harness], {
     cwd: home,
-    // Do not read the developer's Amp login, settings, or provider credentials.
+    // Amp receives only the local bridge token, never the OpenRouter key or host login.
     env: {
       PATH: process.env.PATH,
       HOME: home,
@@ -167,13 +212,15 @@ try {
       AMP_URL: server.url.origin,
       RIVET_PUBLIC_ENDPOINT: `${server.url.origin}/actors`,
       GARDN_REPO_DIR: process.env.GARDN_REPO_DIR ?? '/repo',
-      GARDN_AMP_STATUS_TIMEOUT: process.env.GARDN_AMP_STATUS_TIMEOUT ?? '30',
+      GARDN_AMP_STATUS_TIMEOUT: process.env.GARDN_AMP_STATUS_TIMEOUT ?? (mode === 'openrouter' ? '180' : '30'),
     },
     stdout: 'inherit', stderr: 'inherit',
   });
+  console.log(`Amp integration mode: ${mode}; actor service and Gardn receiver are test doubles`);
   process.exitCode = await child.exited;
   if (protocolFailed) process.exitCode = 1;
 } finally {
+  shutdown.abort();
   await server.stop(true);
   await rm(home, { recursive: true, force: true });
 }

@@ -138,9 +138,13 @@ agent-test-claude-status:
 agent-test-codex-status:
     docker run --rm -e OPENROUTER_API_KEY -e GARDN_TEST_MODEL -e GARDN_TEST_FALLBACK_MODELS -v "$PWD:/repo:ro" gardn-agent-tests:local gardn-agent-tests-env gardn-agent-tests-codex-status
 
-# Run the real Amp CLI against a credential-free service fixture
+# Run the real Amp CLI with real OpenRouter inference
 agent-test-amp-status:
-    docker run --rm --network none -v "$PWD:/repo:ro" gardn-agent-tests:local gardn-agent-tests-target amp
+    docker run --rm -e OPENROUTER_API_KEY -e OPENROUTER_BASE_URL -e GARDN_TEST_MODEL -v "$PWD:/repo:ro" gardn-agent-tests:local gardn-agent-tests-target amp
+
+# Run the real Amp CLI against the deterministic offline Amp service
+agent-test-amp-deterministic-status:
+    docker run --rm --network none -v "$PWD:/repo:ro" gardn-agent-tests:local gardn-agent-tests-target amp-deterministic
 
 # Run remaining installed agents and verify Gardn status reports where hooks exist
 agent-test-remaining-status:

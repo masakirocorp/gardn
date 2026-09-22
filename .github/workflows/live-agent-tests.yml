@@ -46,6 +46,7 @@ on:
           - kilo-deterministic
           - mastracode
           - amp
+          - amp-deterministic
           - antigravity
           - antigravity-gemini
   schedule:
@@ -283,6 +284,9 @@ jobs:
           )
           case "$TARGET" in
             amp)
+              args+=(-e OPENROUTER_API_KEY)
+              ;;
+            amp-deterministic)
               args+=(--network none)
               ;;
             qwen-deterministic|kilo-deterministic|mastracode|antigravity)
@@ -317,7 +321,7 @@ jobs:
           esac
           command=(gardn-agent-tests-env gardn-agent-tests-target "$TARGET")
           case "$TARGET" in
-            qwen-deterministic|kilo-deterministic|mastracode|antigravity|amp)
+            qwen-deterministic|kilo-deterministic|mastracode|antigravity|amp|amp-deterministic)
               command=(gardn-agent-tests-target "$TARGET")
               ;;
             antigravity-gemini)

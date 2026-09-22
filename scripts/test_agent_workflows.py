@@ -28,6 +28,7 @@ TARGETS = [
     "kilo-deterministic",
     "mastracode",
     "amp",
+    "amp-deterministic",
     "antigravity",
     "antigravity-gemini",
 ]

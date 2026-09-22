@@ -48,7 +48,8 @@ Run `just --list` for the live index. The Justfile comments are the source of tr
 | `just agent-test-pi-omp-plugin-status` | Verify Pi/OMP plugin lifecycle reports without providers. |
 | `just agent-test-claude-status` | Run Claude through OpenRouter and verify Gardn status from the real hook. |
 | `just agent-test-codex-status` | Run Codex through OpenRouter and verify Gardn status from the real hook. |
-| `just agent-test-amp-status` | Run Amp and verify native thread status, graceful exit, and resume. |
+| `just agent-test-amp-status` | Run the real Amp CLI with real OpenRouter inference and verify Gardn status. |
+| `just agent-test-amp-deterministic-status` | Run the real Amp CLI against the offline deterministic Amp service and verify Gardn status. |
 | `just agent-test-remaining-status` | Run remaining installed agents and verify status where hooks exist. |
 | `just agent-test-cursor-proxy-status` | Run Cursor through a local OpenRouter proxy and assert real hook states. |
 | `just agent-test-qoder-proxy-status` | Run Qoder through a local OpenRouter proxy and assert real hook states. |
@@ -58,34 +59,40 @@ They load the image into Docker, then remove the builder before running CLI chec
 This releases build memory that can otherwise cause the runner to kill CLI checks.
 Local `just agent-test-image` builds keep the default builder and its cache.
 
-The `amp` target needs no API key or login. It runs the real Amp CLI and managed
-Gardn plugin against a local HTTP/WebSocket service fixture. The fixture provides
-deterministic responses through Amp's native thread-actor protocol. It does not
-call OpenRouter or Amp's hosted inference service. Docker runs this target with
-external networking disabled.
+The `amp` target runs the real Amp CLI and managed Gardn plugin against an
+emulated local Amp service. The service sends each prompt to OpenRouter, so this
+target exercises real OpenRouter inference without claiming native Amp hosted
+service coverage. The harness records the plugin's Gardn socket lifecycle
+reports, including native thread selection, idle/working/idle transitions,
+assistant responses, graceful release, and resume in a second CLI process.
+Provide `OPENROUTER_API_KEY` when running `just agent-test-amp-status`; the
+bridge also accepts `OPENROUTER_BASE_URL` and `GARDN_TEST_MODEL`.
 
-The target runs in `Agent Fixture Tests`, including pull requests, and in the push,
-nightly, and manual `Live Agent Tests` matrix. The image records the exact Amp
-version in its cohort manifest. The test checks thread identity, ordered
-idle/working/idle reports, assistant responses, graceful release, and resume in a
-second CLI process. It isolates the Amp home directory and deletes its test thread.
-The CLI, plugin, or fixture failing causes a test failure, not a skip.
-
-To run without Docker, install Bun and Amp, then run:
+The `amp-deterministic` target uses the same real Amp CLI, plugin, and socket
+harness with deterministic replies from the emulated service. It needs no API
+key and runs with external networking disabled:
 
 ```bash
-GARDN_REPO_DIR="$PWD" bun ci/agent-tests/amp-fixture-test.mjs
+just agent-test-amp-deterministic-status
 ```
 
-For an optional hosted-service check, run the underlying harness with your existing
-Amp login. This sends two prompts to Amp and can use credits:
+To run the OpenRouter-backed target locally:
+
+```bash
+OPENROUTER_API_KEY="$OPENROUTER_API_KEY" just agent-test-amp-status
+```
+
+For an optional native hosted-agent check, run the underlying lifecycle harness
+with an existing Amp login. This uses Amp's hosted service and can use credits:
 
 ```bash
 GARDN_REPO_DIR="$PWD" python3 ci/agent-tests/amp-status-test.py
 ```
 
-Amp execute mode does not expose the selected-thread lifecycle. The harness uses
-a PTY instead. Plugin unit tests remain part of `pnpm test` and `pnpm check`.
+This optional command is not the emulated-service check and does not run the
+full Gardn runtime. Amp execute mode does not expose the selected-thread
+lifecycle, so the harness uses a PTY. Plugin unit tests remain part of `pnpm
+test` and `pnpm check`.
 
 **Demo and capture**
 

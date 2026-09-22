@@ -161,13 +161,17 @@ def run_session(server, base, root, env, thread_id, prompt, expected_responses, 
         raise
     finally:
         if process.poll() is None:
-            os.killpg(process.pid, signal.SIGTERM)
             try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=5)
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        # Close the PTY before waiting so pending terminal output cannot block teardown.
         os.close(master)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
 
 
 def main():
