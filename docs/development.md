@@ -53,28 +53,34 @@ Run `just --list` for the live index. The Justfile comments are the source of tr
 | `just agent-test-cursor-proxy-status` | Run Cursor through a local OpenRouter proxy and assert real hook states. |
 | `just agent-test-qoder-proxy-status` | Run Qoder through a local OpenRouter proxy and assert real hook states. |
 
-Amp uses its own service, not the OpenRouter model settings. Set `AMP_API_KEY` to a
-long-lived access token from [Amp settings](https://ampcode.com/settings/security#access-token).
-Store the same token as the repository Actions secret `AMP_API_KEY`. Do not use the
-short-lived session token from `amp login`.
+The `amp` target needs no API key or login. It runs the real Amp CLI and managed
+Gardn plugin against a local HTTP/WebSocket service fixture. The fixture provides
+deterministic responses through Amp's native thread-actor protocol. It does not
+call OpenRouter or Amp's hosted inference service. Docker runs this target with
+external networking disabled.
 
-The `amp` target runs in the push, nightly, and manual `Live Agent Tests` matrix.
-The image records the exact Amp version in its cohort manifest. The test loads the
-managed Gardn plugin in the real Amp TUI, completes a provider turn, exits, and
-resumes the same native thread for another turn. It checks thread identity,
-ordered status reports, assistant responses, and graceful release. It creates a
-private test thread and deletes that thread after the test. Missing credentials
-or failed provider calls fail the test; they do not skip it.
+The target runs in `Agent Fixture Tests`, including pull requests, and in the push,
+nightly, and manual `Live Agent Tests` matrix. The image records the exact Amp
+version in its cohort manifest. The test checks thread identity, ordered
+idle/working/idle reports, assistant responses, graceful release, and resume in a
+second CLI process. It isolates the Amp home directory and deletes its test thread.
+The CLI, plugin, or fixture failing causes a test failure, not a skip.
 
-To run the same harness with a locally installed Amp CLI and its existing login:
+To run without Docker, install Bun and Amp, then run:
+
+```bash
+GARDN_REPO_DIR="$PWD" bun ci/agent-tests/amp-fixture-test.mjs
+```
+
+For an optional hosted-service check, run the underlying harness with your existing
+Amp login. This sends two prompts to Amp and can use credits:
 
 ```bash
 GARDN_REPO_DIR="$PWD" python3 ci/agent-tests/amp-status-test.py
 ```
 
 Amp execute mode does not expose the selected-thread lifecycle. The harness uses
-a PTY instead. Deterministic plugin tests remain part of `pnpm test` and `pnpm check`;
-they do not replace the authenticated CLI test.
+a PTY instead. Plugin unit tests remain part of `pnpm test` and `pnpm check`.
 
 **Demo and capture**
 

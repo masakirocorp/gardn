@@ -26,3 +26,4 @@
 !antigravity-status-test.sh
 !run-target.sh
 !amp-status-test.py
+!amp-fixture-test.mjs

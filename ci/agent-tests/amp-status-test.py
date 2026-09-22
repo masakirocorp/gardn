@@ -142,7 +142,7 @@ def run_session(server, base, root, env, thread_id, prompt, expected_responses, 
         # has no active thread until its first message, and execute mode has none.
         wait_for(lambda: states() == ["idle"], "the selected thread's initial idle report")
         os.write(master, prompt.encode() + b"\r")
-        wait_for(lambda: "working" in states(), "a real provider turn to start")
+        wait_for(lambda: "working" in states(), "an Amp turn to start")
         wait_for(lambda: states()[-1:] == ["idle"], "the provider turn to complete")
         # Amp can publish idle before the final response reaches its thread store.
         # Read the native transcript, not terminal bytes fragmented by redraws.
@@ -176,8 +176,6 @@ def main():
     timeout = float(os.environ.get("GARDN_AMP_STATUS_TIMEOUT", "180"))
     if not plugin.is_file():
         raise RuntimeError(f"Gardn Amp plugin not found: {plugin}; set GARDN_REPO_DIR")
-    if os.environ.get("CI") and not os.environ.get("AMP_API_KEY"):
-        raise RuntimeError("AMP_API_KEY is required in CI; set an Amp access token from Settings")
 
     # Keep the Unix socket path below the macOS/Linux sockaddr_un limit.
     with tempfile.TemporaryDirectory(prefix="gardn-amp-", dir="/tmp") as tmp:
@@ -246,4 +244,6 @@ if __name__ == "__main__":
         main()
     except (RuntimeError, OSError, ValueError, subprocess.SubprocessError) as error:
         print(f"Amp status test failed: {error}", file=sys.stderr)
+        if isinstance(error, subprocess.CalledProcessError) and error.stderr:
+            print(error.stderr, file=sys.stderr)
         sys.exit(1)

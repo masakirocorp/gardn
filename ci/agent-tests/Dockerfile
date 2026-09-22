@@ -200,6 +200,9 @@ RUN set -eux; \
     esac; \
     rm -f /tmp/antigravity-payload /tmp/antigravity
 
+# Bun supplies the WebSocket service fixture used by the credential-free Amp test.
+COPY --from=oven/bun:1.4.0 /usr/local/bin/bun /usr/local/bin/bun
+
 COPY test-env.sh /usr/local/bin/gardn-agent-tests-env
 COPY doctor.sh /usr/local/bin/gardn-agent-tests-doctor
 COPY verify-env.sh /usr/local/bin/gardn-agent-tests-verify-env
@@ -223,6 +226,7 @@ COPY deterministic-provider.mjs /usr/local/lib/gardn-deterministic-provider.mjs
 COPY with-deterministic-provider.sh /usr/local/bin/gardn-agent-tests-with-provider
 COPY mastracode-status-test.sh /usr/local/bin/gardn-agent-tests-mastracode-status
 COPY amp-status-test.py /usr/local/bin/gardn-agent-tests-amp-status
+COPY amp-fixture-test.mjs /usr/local/lib/gardn-amp-fixture-test.mjs
 COPY antigravity-status-test.sh /usr/local/bin/gardn-agent-tests-antigravity-status
 COPY run-target.sh /usr/local/bin/gardn-agent-tests-target
 # Pre-resolved cohort manifest written by resolve-versions.mjs before docker build.

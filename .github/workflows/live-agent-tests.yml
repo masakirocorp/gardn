@@ -267,7 +267,6 @@ jobs:
       - name: Run ${{ matrix.target == 'devin' && 'Devin hook status test' || matrix.target == 'pi' && 'Pi integration status test' || format('{0} live status test', matrix.target) }}
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          AMP_API_KEY: ${{ secrets.AMP_API_KEY }}
           QODER_PERSONAL_ACCESS_TOKEN: ${{ secrets.QODER_PERSONAL_ACCESS_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           TARGET: ${{ matrix.target }}
@@ -280,7 +279,7 @@ jobs:
           )
           case "$TARGET" in
             amp)
-              args+=(-e AMP_API_KEY)
+              args+=(--network none)
               ;;
             qwen-deterministic|kilo-deterministic|mastracode|antigravity)
               ;;
@@ -314,14 +313,7 @@ jobs:
           esac
           command=(gardn-agent-tests-env gardn-agent-tests-target "$TARGET")
           case "$TARGET" in
-            qwen-deterministic|kilo-deterministic|mastracode|antigravity)
-              command=(gardn-agent-tests-target "$TARGET")
-              ;;
-            amp)
-              if [[ -z "${AMP_API_KEY:-}" ]]; then
-                echo "AMP_API_KEY is required for selected Amp live smoke" >&2
-                exit 64
-              fi
+            qwen-deterministic|kilo-deterministic|mastracode|antigravity|amp)
               command=(gardn-agent-tests-target "$TARGET")
               ;;
             antigravity-gemini)

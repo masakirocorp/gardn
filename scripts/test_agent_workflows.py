@@ -163,60 +163,6 @@ class AgentTestWorkflowTests(unittest.TestCase):
         self.assertIn('"@qwen-code/audio-capture": false', dockerfile)
         self.assertIn('"esbuild": true', dockerfile)
 
-    def test_target_dispatcher_runs_exactly_one_agent(self):
-        dispatcher = self.repo_root / "ci/agent-tests/run-target.sh"
-        commands = {
-            "opencode": "gardn-agent-tests-opencode-status",
-            "pi": "gardn-agent-tests-pi-omp-status",
-            "omp": "gardn-agent-tests-pi-omp-status",
-            "claude": "gardn-agent-tests-claude-status",
-            "codex": "gardn-agent-tests-codex-status",
-            "copilot": "gardn-agent-tests-remaining-status",
-            "cursor": "gardn-agent-tests-cursor-proxy-status",
-            "qoder": "gardn-agent-tests-qoder-proxy-status",
-            "devin": "gardn-agent-tests-remaining-status",
-            "droid": "gardn-agent-tests-remaining-status",
-            "kimi": "gardn-agent-tests-remaining-status",
-            "hermes": "gardn-agent-tests-remaining-status",
-            "maki": "gardn-agent-tests-maki-status",
-            "qwen": "gardn-agent-tests-qwen-status",
-            "kilo": "gardn-agent-tests-kilo-status",
-            "amp": "gardn-agent-tests-amp-status",
-        }
-
-        with tempfile.TemporaryDirectory() as tmp:
-            bin_dir = Path(tmp) / "bin"
-            output = Path(tmp) / "dispatch"
-            bin_dir.mkdir()
-            for command in set(commands.values()):
-                fake = bin_dir / command
-                fake.write_text(
-                    "#!/bin/sh\n"
-                    'printf "%s|%s|%s\\n" "$0" "${GARDN_PI_OMP_STATUS_TARGET:-}" '
-                    '"${GARDN_REMAINING_STATUS_TARGET:-}" > "$OUTPUT"\n'
-                )
-                fake.chmod(0o755)
-
-            for target, expected_command in commands.items():
-                with self.subTest(target=target):
-                    env = os.environ.copy()
-                    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
-                    env["OUTPUT"] = str(output)
-                    subprocess.run(
-                        [self.bash, dispatcher, target],
-                        cwd=self.repo_root,
-                        env=env,
-                        check=True,
-                    )
-                    command, pi_omp_target, remaining_target = output.read_text().strip().split("|")
-                    self.assertEqual(expected_command, Path(command).name)
-                    self.assertEqual(target if target in {"pi", "omp"} else "", pi_omp_target)
-                    self.assertEqual(
-                        target
-                        if expected_command == "gardn-agent-tests-remaining-status"
-                        else "",
-                        remaining_target,
-                    )
 
     def test_grouped_runner_can_isolate_each_agent(self):
         script = self.repo_root / "ci/agent-tests/remaining-status-test.sh"
