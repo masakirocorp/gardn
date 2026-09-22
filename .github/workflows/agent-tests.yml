@@ -93,7 +93,11 @@ jobs:
           ANTIGRAVITY_SHA512: ${{ steps.cohort.outputs.ANTIGRAVITY_SHA512 }}
         run: |
           set -euo pipefail
-          docker build \
+          # Release BuildKit's build memory before running the agent CLIs.
+          builder="gardn-agent-tests-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker buildx create --name "$builder" --driver docker-container
+          trap 'docker buildx rm --force "$builder"' EXIT
+          docker buildx build --builder "$builder" --load \
             --platform linux/amd64 \
             --build-arg "CLAUDE_CODE_VERSION=${CLAUDE_CODE_VERSION}" \
             --build-arg "CODEX_VERSION=${CODEX_VERSION}" \
@@ -137,7 +141,7 @@ jobs:
         run: |
           set -euo pipefail
           for target in qwen-deterministic kilo-deterministic mastracode antigravity; do
-            docker run --rm --memory 2g --memory-swap 2g -e GARDN_QWEN_DIAGNOSTICS=1 -v "${{ github.workspace }}:/repo:ro" gardn-agent-tests:ci \
+            docker run --rm -v "${{ github.workspace }}:/repo:ro" gardn-agent-tests:ci \
               gardn-agent-tests-target "$target"
           done
 
