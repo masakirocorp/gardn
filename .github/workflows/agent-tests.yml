@@ -119,12 +119,6 @@ jobs:
             -t gardn-agent-tests:ci \
             ci/agent-tests
 
-      - name: Inspect runner resources after image build
-        run: |
-          free -m
-          df -h /
-          ps -eo pid,ppid,rss,comm --sort=-rss
-
       - name: Check installed CLIs
         run: docker run --rm gardn-agent-tests:ci
 
@@ -157,10 +151,3 @@ jobs:
           node --experimental-strip-types ci/agent-tests/pi-omp-plugin-status-test.mjs apps/gardn/src/integration/assets/pi/gardn-agent-state.ts pi
           node --experimental-strip-types ci/agent-tests/pi-omp-plugin-status-test.mjs apps/gardn/src/integration/assets/omp/gardn-agent-state.ts omp
           node ci/agent-tests/qoder-openrouter-proxy-test.mjs
-
-      - name: Inspect runner kernel diagnostics
-        if: ${{ always() }}
-        run: |
-          free -m
-          ps -eo pid,ppid,rss,comm --sort=-rss
-          sudo journalctl -k --no-pager -n 100

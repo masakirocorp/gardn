@@ -53,6 +53,11 @@ Run `just --list` for the live index. The Justfile comments are the source of tr
 | `just agent-test-cursor-proxy-status` | Run Cursor through a local OpenRouter proxy and assert real hook states. |
 | `just agent-test-qoder-proxy-status` | Run Qoder through a local OpenRouter proxy and assert real hook states. |
 
+The agent CI workflows build the image with a dedicated BuildKit container.
+They load the image into Docker, then remove the builder before running CLI checks.
+This releases build memory that can otherwise cause the runner to kill CLI checks.
+Local `just agent-test-image` builds keep the default builder and its cache.
+
 The `amp` target needs no API key or login. It runs the real Amp CLI and managed
 Gardn plugin against a local HTTP/WebSocket service fixture. The fixture provides
 deterministic responses through Amp's native thread-actor protocol. It does not
