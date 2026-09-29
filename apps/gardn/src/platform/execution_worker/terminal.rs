@@ -5,7 +5,7 @@ use std::io;
 
 use crate::execution_host::protocol::{
     OutputRevision, RuntimeExitStatus, WorkerError, WorkerErrorCode, WorkerMessage,
-    WorkerRuntimeId, WorkerSignal,
+    WorkerRuntimeId, WorkerSignal, MAX_TERMINAL_SNAPSHOT_BYTES,
 };
 
 use super::event::{RuntimeLocalId, WorkerEvent};
@@ -30,7 +30,7 @@ pub(super) fn flush_output(
         };
         let previous = sent.get(&runtime_id).copied().unwrap_or(0);
         let Some(deltas) = record.output.deltas_after(previous) else {
-            let checkpoint_revision = send_checkpoint(stream, record)?;
+            let checkpoint_revision = send_checkpoint(state, stream, record)?;
             sent.insert(runtime_id, checkpoint_revision.get());
             continue;
         };
@@ -135,20 +135,34 @@ pub(super) fn emit_runtime_exit(
 }
 
 #[cfg(unix)]
+const CHECKPOINT_CHUNK_BYTES: usize = 1024 * 1024;
+
+#[cfg(unix)]
 pub(super) fn send_checkpoint(
+    state: &WorkerState,
     stream: &mut UnixStream,
     record: &RuntimeRecord,
 ) -> io::Result<OutputRevision> {
-    let (revision, data) = record.output.checkpoint();
-    write_message(
-        stream,
-        WorkerMessage::OutputCheckpoint {
-            identity: record.identity.clone(),
-            location: record.location.clone(),
-            revision,
-            data,
-        },
-    )?;
+    let runtime = state
+        .runtime_for_record(record)
+        .ok_or_else(|| io::Error::other("terminal runtime disappeared during checkpoint"))?;
+    let (revision, data) =
+        runtime.snapshot_bytes(MAX_TERMINAL_SNAPSHOT_BYTES, || record.output.revision())?;
+    let total_bytes = data.len() as u64;
+    for (index, chunk) in data.chunks(CHECKPOINT_CHUNK_BYTES).enumerate() {
+        let offset = index * CHECKPOINT_CHUNK_BYTES;
+        write_message(
+            stream,
+            WorkerMessage::OutputCheckpoint {
+                identity: record.identity.clone(),
+                location: record.location.clone(),
+                revision,
+                total_bytes,
+                offset: offset as u64,
+                data: chunk.to_vec(),
+            },
+        )?;
+    }
     Ok(revision)
 }
 

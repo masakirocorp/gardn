@@ -59,6 +59,10 @@ Changing a Group or Workspace default does not move or restart existing terminal
 
 When the local coordinator restarts, each restored remote pane reconnects its saved SSH profile and re-adopts the live worker runtime automatically. If SSH authentication or worker compatibility blocks the connection, the pane remains unavailable until you resolve the connection status in **Settings > Connections**.
 
+If a disconnection outlasts the worker's output replay buffer, Gardn restores the worker's terminal checkpoint before applying new output. This preserves primary and alternate screens, retained scrollback, input modes, and incomplete escape sequences or UTF-8 characters. History outside the configured scrollback limit remains unavailable.
+
+SSH setup ignores login banners and drains command input and output concurrently. Setup commands time out after five minutes. Binary transfers time out after fifteen minutes. Existing authentication prompts remain available. **Disconnect** cancels active setup for a saved connection.
+
 The CLI exposes profile setup and placement:
 
 ```sh

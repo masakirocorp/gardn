@@ -54,23 +54,6 @@ impl OutputLog {
         })
     }
 
-    #[cfg(test)]
-    pub(super) fn limit_bytes(&self) -> usize {
-        self.limit_bytes
-    }
-
-    pub(super) fn checkpoint(&self) -> (OutputRevision, Vec<u8>) {
-        let log = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut bytes = Vec::with_capacity(log.retained_bytes);
-        for (_, _, chunk) in &log.chunks {
-            bytes.extend_from_slice(chunk);
-        }
-        (OutputRevision::new(log.revision), bytes)
-    }
-
     pub(super) fn revision(&self) -> OutputRevision {
         let revision = self
             .inner

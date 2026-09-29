@@ -231,6 +231,12 @@ impl WorkerState {
     pub(super) fn runtime_record(&self, runtime_id: &WorkerRuntimeId) -> Option<&RuntimeRecord> {
         self.runtimes.record(runtime_id)
     }
+    pub(super) fn runtime_for_record(
+        &self,
+        record: &RuntimeRecord,
+    ) -> Option<&crate::terminal::TerminalRuntime> {
+        self.runtimes.runtime(&record.terminal_id)
+    }
 
     pub(super) fn runtime_record_by_local_id(
         &self,

@@ -4,15 +4,12 @@ use std::sync::mpsc as std_mpsc;
 use std::os::unix::net::UnixStream;
 
 use crate::execution_host::protocol::{
-    read_worker_message, write_worker_message, CommandSpec, OutputRevision, RequestId,
-    TerminalSize, WorkerMessage,
+    read_worker_message, write_worker_message, CommandSpec, RequestId, TerminalSize, WorkerMessage,
 };
 use crate::execution_host::{HostPath, ResourceLocation};
 
 use super::super::lifecycle::relay_bridge;
-use super::super::output::OutputLog;
 use super::super::state::{validated_scrollback_limit, WorkerState};
-use super::super::util::DEFAULT_WORKER_SCROLLBACK_BYTES;
 use super::support::test_binding;
 
 struct FlushRecordingWriter {
@@ -69,39 +66,6 @@ fn bridge_flushes_each_worker_frame_before_daemon_eof() {
     ));
 }
 
-#[test]
-fn output_log_requests_checkpoint_after_eviction() {
-    let log = OutputLog::new(DEFAULT_WORKER_SCROLLBACK_BYTES);
-    let observer = log.observer();
-    observer(&vec![b'a'; DEFAULT_WORKER_SCROLLBACK_BYTES]);
-    let first_revision = log.checkpoint().0;
-    observer(b"new");
-    assert!(log.deltas_after(0).is_none());
-    assert_eq!(log.deltas_after(first_revision.get()).unwrap()[0].2, b"new");
-}
-
-#[test]
-fn output_replay_is_contiguous_and_future_revision_requires_checkpoint() {
-    let log = OutputLog::new(DEFAULT_WORKER_SCROLLBACK_BYTES);
-    let observer = log.observer();
-    observer(b"first");
-    observer(b"second");
-
-    let deltas = log.deltas_after(0).unwrap();
-    assert_eq!(
-        deltas
-            .iter()
-            .map(|(base, revision, data)| (*base, *revision, data.as_slice()))
-            .collect::<Vec<_>>(),
-        vec![(0, 1, b"first".as_slice()), (1, 2, b"second".as_slice())]
-    );
-    assert_eq!(
-        log.checkpoint(),
-        (OutputRevision::new(2), b"firstsecond".to_vec())
-    );
-    assert!(log.deltas_after(3).is_none());
-}
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn configured_scrollback_above_frame_cap_is_accepted() {
     // Protocol carries u64; worker must not clamp to MAX_FRAME_SIZE.
@@ -128,16 +92,5 @@ async fn configured_scrollback_above_frame_cap_is_accepted() {
             limit,
         )
         .unwrap();
-    let record = state.runtime_record(&identity.runtime_id).unwrap();
-    assert_eq!(record.output.limit_bytes(), limit);
-    // Exercise retention without allocating the full multi-MiB buffer.
-    let observer = record.output.observer();
-    let chunk = vec![b'x'; 64 * 1024];
-    for _ in 0..4 {
-        observer(&chunk);
-    }
-    let (revision, data) = record.output.checkpoint();
-    assert!(revision.get() >= 4);
-    assert_eq!(data.len(), 256 * 1024);
     state.shutdown_runtime_for_test(&identity.runtime_id);
 }

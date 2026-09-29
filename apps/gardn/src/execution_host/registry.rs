@@ -58,7 +58,10 @@ pub(crate) enum ExecutionHostEvent {
     TerminalOutput {
         terminal_id: TerminalId,
         data: Vec<u8>,
-        reset: bool,
+    },
+    TerminalSnapshot {
+        terminal_id: TerminalId,
+        data: Vec<u8>,
     },
     TerminalStateChanged {
         terminal_id: TerminalId,
@@ -786,7 +789,7 @@ impl ExecutionHostManager {
             let host_id = record.host_id().clone();
             let location = record.location().clone();
             let revision = record.output_revision();
-            let resume = if revision.get() == 0 {
+            let resume = if record.force_checkpoint_pending() || revision.get() == 0 {
                 AttachResume::Checkpoint
             } else {
                 AttachResume::AfterRevision(revision)
@@ -857,6 +860,11 @@ impl ExecutionHostManager {
 
     pub(crate) fn forget_terminal(&mut self, terminal_id: &TerminalId) -> bool {
         self.terminals.forget_terminal(terminal_id)
+    }
+    pub(crate) fn request_terminal_checkpoint(&mut self, terminal_id: &TerminalId) {
+        if let Some(record) = self.terminals.get_mut(terminal_id) {
+            record.request_checkpoint();
+        }
     }
 
     pub(crate) fn has_host_references(&self, host_id: &ExecutionHostId) -> bool {
@@ -1255,15 +1263,12 @@ impl ExecutionHostManager {
                     identity,
                     location,
                 }),
-                RemoteTerminalEffect::Output {
-                    terminal_id,
-                    data,
-                    reset,
-                } => events.push(ExecutionHostEvent::TerminalOutput {
-                    terminal_id,
-                    data,
-                    reset,
-                }),
+                RemoteTerminalEffect::Output { terminal_id, data } => {
+                    events.push(ExecutionHostEvent::TerminalOutput { terminal_id, data })
+                }
+                RemoteTerminalEffect::Snapshot { terminal_id, data } => {
+                    events.push(ExecutionHostEvent::TerminalSnapshot { terminal_id, data })
+                }
                 RemoteTerminalEffect::StateChanged {
                     terminal_id,
                     agent,
@@ -1608,6 +1613,7 @@ impl ExecutionHostManager {
             .collect::<Vec<_>>()
         {
             self.mark_host_observations_stale(&host_id);
+            self.terminals.clear_pending_for_host(&host_id);
         }
         self.expire_pending_observations(now);
     }
@@ -1648,7 +1654,7 @@ impl ExecutionHostManager {
             self.replay_pending_terminations(&host_id, &mut events);
             self.replay_pending_runtime_ops(&host_id, &mut events);
             // Drop in-flight adopt request ids; reconnect will re-adopt and re-validate seq.
-            self.terminals.clear_pending_adopts_for_host(&host_id);
+            self.terminals.clear_pending_for_host(&host_id);
             for record in self.terminals.values_mut() {
                 if record.host_id() == &host_id
                     && record.identity().is_some()

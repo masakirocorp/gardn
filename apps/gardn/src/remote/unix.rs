@@ -1,5 +1,10 @@
 //! Remote thin-client launcher over SSH command stdio.
+use super::command::{
+    await_stream_preamble, capture_output, frame_remote_script, frame_remote_stream_command,
+    unframe_remote_output, SSH_COMMAND_TIMEOUT, SSH_TRANSFER_TIMEOUT,
+};
 use super::{ConnectCancel, WorkerInstallKind, WorkerInstallPreview, WorkerInstallReport};
+use crate::platform::{configure_cancellable_command, terminate_cancellable_child};
 
 use std::fmt;
 use std::fs::{self, File};
@@ -21,29 +26,6 @@ use std::time::{Duration, Instant};
 const BRIDGE_ACCEPT_POLL: Duration = Duration::from_millis(50);
 const BRIDGE_SOCKET_PERMISSION_MODE: u32 = 0o600;
 const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
-
-fn wait_child_cancellable(
-    child: &mut Child,
-    cancel: Option<&ConnectCancel>,
-) -> io::Result<ExitStatus> {
-    if cancel.is_none() {
-        return child.wait();
-    }
-    loop {
-        if let Some(cancel) = cancel {
-            cancel.check()?;
-        }
-        match child.try_wait()? {
-            Some(status) => return Ok(status),
-            None => thread::sleep(Duration::from_millis(20)),
-        }
-    }
-}
-
-fn kill_child_tree(child: &mut Child) {
-    let _ = child.kill();
-    let _ = child.wait();
-}
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CURRENT_PROTOCOL: u32 = crate::protocol::PROTOCOL_VERSION;
@@ -490,6 +472,7 @@ struct RemoteSsh {
     target: String,
     managed_config: Option<ManagedSshConfig>,
     askpass: Option<crate::execution_host::auth::AskpassCommandConfig>,
+    connect_cancel: Option<ConnectCancel>,
 }
 
 impl RemoteSsh {
@@ -508,6 +491,7 @@ impl RemoteSsh {
             target,
             managed_config,
             askpass: None,
+            connect_cancel: None,
         }
     }
 
@@ -519,6 +503,9 @@ impl RemoteSsh {
         let mut ssh = Self::new(target, manage_ssh_config);
         ssh.askpass = Some(askpass);
         ssh
+    }
+    fn set_connect_cancel(&mut self, cancel: Option<&ConnectCancel>) {
+        self.connect_cancel = cancel.cloned();
     }
 
     fn target(&self) -> &str {
@@ -572,63 +559,27 @@ impl RemoteSsh {
         script: &str,
         cancel: Option<&ConnectCancel>,
     ) -> io::Result<Output> {
-        if let Some(cancel) = cancel {
-            cancel.check()?;
-        }
-        let mut child = self
-            .command()
-            .arg("/bin/sh -s")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        let write_result = if let Some(mut stdin) = child.stdin.take() {
-            let result = stdin.write_all(script.as_bytes());
-            drop(stdin);
-            result
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "ssh bootstrap stdin missing",
-            ))
-        };
-
-        let status = match wait_child_cancellable(&mut child, cancel) {
-            Ok(status) => status,
-            Err(err) => {
-                kill_child_tree(&mut child);
-                return Err(err);
-            }
-        };
-        // Child has exited; collect remaining stdio. `wait_with_output` would re-wait, so
-        // read pipes directly after a successful cancellable wait.
-        let stdout = {
-            let mut buf = Vec::new();
-            if let Some(mut out) = child.stdout.take() {
-                use std::io::Read as _;
-                let _ = out.read_to_end(&mut buf);
-            }
-            buf
-        };
-        let stderr = {
-            let mut buf = Vec::new();
-            if let Some(mut err) = child.stderr.take() {
-                use std::io::Read as _;
-                let _ = err.read_to_end(&mut buf);
-            }
-            buf
-        };
-        write_result?;
-        Ok(Output {
-            status,
-            stdout,
-            stderr,
-        })
+        let (script, begin, end) = frame_remote_script(script);
+        let mut output = capture_output(
+            self.command().arg("/bin/sh -s"),
+            io::Cursor::new(script.into_bytes()),
+            cancel.or(self.connect_cancel.as_ref()),
+            SSH_COMMAND_TIMEOUT,
+        )?;
+        unframe_remote_output(&mut output, &begin, Some(&end))?;
+        Ok(output)
     }
 
     fn user_shell_output(&self, command: &str) -> io::Result<Output> {
-        self.command().arg(command).output()
+        let (command, marker) = frame_remote_stream_command(command);
+        let mut output = capture_output(
+            self.command().arg(command),
+            io::empty(),
+            self.connect_cancel.as_ref(),
+            SSH_COMMAND_TIMEOUT,
+        )?;
+        unframe_remote_output(&mut output, &marker, None)?;
+        Ok(output)
     }
 
     fn install_gardn(
@@ -637,56 +588,41 @@ impl RemoteSsh {
         source_path: &Path,
         expected_checksum: &str,
         source_description: &str,
+        cancel: Option<&ConnectCancel>,
     ) -> io::Result<()> {
-        let output = self.sh_output(&remote_install_prepare_script(remote_gardn))?;
+        let output =
+            self.sh_output_cancellable(&remote_install_prepare_script(remote_gardn), cancel)?;
         if !output.status.success() {
             return Err(command_failed("remote install preparation failed", &output));
         }
         let (tmp_path, dest_path) = parse_remote_install_paths(&output.stdout)?;
 
         let result = (|| {
-            let mut child = self
-                .command()
-                .arg(remote_install_stream_command(&tmp_path))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .map_err(|err| {
-                    io::Error::new(err.kind(), format!("failed to start ssh install: {err}"))
-                })?;
-
-            let mut source = File::open(source_path)?;
-            let copy_result = if let Some(mut stdin) = child.stdin.take() {
-                io::copy(&mut source, &mut stdin).map(|_| ())
-            } else {
-                Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "ssh install stdin missing",
-                ))
-            };
-            let status = child.wait()?;
-            copy_result?;
-            if !status.success() {
-                return Err(io::Error::other(format!(
-                    "remote install exited with {status}"
-                )));
+            let output = capture_output(
+                self.command().arg(remote_install_stream_command(&tmp_path)),
+                File::open(source_path)?,
+                cancel.or(self.connect_cancel.as_ref()),
+                SSH_TRANSFER_TIMEOUT,
+            )?;
+            if !output.status.success() {
+                return Err(command_failed("remote install failed", &output));
             }
 
             let staged_path = shell_quote(&tmp_path);
-            let output = self.sh_output(&format!(
-                "chmod 755 {staged_path} && {}",
-                worker_build_info_command(&staged_path)
-            ))?;
+            let output = self.sh_output_cancellable(
+                &format!(
+                    "chmod 755 {staged_path} && {}",
+                    worker_build_info_command(&staged_path)
+                ),
+                cancel,
+            )?;
             let identity = parse_worker_build_identity(&output)?;
             validate_worker_build_identity(&identity, &remote_gardn.platform)?;
             let manifest = artifact_manifest(expected_checksum, source_description, &identity)?;
-            let output = self.sh_output(&remote_install_commit_script(
-                &tmp_path,
-                &dest_path,
-                expected_checksum,
-                &manifest,
-            ))?;
+            let output = self.sh_output_cancellable(
+                &remote_install_commit_script(&tmp_path, &dest_path, expected_checksum, &manifest),
+                cancel,
+            )?;
             if output.status.success() {
                 Ok(())
             } else {
@@ -694,7 +630,8 @@ impl RemoteSsh {
             }
         })();
         if result.is_err() {
-            let _ = self.sh_output(&format!("rm -f -- {}\n", shell_quote(&tmp_path)));
+            let _ = self
+                .sh_output_cancellable(&format!("rm -f -- {}\n", shell_quote(&tmp_path)), cancel);
         }
         result
     }
@@ -711,17 +648,17 @@ impl Drop for RemoteSsh {
             return;
         };
 
-        let _ = self
-            .base_command()
-            .arg("-O")
-            .arg("exit")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg(&self.target)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        let _ = capture_output(
+            self.base_command()
+                .arg("-O")
+                .arg("exit")
+                .arg("-o")
+                .arg("BatchMode=yes")
+                .arg(&self.target),
+            io::empty(),
+            None,
+            Duration::from_secs(2),
+        );
     }
 }
 
@@ -810,10 +747,15 @@ fn prepare_remote_gardn(
     let source_description =
         install_source_description(&remote_gardn.platform, override_binary.as_deref());
     confirm_remote_install(ssh.target(), &remote_gardn, &source_description)?;
-    let source = resolve_install_source(&remote_gardn.platform, override_binary)?;
+    let source = resolve_install_source(&remote_gardn.platform, override_binary, None)?;
     let checksum = crate::checksum::file_sha256(&source.path)?;
-    let install_result =
-        ssh.install_gardn(&remote_gardn, &source.path, &checksum, &source_description);
+    let install_result = ssh.install_gardn(
+        &remote_gardn,
+        &source.path,
+        &checksum,
+        &source_description,
+        None,
+    );
     source.cleanup();
     install_result?;
 
@@ -1161,7 +1103,11 @@ fn install_source_description(platform: &RemotePlatform, override_binary: Option
 fn resolve_install_source(
     platform: &RemotePlatform,
     override_binary: Option<PathBuf>,
+    cancel: Option<&ConnectCancel>,
 ) -> io::Result<InstallSource> {
+    if let Some(cancel) = cancel {
+        cancel.check()?;
+    }
     if let Some(path) = override_binary {
         return Ok(InstallSource::persistent(path));
     }
@@ -1171,7 +1117,7 @@ fn resolve_install_source(
         return Ok(InstallSource::persistent(path));
     }
     if crate::build_info::is_official_release() {
-        return download_release_asset(platform);
+        return download_release_asset(platform, cancel);
     }
 
     let path = development_worker_bundle_path(platform);
@@ -1581,7 +1527,10 @@ fn remote_shell_resolves_managed_install(stdout: &str) -> bool {
         .is_some_and(|path| path.ends_with("/.local/bin/gardn"))
 }
 
-fn release_worker_asset(platform: &RemotePlatform) -> io::Result<(String, String)> {
+fn release_worker_asset(
+    platform: &RemotePlatform,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<(String, String)> {
     if !crate::build_info::is_official_release() {
         return Err(io::Error::other(
             "development builds must use a matching local worker sidecar",
@@ -1589,23 +1538,26 @@ fn release_worker_asset(platform: &RemotePlatform) -> io::Result<(String, String
     }
     let release_tag = crate::build_info::RELEASE_TAG;
     let release_url = format!("{GITHUB_RELEASE_BY_TAG_API_URL}/{release_tag}");
-    let release_output = crate::noninteractive_process::curl_command()
-        .args([
-            "-sfL",
-            "--retry",
-            "3",
-            "--connect-timeout",
-            "10",
-            "--max-time",
-            "20",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            "User-Agent: gardn-remote-installer",
-        ])
-        .arg(&release_url)
-        .output()
-        .map_err(|err| io::Error::new(err.kind(), format!("curl failed: {err}")))?;
+    let release_output = capture_output(
+        crate::noninteractive_process::curl_command()
+            .args([
+                "-sfL",
+                "--retry",
+                "3",
+                "--connect-timeout",
+                "10",
+                "--max-time",
+                "20",
+                "-H",
+                "Accept: application/vnd.github+json",
+                "-H",
+                "User-Agent: gardn-remote-installer",
+            ])
+            .arg(&release_url),
+        io::empty(),
+        cancel,
+        Duration::from_secs(90),
+    )?;
     if !release_output.status.success() {
         return Err(command_failed(
             &format!("failed to fetch GitHub release {release_tag}"),
@@ -1651,26 +1603,35 @@ fn release_worker_asset(platform: &RemotePlatform) -> io::Result<(String, String
     ))
 }
 
-fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource> {
-    let (url, checksum) = release_worker_asset(platform)?;
-    let asset_key = platform.asset_key();
-    let dir = private_download_dir(&asset_key)?;
+fn download_release_asset(
+    platform: &RemotePlatform,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<InstallSource> {
+    let (url, checksum) = release_worker_asset(platform, cancel)?;
+    let dir = private_download_dir(&platform.asset_key())?;
     let path = dir.join("gardn.tmp");
-    let status = crate::noninteractive_process::curl_command()
-        .args(["-sfL", "--max-time", "120", "-o"])
-        .arg(&path)
-        .arg(&url)
-        .status()
-        .map_err(|err| io::Error::new(err.kind(), format!("download failed: {err}")))?;
-    if !status.success() {
+    let result = (|| {
+        let output = capture_output(
+            crate::noninteractive_process::curl_command()
+                .args(["-sfL", "--max-time", "120", "-o"])
+                .arg(&path)
+                .arg(&url),
+            io::empty(),
+            cancel,
+            Duration::from_secs(120),
+        )?;
+        if !output.status.success() {
+            return Err(command_failed("remote worker download failed", &output));
+        }
+        crate::checksum::verify_sha256(&path, &checksum).map_err(|error| {
+            io::Error::other(format!(
+                "downloaded remote worker checksum verification failed: {error}"
+            ))
+        })
+    })();
+    if let Err(error) = result {
         let _ = fs::remove_dir_all(&dir);
-        return Err(io::Error::other("download failed"));
-    }
-    if let Err(error) = crate::checksum::verify_sha256(&path, &checksum) {
-        let _ = fs::remove_dir_all(&dir);
-        return Err(io::Error::other(format!(
-            "downloaded remote worker checksum verification failed: {error}"
-        )));
+        return Err(error);
     }
     Ok(InstallSource::temporary(path, dir))
 }
@@ -1768,7 +1729,7 @@ fn parse_remote_install_paths(stdout: &[u8]) -> io::Result<(String, String)> {
 }
 
 fn remote_install_stream_command(tmp_path: &str) -> String {
-    format!("tee {}", shell_quote(tmp_path))
+    format!("tee {} > /dev/null", shell_quote(tmp_path))
 }
 
 fn remote_install_commit_script(
@@ -1982,6 +1943,7 @@ impl SshStdioBridge {
                             &session_name,
                             thread_ssh_options.as_ref(),
                             thread_kind,
+                            &thread_stop,
                         ) {
                             eprintln!("gardn: remote bridge failed: {err}");
                         }
@@ -2072,18 +2034,19 @@ fn bridge_connection(
     session_name: &str,
     ssh_options: Option<&ManagedSshOptions>,
     kind: RemoteBridgeKind,
+    bridge_stop: &AtomicBool,
 ) -> io::Result<()> {
     let mut command = Command::new("ssh");
     apply_managed_ssh_options(&mut command, ssh_options);
-    command
-        .arg("-T")
-        .arg(target)
-        .arg(remote_bridge_command(remote_gardn, session_name, kind));
+    let (bridge_command, stream_marker) =
+        frame_remote_stream_command(&remote_bridge_command(remote_gardn, session_name, kind));
+    command.arg("-T").arg(target).arg(bridge_command);
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
 
+    configure_cancellable_command(&mut command);
     let mut child = command
         .spawn()
         .map_err(|err| io::Error::new(err.kind(), format!("failed to start ssh bridge: {err}")))?;
@@ -2091,10 +2054,13 @@ fn bridge_connection(
         .stdin
         .take()
         .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "ssh bridge stdin missing"))?;
-    let mut child_stdout = child
+    let child_stdout = child
         .stdout
         .take()
         .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "ssh bridge stdout missing"))?;
+    let mut child_stdout = await_stream_preamble(&mut child, child_stdout, stream_marker, || {
+        bridge_stop.load(Ordering::Acquire)
+    })?;
     let mut stream_to_child = stream.try_clone()?;
     let mut child_to_stream = stream;
 
@@ -2265,6 +2231,7 @@ pub(crate) struct ExecutionWorkerTransport {
     stdin: Option<ChildStdin>,
     stdout: Option<ChildStdout>,
     stderr: Option<ChildStderr>,
+    stream_marker: Option<String>,
     _ssh: RemoteSsh,
 }
 
@@ -2281,10 +2248,20 @@ impl ExecutionWorkerTransport {
             .ok_or_else(|| io::Error::other("execution worker stdin is unavailable"))
     }
 
-    pub(crate) fn take_stdout(&mut self) -> io::Result<ChildStdout> {
-        self.stdout
+    pub(crate) fn take_stdout(
+        &mut self,
+        cancel: Option<&ConnectCancel>,
+    ) -> io::Result<ChildStdout> {
+        let stdout = self
+            .stdout
             .take()
-            .ok_or_else(|| io::Error::other("execution worker stdout is unavailable"))
+            .ok_or_else(|| io::Error::other("execution worker stdout is unavailable"))?;
+        match self.stream_marker.take() {
+            Some(marker) => await_stream_preamble(&mut self.child, stdout, marker, || {
+                cancel.is_some_and(ConnectCancel::is_cancelled)
+            }),
+            None => Ok(stdout),
+        }
     }
 
     pub(crate) fn take_stderr(&mut self) -> io::Result<ChildStderr> {
@@ -2299,13 +2276,15 @@ impl ExecutionWorkerTransport {
 
     #[cfg(test)]
     pub(crate) fn blocked_for_test() -> io::Result<Self> {
-        let mut child = Command::new("sh")
+        let mut command = Command::new("sh");
+        command
             .arg("-c")
             .arg("sleep 60")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        configure_cancellable_command(&mut command);
+        let mut child = command.spawn()?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -2314,11 +2293,15 @@ impl ExecutionWorkerTransport {
             stdin,
             stdout,
             stderr,
+            stream_marker: None,
             _ssh: RemoteSsh::new("blocked-test".to_string(), false),
         })
     }
 }
-fn worker_install_source_metadata(platform: &RemotePlatform) -> io::Result<(String, String)> {
+fn worker_install_source_metadata(
+    platform: &RemotePlatform,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<(String, String)> {
     let override_binary = remote_binary_override_path()?;
     if let Some(path) = override_binary {
         let checksum = crate::checksum::file_sha256(&path)?;
@@ -2328,27 +2311,32 @@ fn worker_install_source_metadata(platform: &RemotePlatform) -> io::Result<(Stri
         ));
     }
     if *platform == RemotePlatform::local() || !crate::build_info::is_official_release() {
-        let source = resolve_install_source(platform, None)?;
+        let source = resolve_install_source(platform, None, cancel)?;
         let checksum = crate::checksum::file_sha256(&source.path)?;
         return Ok((install_source_description(platform, None), checksum));
     }
-    let (url, checksum) = release_worker_asset(platform)?;
+    let (url, checksum) = release_worker_asset(platform, cancel)?;
     Ok((url, checksum))
 }
 
 pub(crate) fn preview_execution_worker_install(
     target: &str,
     askpass: crate::execution_host::auth::AskpassCommandConfig,
+    cancel: Option<&ConnectCancel>,
 ) -> io::Result<WorkerInstallPreview> {
-    let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
-    preview_execution_worker_install_with_ssh(&ssh)
+    let mut ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
+    ssh.set_connect_cancel(cancel);
+    preview_execution_worker_install_with_ssh(&ssh, cancel)
 }
 
-fn preview_execution_worker_install_with_ssh(ssh: &RemoteSsh) -> io::Result<WorkerInstallPreview> {
-    let platform = detect_remote_platform(ssh)?;
-    let (source, checksum) = worker_install_source_metadata(&platform)?;
+fn preview_execution_worker_install_with_ssh(
+    ssh: &RemoteSsh,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<WorkerInstallPreview> {
+    let platform = detect_remote_platform_cancellable(ssh, cancel)?;
+    let (source, checksum) = worker_install_source_metadata(&platform, cancel)?;
     let remote_gardn = execution_worker_remote_gardn(platform.clone(), &checksum)?;
-    let already_current = remote_worker_binary_matches(ssh, &remote_gardn)?;
+    let already_current = remote_worker_binary_matches_cancellable(ssh, &remote_gardn, cancel)?;
     let target_exists = remote_binary_exists(ssh, &remote_gardn)?;
     let has_previous = !remote_binary_candidates(ssh, &remote_gardn)?.is_empty();
     Ok(WorkerInstallPreview {
@@ -2384,10 +2372,10 @@ pub(crate) fn inventory_execution_worker_bindings(
 ) -> io::Result<crate::execution_host::runtime_paths::BindingInventoryReport> {
     let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
     let platform = detect_remote_platform(&ssh)?;
-    let (_, checksum) = worker_install_source_metadata(&platform)?;
+    let (_, checksum) = worker_install_source_metadata(&platform, None)?;
     let remote_gardn = execution_worker_remote_gardn(platform, &checksum)?;
     if !remote_worker_binary_matches(&ssh, &remote_gardn)? {
-        ensure_execution_worker_with_ssh(&ssh)?;
+        ensure_execution_worker_with_ssh(&ssh, None)?;
     }
     if !remote_worker_binary_matches(&ssh, &remote_gardn)? {
         return Err(io::Error::other(format!(
@@ -2417,10 +2405,10 @@ pub(crate) fn retire_execution_worker_bindings(
 ) -> io::Result<crate::execution_host::runtime_paths::BindingRetirementReport> {
     let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
     let platform = detect_remote_platform(&ssh)?;
-    let (_, checksum) = worker_install_source_metadata(&platform)?;
+    let (_, checksum) = worker_install_source_metadata(&platform, None)?;
     let remote_gardn = execution_worker_remote_gardn(platform, &checksum)?;
     if !remote_worker_binary_matches(&ssh, &remote_gardn)? {
-        ensure_execution_worker_with_ssh(&ssh)?;
+        ensure_execution_worker_with_ssh(&ssh, None)?;
     }
     if !remote_worker_binary_matches(&ssh, &remote_gardn)? {
         return Err(io::Error::other(format!(
@@ -2446,13 +2434,18 @@ pub(crate) fn retire_execution_worker_bindings(
 pub(crate) fn ensure_execution_worker(
     target: &str,
     askpass: crate::execution_host::auth::AskpassCommandConfig,
+    cancel: Option<&ConnectCancel>,
 ) -> io::Result<WorkerInstallReport> {
-    let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
-    ensure_execution_worker_with_ssh(&ssh)
+    let mut ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
+    ssh.set_connect_cancel(cancel);
+    ensure_execution_worker_with_ssh(&ssh, cancel)
 }
-fn ensure_execution_worker_with_ssh(ssh: &RemoteSsh) -> io::Result<WorkerInstallReport> {
-    let preview = preview_execution_worker_install_with_ssh(ssh)?;
-    install_execution_worker_with_ssh(ssh, &preview)
+fn ensure_execution_worker_with_ssh(
+    ssh: &RemoteSsh,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<WorkerInstallReport> {
+    let preview = preview_execution_worker_install_with_ssh(ssh, cancel)?;
+    install_execution_worker_with_ssh(ssh, &preview, cancel)
 }
 
 fn artifact_manifest(
@@ -2614,10 +2607,11 @@ done
 fn install_execution_worker_with_ssh(
     ssh: &RemoteSsh,
     approved: &WorkerInstallPreview,
+    cancel: Option<&ConnectCancel>,
 ) -> io::Result<WorkerInstallReport> {
-    let platform = detect_remote_platform(ssh)?;
+    let platform = detect_remote_platform_cancellable(ssh, cancel)?;
     let remote_gardn = execution_worker_remote_gardn(platform.clone(), &approved.checksum)?;
-    let current = preview_execution_worker_install_with_ssh(ssh)?;
+    let current = preview_execution_worker_install_with_ssh(ssh, cancel)?;
     if &current != approved {
         return Err(io::Error::other(
             "execution worker install plan changed; review and approve the new plan",
@@ -2629,7 +2623,7 @@ fn install_execution_worker_with_ssh(
         }
         return Ok(WorkerInstallReport::AlreadyCurrent(current));
     }
-    let source = resolve_install_source(&platform, remote_binary_override_path()?)?;
+    let source = resolve_install_source(&platform, remote_binary_override_path()?, cancel)?;
     let verified = crate::checksum::verify_sha256(&source.path, &current.checksum);
     if let Err(error) = verified {
         source.cleanup();
@@ -2637,17 +2631,16 @@ fn install_execution_worker_with_ssh(
             "execution worker source checksum verification failed: {error}"
         )));
     }
-    // Immutable addressed artifact only. Never touch an incumbent daemon's
-    // socket, lock, or process; activation is a separate lifecycle step.
     let install_result = ssh.install_gardn(
         &remote_gardn,
         &source.path,
         &current.checksum,
         &current.source,
+        cancel,
     );
     source.cleanup();
     install_result?;
-    if !remote_worker_binary_matches(ssh, &remote_gardn)? {
+    if !remote_worker_binary_matches_cancellable(ssh, &remote_gardn, cancel)? {
         return Err(io::Error::other(
             "staged execution worker failed version/protocol/lifecycle verification",
         ));
@@ -2660,7 +2653,8 @@ fn install_execution_worker_with_ssh(
 
 impl ExecutionWorkerTransport {
     pub(crate) fn kill(&mut self) -> io::Result<()> {
-        self.child.kill()
+        terminate_cancellable_child(&mut self.child);
+        Ok(())
     }
 }
 
@@ -2699,23 +2693,25 @@ pub(crate) fn spawn_execution_worker_cancellable(
         cancel.check()?;
     }
 
-    let mut child = ssh
-        .dedicated_command()
-        .arg(execution_worker_command(&remote_gardn))
+    let (worker_command, stream_marker) =
+        frame_remote_stream_command(&execution_worker_command(&remote_gardn));
+    let mut command = ssh.dedicated_command();
+    command
+        .arg(worker_command)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| {
-            io::Error::new(
-                err.kind(),
-                format!("failed to start remote execution worker: {err}"),
-            )
-        })?;
+        .stderr(Stdio::piped());
+    configure_cancellable_command(&mut command);
+    let mut child = command.spawn().map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!("failed to start remote execution worker: {err}"),
+        )
+    })?;
 
     if let Some(cancel) = cancel {
         if cancel.is_cancelled() {
-            kill_child_tree(&mut child);
+            terminate_cancellable_child(&mut child);
             return Err(io::Error::new(
                 io::ErrorKind::Interrupted,
                 "ssh connection attempt cancelled",
@@ -2728,15 +2724,15 @@ pub(crate) fn spawn_execution_worker_cancellable(
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     if stdin.is_none() || stdout.is_none() || stderr.is_none() {
-        kill_child_tree(&mut child);
+        terminate_cancellable_child(&mut child);
         return Err(io::Error::other("remote execution worker stdio was not available").into());
     }
-
     Ok(ExecutionWorkerTransport {
         child,
         stdin,
         stdout,
         stderr,
+        stream_marker: Some(stream_marker),
         _ssh: ssh,
     })
 }
@@ -3037,6 +3033,7 @@ mod tests {
             target: "example".to_string(),
             managed_config: Some(managed_config),
             askpass: None,
+            connect_cancel: None,
         };
 
         let command = ssh.command();
@@ -3070,6 +3067,7 @@ mod tests {
             target: "example".to_string(),
             managed_config: Some(managed_config),
             askpass: None,
+            connect_cancel: None,
         };
 
         let command = ssh.dedicated_command();
@@ -3101,6 +3099,7 @@ mod tests {
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
+            connect_cancel: None,
         };
 
         let command = ssh.command();
@@ -3531,6 +3530,19 @@ mod tests {
         assert!(remote_gardn.is_none());
     }
 
+    const FAKE_SSH_RESPONSE: &str = r#"
+respond() {
+    eval "${request%%;*}"
+    printf '%s' "$1"
+    printf '%s' "$2" >&2
+    __gardn_remote_status=$3
+    printf '%s\n' "$request" | while IFS= read -r line; do
+        case "$line" in *"_END'"*) eval "$line";; esac
+    done
+    exit "$3"
+}
+"#;
+
     struct FakeSshResponse<'a> {
         status: i32,
         stdout: &'a str,
@@ -3559,22 +3571,20 @@ mod tests {
         let script = format!(
             r#"#!/bin/sh
 set -eu
+{FAKE_SSH_RESPONSE}
 last=''
 for arg in "$@"; do
     last="$arg"
 done
-if [ "$last" = "command -v gardn" ]; then
+request=$last
+if [ "${{last##*; }}" = "command -v gardn" ]; then
     printf '%s\n' primary >> {log}
-    printf '%s' {primary_stdout}
-    printf '%s' {primary_stderr} >&2
-    exit {primary_status}
+    respond {primary_stdout} {primary_stderr} {primary_status}
 fi
 if [ "$last" = "/bin/sh -s" ]; then
-    while IFS= read -r _line; do :; done
+    request=$(cat)
     printf '%s\n' fallback >> {log}
-    printf '%s' {fallback_stdout}
-    printf '%s' {fallback_stderr} >&2
-    exit {fallback_status}
+    respond {fallback_stdout} {fallback_stderr} {fallback_status}
 fi
 printf '%s\n' unexpected >> {log}
 exit 99
@@ -3604,6 +3614,7 @@ exit 99
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
+            connect_cancel: None,
         };
         let remote_gardn = RemoteGardn::for_platform(RemotePlatform {
             os: "linux",
@@ -3641,30 +3652,26 @@ exit 99
         let script = format!(
             r#"#!/bin/sh
 set -eu
+{FAKE_SSH_RESPONSE}
 last=''
 for arg in "$@"; do
     last="$arg"
 done
-if [ "$last" = "command -v gardn" ]; then
+request=$last
+if [ "${{last##*; }}" = "command -v gardn" ]; then
     printf '%s\n' primary >> {log}
-    printf '%s' {primary_stdout}
-    printf '%s' {primary_stderr} >&2
-    exit {primary_status}
+    respond {primary_stdout} {primary_stderr} {primary_status}
 fi
 if [ "$last" = "/bin/sh -s" ]; then
     request=$(cat)
     case "$request" in
         *mise/installs/gardn*)
             printf '%s\n' mise >> {log}
-            printf '%s' {mise_stdout}
-            printf '%s' {mise_stderr} >&2
-            exit {mise_status}
+            respond {mise_stdout} {mise_stderr} {mise_status}
             ;;
         *)
             printf '%s\n' fallback >> {log}
-            printf '%s' {fallback_stdout}
-            printf '%s' {fallback_stderr} >&2
-            exit {fallback_status}
+            respond {fallback_stdout} {fallback_stderr} {fallback_status}
             ;;
     esac
 fi
@@ -3699,6 +3706,7 @@ exit 99
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
+            connect_cancel: None,
         };
         let remote_gardn = RemoteGardn::for_platform(RemotePlatform {
             os: "linux",
@@ -4044,7 +4052,7 @@ exit 99
             arch: std::env::consts::ARCH,
         };
 
-        let (source, checksum) = worker_install_source_metadata(&platform).unwrap();
+        let (source, checksum) = worker_install_source_metadata(&platform, None).unwrap();
 
         assert!(source.contains(path.to_string_lossy().as_ref()));
         assert_eq!(checksum, crate::checksum::file_sha256(&path).unwrap());
@@ -4057,8 +4065,9 @@ exit 99
             os: "linux",
             arch: "aarch64",
         };
-        let source = resolve_install_source(&platform, Some(PathBuf::from("/tmp/gardn-aarch64")))
-            .expect("override source");
+        let source =
+            resolve_install_source(&platform, Some(PathBuf::from("/tmp/gardn-aarch64")), None)
+                .expect("override source");
         assert_eq!(source.path, PathBuf::from("/tmp/gardn-aarch64"));
         assert!(source.temporary_dir.is_none());
     }
@@ -4080,7 +4089,7 @@ exit 99
             },
         };
 
-        let error = match resolve_install_source(&platform, None) {
+        let error = match resolve_install_source(&platform, None, None) {
             Ok(_) => panic!("worker should be absent"),
             Err(error) => error,
         };
@@ -4095,10 +4104,25 @@ exit 99
     }
 
     #[test]
-    fn remote_install_stream_command_avoids_shell_c_wrapper() {
-        let command = remote_install_stream_command("/home/a b/.local/bin/gardn.tmp.123");
-
-        assert_eq!(command, "tee '/home/a b/.local/bin/gardn.tmp.123'");
+    fn remote_install_stream_writes_binary_without_echoing_it() {
+        let path = std::env::temp_dir().join(format!(
+            "gardn-stream-worker with spaces-{}",
+            std::process::id()
+        ));
+        let command = remote_install_stream_command(path.to_str().unwrap());
+        let bytes = vec![0xa5; 256 * 1024];
+        let output = capture_output(
+            Command::new("/bin/sh").args(["-c", &command]),
+            io::Cursor::new(bytes.clone()),
+            None,
+            Duration::from_secs(3),
+        )
+        .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert!(output.stdout.is_empty());
+        let installed = fs::read(&path).unwrap();
+        fs::remove_file(path).unwrap();
+        assert_eq!(installed, bytes);
     }
 
     #[test]
@@ -4273,17 +4297,16 @@ exit 99
         let script = format!(
             r#"#!/bin/sh
 set -eu
+{FAKE_SSH_RESPONSE}
 printf '%s\n' "$*" >> {log}
 last=''
 for arg in "$@"; do
     last="$arg"
 done
 if [ "$last" = "/bin/sh -s" ]; then
-    script=$(cat)
-    printf '%s\n' "$script" >> {log}
-    printf '%s' {probe_stdout}
-    printf '%s' {probe_stderr} >&2
-    exit {probe_status}
+    request=$(cat)
+    printf '%s\n' "$request" >> {log}
+    respond {probe_stdout} {probe_stderr} {probe_status}
 fi
 printf '%s\n' unexpected >> {log}
 exit 99
@@ -4310,6 +4333,7 @@ exit 99
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
+            connect_cancel: None,
         };
         let remote_gardn = test_execution_worker_remote_gardn(RemotePlatform {
             os: "linux",
@@ -4420,6 +4444,7 @@ exit 99
         let script = format!(
             r#"#!/bin/sh
 set -eu
+{FAKE_SSH_RESPONSE}
 printf '%s\n' "$*" >> {log}
 last=''
 for arg in "$@"; do
@@ -4427,31 +4452,30 @@ for arg in "$@"; do
 done
 if [ "$last" = "/bin/sh -s" ]; then
     script=$(cat)
+    request=$script
     printf '%s\n' "$script" >> {log}
     case "$script" in
       *uname*)
-        printf 'Linux\n'
-        printf 'x86_64\n'
-        exit 0
+        respond 'Linux
+x86_64
+' '' 0
         ;;
       *'execution-worker --build-info'*)
-        printf '%s' {probe_stdout}
-        exit {probe_status}
+        respond {probe_stdout} '' {probe_status}
         ;;
       *'test -x'*)
         # exists/candidates probes without version lines
         if printf '%s' "$script" | grep -q -- '--version'; then
-          printf '%s' {probe_stdout}
-          exit {probe_status}
+          respond {probe_stdout} '' {probe_status}
         fi
-        exit {probe_status}
+        respond '' '' {probe_status}
         ;;
       *'emit()'*)
         # No previous versioned worker candidates.
-        exit 0
+        respond '' '' 0
         ;;
       *'command -v'*|*mise*|*printf*)
-        exit 1
+        respond '' '' 1
         ;;
     esac
     printf '%s\n' "unmatched-script:$script" >> {log}
@@ -4484,8 +4508,9 @@ exit 99
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
+            connect_cancel: None,
         };
-        let result = preview_execution_worker_install_with_ssh(&ssh);
+        let result = preview_execution_worker_install_with_ssh(&ssh, None);
         let invocations = fs::read_to_string(&log).expect("fake ssh should record invocations");
         drop(_override);
         drop(_path);
@@ -4768,16 +4793,18 @@ esac
                 .expect("bad source checksum should be valid")
                 .install_suffix,
         );
-        let error = ensure_execution_worker_with_ssh(&ssh)
+        let error = ensure_execution_worker_with_ssh(&ssh, None)
             .expect_err("mismatched worker must be rejected before publication");
         assert!(error.to_string().contains("build_cohort expected"));
         assert!(!rejected_path.exists());
 
         fs::write(&source, &source_script).expect("valid worker source should be restored");
 
-        let first = ensure_execution_worker_with_ssh(&ssh).expect("first ensure should install");
+        let first =
+            ensure_execution_worker_with_ssh(&ssh, None).expect("first ensure should install");
         assert!(matches!(first, WorkerInstallReport::Installed(_)));
-        let second = ensure_execution_worker_with_ssh(&ssh).expect("second ensure should reuse");
+        let second =
+            ensure_execution_worker_with_ssh(&ssh, None).expect("second ensure should reuse");
         assert!(matches!(second, WorkerInstallReport::AlreadyCurrent(_)));
 
         let checksum = crate::checksum::file_sha256(&source).expect("source checksum");

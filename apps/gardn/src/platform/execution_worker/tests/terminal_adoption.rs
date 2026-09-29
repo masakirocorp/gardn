@@ -57,20 +57,22 @@ async fn worker_terminal_runs_command_and_captures_output() {
         )
         .unwrap();
 
-    let mut output = None;
+    let mut visible_text = String::new();
     for _ in 0..100 {
-        let bytes = state
-            .runtime_record(&identity.runtime_id)
-            .map(|record| record.output.checkpoint().1)
-            .unwrap_or_default();
-        if String::from_utf8_lossy(&bytes).contains("worker-proof") {
-            output = Some(bytes);
+        if let Some(record) = state.runtime_record(&identity.runtime_id) {
+            if let Some(runtime) = state.runtime_for_record(record) {
+                visible_text = runtime.visible_text();
+            }
+        }
+        if visible_text.contains("worker-proof") {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
-    let output = output.expect("remote command output should arrive");
-    assert!(String::from_utf8_lossy(&output).contains("worker-proof"));
+    assert!(
+        visible_text.contains("worker-proof"),
+        "remote command output should appear in the live terminal"
+    );
 
     state
         .try_send_event(WorkerEvent::StateChanged {
@@ -367,6 +369,214 @@ fn tunnel_loss_preserves_runtime_and_reconnect_adopts_full_identity() {
         });
     assert!(matches!(second_outcome, ConnectionOutcome::Continue));
     assert!(!state.has_runtime_records());
+}
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn evicted_output_checkpoint_restores_terminal_and_continues_deltas() {
+    let binding = test_binding("checkpoint-state", 4);
+    let location = ResourceLocation::new(
+        binding.execution_host_id.clone(),
+        HostPath::new(std::env::temp_dir()).unwrap(),
+    );
+    let mut state = WorkerState::new(binding.clone()).unwrap();
+    let command = "printf 'PRIMARY-PERSISTENT\\033[?2004h\\033[?1049hALT-PERSISTENT-CHECKPOINT'; i=0; while [ \"$i\" -lt 4096 ]; do printf '\\033[0m'; i=$((i + 1)); done; printf 'CHECKPOINT-COMPLETE'; read -r; printf '\\033[?1049lPRIMARY-AFTER-CHECKPOINT'; sleep 30";
+    let (identity, resolved_location) =
+        with_worker_connection(&mut state, hello(&binding, 4), |connection| {
+            let ack: WorkerMessage = read_worker_message(connection).unwrap();
+            assert!(matches!(ack, WorkerMessage::HelloAck { error: None, .. }));
+            write_worker_message(
+                connection,
+                &CoordinatorMessage::CreateTerminal {
+                    request_id: RequestId::new(44),
+                    location: location.clone(),
+                    size: TerminalSize { cols: 80, rows: 24 },
+                    command: Some(CommandSpec {
+                        program: "/bin/sh".into(),
+                        args: vec!["-c".into(), command.into()],
+                        env: Vec::new(),
+                    }),
+                    env: Vec::new(),
+                    scrollback_limit_bytes: 128,
+                },
+            )
+            .unwrap();
+            match read_worker_message(connection).unwrap() {
+                WorkerMessage::CreateTerminalResult {
+                    identity: Some(identity),
+                    location,
+                    error: None,
+                    ..
+                } => (identity, location),
+                other => panic!("unexpected create result: {other:?}"),
+            }
+        })
+        .0;
+
+    let ready_deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        let visible = state
+            .runtime_record(&identity.runtime_id)
+            .and_then(|record| state.runtime_for_record(record))
+            .map(|runtime| runtime.visible_text())
+            .unwrap_or_default();
+        if visible.contains("CHECKPOINT-COMPLETE") {
+            break;
+        }
+        assert!(
+            Instant::now() < ready_deadline,
+            "PTY output should finish before reconnecting"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    let (snapshot, snapshot_revision, later_output) =
+        with_worker_connection(&mut state, hello(&binding, 4), |connection| {
+            let ack: WorkerMessage = read_worker_message(connection).unwrap();
+            assert!(matches!(ack, WorkerMessage::HelloAck { error: None, .. }));
+            write_worker_message(
+                connection,
+                &CoordinatorMessage::AdoptTerminal {
+                    request_id: RequestId::new(45),
+                    identity: identity.clone(),
+                    location: resolved_location.clone(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(
+                read_worker_message(connection).unwrap(),
+                WorkerMessage::AdoptTerminalResult {
+                    identity: Some(_),
+                    error: None,
+                    ..
+                }
+            ));
+            write_worker_message(
+                connection,
+                &CoordinatorMessage::AttachTerminal {
+                    request_id: RequestId::new(46),
+                    identity: identity.clone(),
+                    location: resolved_location.clone(),
+                    resume: crate::execution_host::protocol::AttachResume::Checkpoint,
+                },
+            )
+            .unwrap();
+            assert!(matches!(
+                read_worker_message(connection).unwrap(),
+                WorkerMessage::AttachTerminalResult { error: None, .. }
+            ));
+
+            let mut snapshot = Vec::new();
+            let mut total_bytes = None;
+            let mut revision = None;
+            while total_bytes.is_none_or(|total| snapshot.len() < total) {
+                let message = wait_for_worker_message(connection, |message| {
+                    matches!(message, WorkerMessage::OutputCheckpoint { .. })
+                });
+                let WorkerMessage::OutputCheckpoint {
+                    revision: chunk_revision,
+                    total_bytes: chunk_total,
+                    offset,
+                    data,
+                    ..
+                } = message
+                else {
+                    unreachable!("wait_for_worker_message matched a checkpoint");
+                };
+                assert_eq!(usize::try_from(offset).unwrap(), snapshot.len());
+                assert!(total_bytes.is_none_or(|total| total == chunk_total as usize));
+                assert!(revision.is_none_or(|previous| previous == chunk_revision));
+                total_bytes = Some(chunk_total as usize);
+                revision = Some(chunk_revision);
+                snapshot.extend_from_slice(&data);
+            }
+            assert_eq!(snapshot.len(), total_bytes.unwrap());
+            let revision = revision.unwrap();
+
+            write_worker_message(
+                connection,
+                &CoordinatorMessage::Input {
+                    request_id: RequestId::new(47),
+                    identity: identity.clone(),
+                    location: resolved_location.clone(),
+                    op_seq: RuntimeOpSeq::new(1),
+                    data: b"\n".to_vec(),
+                },
+            )
+            .unwrap();
+            assert!(matches!(
+                wait_for_worker_message(connection, |message| {
+                    matches!(
+                        message,
+                        WorkerMessage::RequestAck {
+                            request_id,
+                            error: None,
+                        } if *request_id == RequestId::new(47)
+                    )
+                }),
+                WorkerMessage::RequestAck { .. }
+            ));
+            let mut later_output = Vec::new();
+            let mut expected_base = revision;
+            while !String::from_utf8_lossy(&later_output).contains("PRIMARY-AFTER-CHECKPOINT") {
+                let message = wait_for_worker_message(connection, |message| {
+                    matches!(
+                        message,
+                        WorkerMessage::OutputDelta { base_revision, .. }
+                            if *base_revision == expected_base
+                    )
+                });
+                let WorkerMessage::OutputDelta {
+                    base_revision,
+                    revision,
+                    data,
+                    ..
+                } = message
+                else {
+                    unreachable!("wait_for_worker_message matched an output delta");
+                };
+                assert_eq!(base_revision, expected_base);
+                expected_base = revision;
+                later_output.extend_from_slice(&data);
+            }
+            (snapshot, revision, later_output)
+        })
+        .0;
+
+    assert!(snapshot_revision.get() > 0);
+    let (events, _event_rx) = tokio::sync::mpsc::channel(8);
+    let (restored, _control) = crate::terminal::TerminalRuntime::remote(
+        crate::layout::PaneId::alloc(),
+        24,
+        80,
+        DEFAULT_WORKER_SCROLLBACK_BYTES,
+        crate::terminal_theme::TerminalTheme::default(),
+        events,
+    )
+    .unwrap();
+    restored.restore_snapshot(&snapshot).unwrap();
+    assert!(
+        restored
+            .visible_text()
+            .contains("ALT-PERSISTENT-CHECKPOINT"),
+        "the non-redrawn alternate-screen content should survive reconnect"
+    );
+    let restored_input = restored.input_state().unwrap();
+    assert!(restored_input.alternate_screen);
+    assert!(restored_input.bracketed_paste);
+    restored.process_remote_output(&later_output);
+
+    let original = state
+        .runtime_record(&identity.runtime_id)
+        .and_then(|record| state.runtime_for_record(record))
+        .unwrap();
+    let restored_input = restored.input_state().unwrap();
+    assert!(!restored_input.alternate_screen);
+    assert_eq!(restored.visible_text(), original.visible_text());
+    assert_eq!(Some(restored_input), original.input_state());
+    assert!(
+        restored.visible_text().contains("PRIMARY-AFTER-CHECKPOINT"),
+        "later output should continue from the restored primary screen"
+    );
+    state.shutdown_runtime_for_test(&identity.runtime_id);
 }
 
 #[test]

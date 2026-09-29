@@ -47,12 +47,12 @@ fn coordinator_hello_bincode_bytes_are_stable() {
         capabilities: vec![WorkerCapability::Terminal, WorkerCapability::Git],
     };
 
-    // Enum tag 0, version 2, string lens, generation 1, None proof, two capabilities.
+    // Enum tag 0, version 3, string lens, generation 1, None proof, two capabilities.
     assert_bincode_bytes(
         &msg,
         &[
             0x00, // CoordinatorMessage::Hello
-            0x02, // version
+            0x03, // version
             0x09, b'i', b'n', b's', b't', b'a', b'l', b'l', b'-', b'a', // installation id
             0x24, // session namespace len 36
             b'0', b'1', b'2', b'3', b'4', b'5', b'6', b'7', b'-', b'8', b'9', b'a', b'b', b'-',
@@ -81,7 +81,7 @@ fn worker_hello_ack_framing_matches_golden_fixture() {
     };
     let expected_payload = [
         0x00, // WorkerMessage::HelloAck
-        0x02, // version
+        0x03, // version
         0x08, b'w', b'o', b'r', b'k', b'e', b'r', b'-', b'1', // instance
         0x01, // host_binding_generation
         0x05, b's', b's', b'h', b':', b'a', // execution host id
@@ -129,11 +129,42 @@ fn output_delta_bincode_bytes_are_stable() {
 }
 
 #[test]
+fn output_checkpoint_chunks_match_framed_wire_fixture() {
+    let message = WorkerMessage::OutputCheckpoint {
+        identity: runtime_identity(),
+        location: location(),
+        revision: OutputRevision::new(11),
+        total_bytes: 6,
+        offset: 3,
+        data: b"end".to_vec(),
+    };
+    let expected = [
+        45, 0, 0, 0, // payload length
+        6, // OutputCheckpoint
+        3, // host binding generation
+        8, b'w', b'o', b'r', b'k', b'e', b'r', b'-', b'1', 4, b'r', b't', b'-', b'9',
+        7, // incarnation
+        11, b's', b's', b'h', b':', b'w', b'o', b'r', b'k', b'b', b'o', b'x', 8, b'/', b's', b'r',
+        b'v', b'/', b'a', b'p', b'i', 11, 6, 3, // revision, total bytes, offset
+        3, b'e', b'n', b'd',
+    ];
+    let mut encoded = Vec::new();
+    write_worker_message(&mut encoded, &message).unwrap();
+    assert_eq!(encoded, expected);
+    assert_eq!(
+        read_worker_message::<_, WorkerMessage>(&mut expected.as_slice()).unwrap(),
+        message
+    );
+}
+
+#[test]
 fn max_frame_rejection_uses_public_framing_helpers() {
     let msg = WorkerMessage::OutputCheckpoint {
         identity: runtime_identity(),
         location: location(),
         revision: OutputRevision::new(1),
+        total_bytes: 64,
+        offset: 0,
         data: vec![0x61; 64],
     };
     let mut buf = Vec::new();

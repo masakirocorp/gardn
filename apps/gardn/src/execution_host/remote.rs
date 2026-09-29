@@ -148,6 +148,7 @@ impl WorkerConnection {
                 match crate::remote::ensure_execution_worker(
                     profile.target(),
                     askpass_config.clone(),
+                    cancel,
                 )? {
                     crate::remote::WorkerInstallReport::Installed(preview)
                     | crate::remote::WorkerInstallReport::AlreadyCurrent(preview) => preview,
@@ -156,6 +157,7 @@ impl WorkerConnection {
             WorkerSetupPolicy::ProbeOnly => crate::remote::preview_execution_worker_install(
                 profile.target(),
                 askpass_config.clone(),
+                cancel,
             )?,
         };
         let mut transport = crate::remote::spawn_execution_worker_cancellable(
@@ -171,6 +173,27 @@ impl WorkerConnection {
                 return Err(err);
             }
         }
+        let (event_tx, events) = mpsc::channel();
+        let stderr = transport.take_stderr()?;
+        let stderr_tx = event_tx.clone();
+        let stderr_reader = std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines() {
+                match line {
+                    Ok(line) if !line.is_empty() => {
+                        if stderr_tx.send(WorkerConnectionEvent::Stderr(line)).is_err() {
+                            break;
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(err) => {
+                        let _ = stderr_tx.send(WorkerConnectionEvent::TransportClosed(format!(
+                            "execution worker stderr failed: {err}"
+                        )));
+                        break;
+                    }
+                }
+            }
+        });
         let hello = CoordinatorMessage::Hello {
             version: PROTOCOL_VERSION,
             coordinator_installation_id: installation_id,
@@ -219,7 +242,6 @@ impl WorkerConnection {
             connected: connected.clone(),
             next_request_id,
         };
-        let (event_tx, events) = mpsc::channel();
         let reader_connected = connected.clone();
         let reader_tx = event_tx.clone();
         let reader = std::thread::spawn(move || loop {
@@ -236,26 +258,6 @@ impl WorkerConnection {
                     reader_connected.store(false, Ordering::Release);
                     let _ = reader_tx.send(WorkerConnectionEvent::TransportClosed(err.to_string()));
                     break;
-                }
-            }
-        });
-
-        let stderr = transport.take_stderr()?;
-        let stderr_reader = std::thread::spawn(move || {
-            for line in BufReader::new(stderr).lines() {
-                match line {
-                    Ok(line) if !line.is_empty() => {
-                        if event_tx.send(WorkerConnectionEvent::Stderr(line)).is_err() {
-                            break;
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(err) => {
-                        let _ = event_tx.send(WorkerConnectionEvent::TransportClosed(format!(
-                            "execution worker stderr failed: {err}"
-                        )));
-                        break;
-                    }
                 }
             }
         });
@@ -308,7 +310,7 @@ fn read_worker_hello(
     transport: &mut crate::remote::ExecutionWorkerTransport,
     cancel: Option<&crate::remote::ConnectCancel>,
 ) -> std::io::Result<(WorkerMessage, std::process::ChildStdout)> {
-    let mut stdout = transport.take_stdout()?;
+    let mut stdout = transport.take_stdout(cancel)?;
     let (sender, receiver) = mpsc::sync_channel(1);
     let reader = std::thread::spawn(move || {
         let result = read_worker_message(&mut stdout);
@@ -320,6 +322,7 @@ fn read_worker_hello(
         if let Some(cancel) = cancel {
             if let Err(error) = cancel.check() {
                 let _ = transport.kill();
+                let _ = reader.join();
                 return Err(error);
             }
         }
@@ -327,6 +330,7 @@ fn read_worker_hello(
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             let _ = transport.kill();
+            let _ = reader.join();
             return Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "execution worker timed out before sending HelloAck",

@@ -1904,6 +1904,13 @@ impl PaneRuntime {
         let (response_tx, _response_rx) = mpsc::channel::<Bytes>(1);
         let mut terminal = crate::ghostty::Terminal::new(cols, rows, scrollback_limit_bytes)
             .map_err(|e| std::io::Error::other(e.to_string()))?;
+        if initial_state.output_observer.is_some() {
+            terminal
+                .enable_snapshot_continuation_tracking(
+                    crate::ghostty::MAX_SNAPSHOT_CONTINUATION_BYTES,
+                )
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+        }
         if crate::kitty_graphics::is_enabled() {
             terminal
                 .enable_kitty_graphics(true)
@@ -1911,7 +1918,8 @@ impl PaneRuntime {
         }
         let content_seq = Arc::new(AtomicU64::new(0));
         let detection_content_seq = Arc::new(AtomicU64::new(0));
-        let pane_terminal = GhosttyPaneTerminal::new(terminal, response_tx.clone())?;
+        let pane_terminal = GhosttyPaneTerminal::new(terminal, response_tx.clone())?
+            .with_output_observer(initial_state.output_observer);
         pane_terminal.apply_host_terminal_theme(host_terminal_theme);
         pane_terminal.apply_host_terminal_appearance(host_terminal_theme.appearance());
 
@@ -1926,7 +1934,6 @@ impl PaneRuntime {
         }
         let terminal = Arc::new(PaneTerminal::new(pane_terminal));
         let kitty_keyboard_flags = Arc::new(AtomicU16::new(0));
-        let output_observer = initial_state.output_observer.clone();
 
         let spawned = crate::pty::backend::spawn_with_portable_pty(rows, cols, cmd)
             .inspect_err(|err| error!(pane = pane_id.raw(), err = %err, "{spawn_error_message}"))?;
@@ -1981,7 +1988,6 @@ impl PaneRuntime {
             let rt = tokio::runtime::Handle::current();
             let content_seq = content_seq.clone();
             let detection_content_seq = detection_content_seq.clone();
-            let output_observer = output_observer.clone();
             let on_read = Box::new(move |bytes: &[u8]| {
                 observe_detection_content_change(bytes, &detection_content_seq);
                 content_seq.fetch_add(1, Ordering::AcqRel);
@@ -1989,9 +1995,7 @@ impl PaneRuntime {
                 let result =
                     terminal.process_pty_bytes(pane_id, shell_pid, bytes, &response_writer);
                 content_seq.fetch_add(1, Ordering::Release);
-                if let Some(observer) = output_observer.as_ref() {
-                    observer(bytes);
-                }
+
                 if result.request_render && render_dirty.request_pty(pane_id) {
                     render_notify.notify_one();
                 }
@@ -2666,6 +2670,25 @@ impl PaneRuntime {
 
     pub(crate) fn content_seq(&self) -> u64 {
         self.content_seq.load(Ordering::Acquire)
+    }
+    pub(crate) fn snapshot_bytes<T>(
+        &self,
+        max_bytes: usize,
+        capture_revision: impl FnOnce() -> T,
+    ) -> std::io::Result<(T, Vec<u8>)> {
+        self.terminal
+            .ghostty
+            .snapshot_bytes(max_bytes, capture_revision)
+    }
+
+    pub(crate) fn restore_snapshot(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.content_seq.fetch_add(1, Ordering::AcqRel);
+        let result = self.terminal.ghostty.restore_snapshot(bytes);
+        if result.is_ok() {
+            mark_detection_content_changed(&self.detection_content_seq);
+        }
+        self.content_seq.fetch_add(1, Ordering::Release);
+        result
     }
 
     pub(crate) fn screen_text_snapshot(

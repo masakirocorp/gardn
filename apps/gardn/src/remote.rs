@@ -1,3 +1,5 @@
+mod command;
+
 #[cfg(windows)]
 mod attach;
 #[cfg(unix)]

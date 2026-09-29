@@ -24,6 +24,76 @@ use std::sync::{Mutex, Once, OnceLock};
 
 pub use bindings as ffi;
 
+pub(crate) const MAX_SNAPSHOT_CONTINUATION_BYTES: usize = 65 * 1024 * 1024;
+const TERMINAL_OPT_CONTINUATION_MAX_BYTES: u32 = 31;
+
+#[repr(C)]
+struct SnapshotWriter {
+    write: unsafe extern "C" fn(*mut c_void, *const u8, usize) -> bool,
+    userdata: *mut c_void,
+}
+
+struct SnapshotBuffer {
+    bytes: Vec<u8>,
+    limit: usize,
+    error: Option<Error>,
+}
+
+unsafe extern "C" fn write_snapshot(userdata: *mut c_void, data: *const u8, len: usize) -> bool {
+    // SAFETY: snapshot_encode calls synchronously with our live buffer and a valid byte slice.
+    let buffer = unsafe { &mut *userdata.cast::<SnapshotBuffer>() };
+    let Some(required) = buffer
+        .bytes
+        .len()
+        .checked_add(len)
+        .filter(|size| *size <= buffer.limit)
+    else {
+        buffer.error = Some(Error(ffi::GhosttyResult_GHOSTTY_OUT_OF_SPACE));
+        return false;
+    };
+    if required > buffer.bytes.capacity() {
+        let capacity = required
+            .max(buffer.bytes.capacity().saturating_mul(2))
+            .min(buffer.limit);
+        if buffer
+            .bytes
+            .try_reserve_exact(capacity - buffer.bytes.len())
+            .is_err()
+        {
+            buffer.error = Some(Error(ffi::GhosttyResult_GHOSTTY_OUT_OF_MEMORY));
+            return false;
+        }
+    }
+    // SAFETY: libghostty-vt supplies len initialized bytes for this callback.
+    buffer
+        .bytes
+        .extend_from_slice(unsafe { slice::from_raw_parts(data, len) });
+    true
+}
+
+unsafe extern "C" {
+    fn ghostty_snapshot_encode(
+        terminal: ffi::GhosttyTerminal,
+        writer: SnapshotWriter,
+    ) -> ffi::GhosttyResult;
+    fn ghostty_snapshot_decoder_new_buf(
+        allocator: *const ffi::GhosttyAllocator,
+        decoder: *mut *mut c_void,
+        ptr: *const u8,
+        len: usize,
+    ) -> ffi::GhosttyResult;
+    fn ghostty_snapshot_decoder_free(decoder: *mut c_void);
+    fn ghostty_snapshot_decoder_decode(
+        decoder: *mut c_void,
+        terminal: *mut ffi::GhosttyTerminal,
+    ) -> ffi::GhosttyResult;
+    fn ghostty_snapshot_decoder_get(
+        decoder: *mut c_void,
+        data: u32,
+        out: *mut c_void,
+    ) -> ffi::GhosttyResult;
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Error(ffi::GhosttyResult);
 
@@ -641,16 +711,81 @@ impl Terminal {
         unsafe {
             ffi::ghostty_terminal_new(ptr::null(), &mut raw, cols, rows).into_result()?;
         }
-        // SAFETY: raw is a successfully created terminal and the value pointer matches
-        // the current libghostty-vt scrollback byte-limit ABI.
+        Self::from_raw(raw, cols, rows, max_scrollback)
+    }
+
+    pub(crate) fn from_snapshot(bytes: &[u8], max_scrollback: usize) -> Result<Self, Error> {
+        let mut decoder = ptr::null_mut();
+        // SAFETY: the decoder borrows `bytes` only through this synchronous decode call.
         unsafe {
-            ffi::ghostty_terminal_set(
-                raw,
-                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
-                (&max_scrollback as *const usize).cast(),
+            ghostty_snapshot_decoder_new_buf(
+                ptr::null(),
+                &mut decoder,
+                bytes.as_ptr(),
+                bytes.len(),
             )
             .into_result()?;
         }
+        let mut raw = ptr::null_mut();
+        // SAFETY: decoder and output pointer are valid; decode consumes and validates the
+        // complete snapshot before returning the owned terminal handle.
+        let decoded = unsafe { ghostty_snapshot_decoder_decode(decoder, &mut raw) };
+        let mut consumed = 0usize;
+        // SAFETY: SOURCE_OFFSET (2) writes a size_t and is queried only after successful decode.
+        let offset_result = if decoded == ffi::GhosttyResult_GHOSTTY_SUCCESS {
+            unsafe {
+                ghostty_snapshot_decoder_get(decoder, 2, (&mut consumed as *mut usize).cast())
+            }
+        } else {
+            decoded
+        };
+        // SAFETY: decoder is live; the returned terminal is caller-owned.
+        unsafe { ghostty_snapshot_decoder_free(decoder) };
+        if offset_result != ffi::GhosttyResult_GHOSTTY_SUCCESS || consumed != bytes.len() {
+            // SAFETY: decode returns either a caller-owned terminal or null.
+            unsafe { ffi::ghostty_terminal_free(raw) };
+            return Err(Error(
+                if offset_result != ffi::GhosttyResult_GHOSTTY_SUCCESS {
+                    offset_result
+                } else {
+                    ffi::GhosttyResult_GHOSTTY_INVALID_VALUE
+                },
+            ));
+        }
+
+        let mut cols = 0u16;
+        let mut rows = 0u16;
+        // SAFETY: decoded terminal is live and output types match terminal data fields.
+        let dimensions = unsafe {
+            ffi::ghostty_terminal_get(
+                raw,
+                ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_COLS,
+                (&mut cols as *mut u16).cast(),
+            )
+            .into_result()
+            .and_then(|()| {
+                ffi::ghostty_terminal_get(
+                    raw,
+                    ffi::GhosttyTerminalData_GHOSTTY_TERMINAL_DATA_ROWS,
+                    (&mut rows as *mut u16).cast(),
+                )
+                .into_result()
+            })
+        };
+        if let Err(error) = dimensions {
+            // SAFETY: no Rust owner exists yet for this decoded terminal.
+            unsafe { ffi::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
+        Self::from_raw(raw, cols, rows, max_scrollback)
+    }
+
+    fn from_raw(
+        raw: ffi::GhosttyTerminal,
+        cols: u16,
+        rows: u16,
+        max_scrollback: usize,
+    ) -> Result<Self, Error> {
         let mut terminal = Self {
             raw,
             max_scrollback,
@@ -668,9 +803,21 @@ impl Terminal {
             }),
             kitty_fingerprints: Mutex::new(HashMap::new()),
         };
+        // SAFETY: raw is a live terminal and the value pointer matches the current
+        // libghostty-vt scrollback byte-limit ABI.
+        unsafe {
+            ffi::ghostty_terminal_set(
+                raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+                (&max_scrollback as *const usize).cast(),
+            )
+            .into_result()?;
+        }
         let userdata =
             (&mut *terminal.callback_state as *mut TerminalCallbackState).cast::<c_void>();
         let glyph_protocol = false;
+        // SAFETY: callback pointers match their option types and userdata remains stable
+        // for the lifetime of this terminal.
         unsafe {
             ffi::ghostty_terminal_set(
                 terminal.raw,
@@ -704,6 +851,49 @@ impl Terminal {
             .into_result()?;
         }
         Ok(terminal)
+    }
+
+    pub(crate) fn enable_snapshot_continuation_tracking(
+        &mut self,
+        max_bytes: usize,
+    ) -> Result<(), Error> {
+        // SAFETY: option 31 takes a pointer to size_t, matching vendored terminal.h.
+        unsafe {
+            ffi::ghostty_terminal_set(
+                self.raw,
+                TERMINAL_OPT_CONTINUATION_MAX_BYTES,
+                (&max_bytes as *const usize).cast(),
+            )
+            .into_result()
+        }
+    }
+
+    pub(crate) fn snapshot_bytes(&self, max_bytes: usize) -> Result<Vec<u8>, Error> {
+        let mut buffer = SnapshotBuffer {
+            bytes: Vec::new(),
+            limit: max_bytes,
+            error: None,
+        };
+        // SAFETY: the caller holds the terminal lock. The writer and buffer remain live
+        // for the synchronous encode, and the callback never accesses the terminal.
+        let result = unsafe {
+            ghostty_snapshot_encode(
+                self.raw,
+                SnapshotWriter {
+                    write: write_snapshot,
+                    userdata: (&mut buffer as *mut SnapshotBuffer).cast(),
+                },
+            )
+        };
+        if let Some(error) = buffer.error {
+            return Err(error);
+        }
+        result.into_result()?;
+        Ok(buffer.bytes)
+    }
+    pub(crate) fn inherit_runtime_callbacks(&mut self, source: &Self) {
+        self.callback_state.size_report = source.callback_state.size_report;
+        self.callback_state.color_scheme = source.callback_state.color_scheme;
     }
 
     pub fn write(&mut self, bytes: &[u8]) {
@@ -3637,5 +3827,98 @@ mod tests {
         assert_eq!(virtual_full_grid_spec(&[spec], 80, 24), Some(spec));
         assert_eq!(virtual_full_grid_spec(&[spec], 193, 63), Some(spec));
         assert_eq!(virtual_full_grid_spec(&[spec, spec], 80, 24), None);
+    }
+    #[test]
+    fn terminal_snapshot_restores_both_screens_and_input_modes() {
+        let mut source = Terminal::new(40, 4, 4096).unwrap();
+        source.write(b"PRIMARY-PERSISTENT");
+        source.write(b"\x1b[?2004h\x1b[?1049hALT-PERSISTENT");
+
+        let snapshot = source.snapshot_bytes(1024 * 1024).unwrap();
+        let mut restored = Terminal::from_snapshot(&snapshot, 4096).unwrap();
+
+        assert_eq!(restored.active_screen().unwrap(), ActiveScreen::Alternate);
+        assert!(restored.mode_get(MODE_BRACKETED_PASTE).unwrap());
+        assert!(restored
+            .read_text_viewport((0, 0), (39, 3), false)
+            .unwrap()
+            .contains("ALT-PERSISTENT"));
+        restored.write(b"\x1b[?1049l");
+        assert_eq!(restored.active_screen().unwrap(), ActiveScreen::Primary);
+        assert!(restored
+            .read_text_viewport((0, 0), (39, 3), false)
+            .unwrap()
+            .contains("PRIMARY-PERSISTENT"));
+    }
+
+    #[test]
+    fn terminal_snapshot_restores_an_incomplete_escape_sequence() {
+        let mut source = Terminal::new(40, 4, 4096).unwrap();
+        source
+            .enable_snapshot_continuation_tracking(MAX_SNAPSHOT_CONTINUATION_BYTES)
+            .unwrap();
+        source.write(b"ESCAPE-");
+        source.write(b"\x1b[31");
+
+        let snapshot = source.snapshot_bytes(1024 * 1024).unwrap();
+        let mut restored = Terminal::from_snapshot(&snapshot, 4096).unwrap();
+        restored.write(b"mRED");
+
+        assert!(restored
+            .read_text_viewport((0, 0), (39, 3), false)
+            .unwrap()
+            .contains("ESCAPE-RED"));
+    }
+
+    #[test]
+    fn terminal_snapshot_restores_an_incomplete_utf8_codepoint() {
+        let mut source = Terminal::new(40, 4, 4096).unwrap();
+        source
+            .enable_snapshot_continuation_tracking(MAX_SNAPSHOT_CONTINUATION_BYTES)
+            .unwrap();
+        source.write(b"UTF8-");
+        source.write(&[0xe2, 0x82]);
+
+        let snapshot = source.snapshot_bytes(1024 * 1024).unwrap();
+        let mut restored = Terminal::from_snapshot(&snapshot, 4096).unwrap();
+        restored.write(&[0xac]);
+
+        assert!(restored
+            .read_text_viewport((0, 0), (39, 3), false)
+            .unwrap()
+            .contains("UTF8-\u{20ac}"));
+    }
+
+    #[test]
+    fn terminal_snapshot_rejects_truncated_or_trailing_data() {
+        let mut source = Terminal::new(40, 4, 4096).unwrap();
+        source.write(b"KEEP");
+        let mut snapshot = source.snapshot_bytes(1024 * 1024).unwrap();
+        let truncated = Terminal::from_snapshot(&snapshot[..snapshot.len() / 2], 4096);
+        assert!(matches!(
+            truncated,
+            Err(Error(ffi::GhosttyResult_GHOSTTY_INVALID_VALUE))
+        ));
+        snapshot.push(0);
+        assert!(matches!(
+            Terminal::from_snapshot(&snapshot, 4096),
+            Err(Error(ffi::GhosttyResult_GHOSTTY_INVALID_VALUE))
+        ));
+    }
+
+    #[test]
+    fn terminal_snapshot_enforces_encoding_byte_budget_without_mutating_terminal() {
+        let mut source = Terminal::new(40, 4, 4096).unwrap();
+        source.write(b"KEEP");
+        assert!(matches!(
+            source.snapshot_bytes(16),
+            Err(Error(ffi::GhosttyResult_GHOSTTY_OUT_OF_SPACE))
+        ));
+        let snapshot = source.snapshot_bytes(1024 * 1024).unwrap();
+        let restored = Terminal::from_snapshot(&snapshot, 4096).unwrap();
+        assert!(restored
+            .read_text_viewport((0, 0), (39, 3), false)
+            .unwrap()
+            .contains("KEEP"));
     }
 }

@@ -256,6 +256,10 @@ The Connections section manages SSH execution hosts and their workers. Profiles 
 
 After a coordinator restart, restored remote panes reconnect their saved SSH connection and re-adopt the live worker runtime automatically.
 
+SSH setup separates command results from login banners and drains command input and output concurrently. Setup commands have a five-minute deadline. Binary transfers have a fifteen-minute deadline. Disconnecting a saved connection cancels its active setup command. Existing SSH authentication prompts remain available.
+
+When reconnect output no longer fits in the worker's replay buffer, Gardn restores a complete terminal checkpoint. The checkpoint preserves primary and alternate screens, retained scrollback, input modes, and incomplete terminal escape sequences or UTF-8 characters. It does not recover history already removed by the configured scrollback limit. Checkpoint transfer and assembly are bounded to 256 MiB.
+
 Settings > About credits Herdr, Fly.io Sprites, ghui by Kit Langton, Fresh IDE, terminal-browser, and Hunk. Each credit includes its original project URL. Credits and retained license notices wrap to the content width. Use the mouse wheel, arrow keys, or Page Up / Page Down to scroll. Home and End jump to the start and end. Fresh, terminal-browser, and Hunk are optional tools installed separately.
 
 ### Help and confirmations

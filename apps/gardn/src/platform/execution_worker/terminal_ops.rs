@@ -170,12 +170,12 @@ pub(super) fn handle_attach_terminal(
                 if record.output.deltas_after(revision.get()).is_some() {
                     sent_revisions.insert(identity.runtime_id.clone(), revision.get());
                 } else {
-                    let checkpoint_revision = send_checkpoint(stream, record)?;
+                    let checkpoint_revision = send_checkpoint(state, stream, record)?;
                     sent_revisions.insert(identity.runtime_id.clone(), checkpoint_revision.get());
                 }
             }
             AttachResume::Checkpoint => {
-                let checkpoint_revision = send_checkpoint(stream, record)?;
+                let checkpoint_revision = send_checkpoint(state, stream, record)?;
                 sent_revisions.insert(identity.runtime_id.clone(), checkpoint_revision.get());
             }
         }

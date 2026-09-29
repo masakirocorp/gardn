@@ -69,11 +69,16 @@ pub(crate) enum WorkerMessage {
         revision: OutputRevision,
         data: Vec<u8>,
     },
-    /// Complete canonical checkpoint when deltas were evicted or on fresh attach.
+    /// One bounded chunk of a complete canonical terminal snapshot.
+    ///
+    /// Chunks are sent in ascending contiguous offsets. `total_bytes` is bounded by
+    /// `MAX_TERMINAL_SNAPSHOT_BYTES`; the coordinator applies only a complete snapshot.
     OutputCheckpoint {
         identity: RuntimeIdentity,
         location: ResourceLocation,
         revision: OutputRevision,
+        total_bytes: u64,
+        offset: u64,
         data: Vec<u8>,
     },
     RuntimeExit {

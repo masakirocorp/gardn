@@ -1638,21 +1638,30 @@ impl App {
                         changed = true;
                     }
                 }
-                crate::execution_host::ExecutionHostEvent::TerminalOutput {
-                    terminal_id,
-                    data,
-                    reset,
-                } => {
+                crate::execution_host::ExecutionHostEvent::TerminalOutput { terminal_id, data } => {
                     if let Some(runtime) = self.terminal_runtimes.get(&terminal_id) {
-                        if reset {
-                            let _ = runtime.process_remote_output(b"\x1bc\x1b[3J");
-                        }
                         for content in runtime.process_remote_output(&data) {
                             let _ = self
                                 .event_tx
                                 .try_send(crate::events::AppEvent::ClipboardWrite { content });
                         }
                         changed = true;
+                    }
+                }
+                crate::execution_host::ExecutionHostEvent::TerminalSnapshot {
+                    terminal_id,
+                    data,
+                } => {
+                    if let Some(runtime) = self.terminal_runtimes.get(&terminal_id) {
+                        match runtime.restore_snapshot(&data) {
+                            Ok(()) => changed = true,
+                            Err(error) => {
+                                tracing::warn!(terminal_id = %terminal_id, %error, "failed to restore remote terminal snapshot; requesting a fresh checkpoint");
+                                if let Some(hosts) = self.execution_hosts.as_mut() {
+                                    hosts.request_terminal_checkpoint(&terminal_id);
+                                }
+                            }
+                        }
                     }
                 }
                 crate::execution_host::ExecutionHostEvent::AgentHookReported {

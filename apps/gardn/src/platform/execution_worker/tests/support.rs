@@ -57,8 +57,12 @@ pub(super) fn with_worker_connection<T>(
     interact: impl FnOnce(&mut UnixStream) -> T,
 ) -> (T, ConnectionOutcome) {
     let (worker_stream, mut coordinator_stream) = UnixStream::pair().unwrap();
+    let current_runtime = tokio::runtime::Handle::try_current();
     std::thread::scope(|scope| {
         let worker = scope.spawn(move || {
+            if let Ok(runtime) = current_runtime {
+                return runtime.block_on(async { serve_connection(worker_stream, state) });
+            }
             let runtime = tokio::runtime::Builder::new_multi_thread()
                 .enable_all()
                 .build()

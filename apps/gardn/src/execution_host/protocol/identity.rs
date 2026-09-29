@@ -15,12 +15,15 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 ///
 /// Exact-match negotiation. Distinct from the thin-client
 /// [`crate::protocol::PROTOCOL_VERSION`].
-pub(crate) const PROTOCOL_VERSION: u32 = 2;
+pub(crate) const PROTOCOL_VERSION: u32 = 3;
+
+/// Bounded coordinator assembly limit for one canonical terminal snapshot.
+pub(crate) const MAX_TERMINAL_SNAPSHOT_BYTES: usize = 256 * 1024 * 1024;
 
 /// Maximum worker-protocol frame payload (16 MiB).
 ///
-/// Sized so a canonical terminal checkpoint can cover configured scrollback
-/// without borrowing the thin-client graphics exception.
+/// Terminal snapshots are emitted as smaller ordered chunks so configured
+/// scrollback does not need to fit in one frame.
 pub(crate) const MAX_FRAME_SIZE: usize = 16 * 1024 * 1024;
 
 const MAX_INSTALLATION_ID_LEN: usize = 128;

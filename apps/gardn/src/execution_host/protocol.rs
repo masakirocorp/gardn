@@ -1,4 +1,4 @@
-//! Execution Worker Protocol v1.
+//! Execution Worker Protocol v3.
 //!
 //! Framed, authenticated, versioned bincode messages exchanged over a persistent
 //! OpenSSH stdio channel between the coordinator and a remote execution worker.
@@ -27,7 +27,7 @@ pub(crate) use identity::{AuthProof, ProtocolIdError, MAX_FRAME_SIZE};
 pub(crate) use identity::{
     CoordinatorInstallationId, HostBindingGeneration, OutputRevision, RequestId, RuntimeIdentity,
     RuntimeIncarnation, RuntimeOpSeq, SessionNamespaceId, WorkerInstanceId, WorkerRuntimeId,
-    PROTOCOL_VERSION,
+    MAX_TERMINAL_SNAPSHOT_BYTES, PROTOCOL_VERSION,
 };
 pub(crate) use types::{
     AgentLaunch, AttachResume, CommandSpec, GitStatusSnapshot, HostHealthStatus, ObservedProcess,

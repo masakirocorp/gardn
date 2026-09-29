@@ -1,5 +1,10 @@
 //! Windows thin-client launcher that attaches over SSH to a Unix Gardn host.
 
+use super::command::{
+    await_stream_preamble, capture_output, frame_remote_script, frame_remote_stream_command,
+    unframe_remote_output, SSH_COMMAND_TIMEOUT, SSH_TRANSFER_TIMEOUT,
+};
+
 use std::fs::{self, File};
 use std::io::{self, IsTerminal, Write as _};
 use std::path::{Path, PathBuf};
@@ -390,29 +395,27 @@ impl RemoteSsh {
     }
 
     fn sh_output(&self, script: &str) -> io::Result<Output> {
-        let mut child = self
-            .command()
-            .arg("/bin/sh -s")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
-
-        let write_result = if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(script.as_bytes())
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "ssh bootstrap stdin missing",
-            ))
-        };
-        let output = child.wait_with_output()?;
-        write_result?;
+        let (script, begin, end) = frame_remote_script(script);
+        let mut output = capture_output(
+            self.command().arg("/bin/sh -s"),
+            io::Cursor::new(script.into_bytes()),
+            None,
+            SSH_COMMAND_TIMEOUT,
+        )?;
+        unframe_remote_output(&mut output, &begin, Some(&end))?;
         Ok(output)
     }
 
     fn user_shell_output(&self, command: &str) -> io::Result<Output> {
-        self.command().arg(command).output()
+        let (command, marker) = frame_remote_stream_command(command);
+        let mut output = capture_output(
+            self.command().arg(command),
+            io::empty(),
+            None,
+            SSH_COMMAND_TIMEOUT,
+        )?;
+        unframe_remote_output(&mut output, &marker, None)?;
+        Ok(output)
     }
 
     fn install_gardn(
@@ -429,32 +432,14 @@ impl RemoteSsh {
         let (tmp_path, dest_path) = parse_remote_install_paths(&output.stdout)?;
 
         let result = (|| {
-            let mut child = self
-                .command()
-                .arg(remote_install_stream_command(&tmp_path))
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::inherit())
-                .spawn()
-                .map_err(|err| {
-                    io::Error::new(err.kind(), format!("failed to start ssh install: {err}"))
-                })?;
-
-            let mut source = File::open(source_path)?;
-            let copy_result = if let Some(mut stdin) = child.stdin.take() {
-                io::copy(&mut source, &mut stdin).map(|_| ())
-            } else {
-                Err(io::Error::new(
-                    io::ErrorKind::BrokenPipe,
-                    "ssh install stdin missing",
-                ))
-            };
-            let status = child.wait()?;
-            copy_result?;
-            if !status.success() {
-                return Err(io::Error::other(format!(
-                    "remote install exited with {status}"
-                )));
+            let output = capture_output(
+                self.command().arg(remote_install_stream_command(&tmp_path)),
+                File::open(source_path)?,
+                None,
+                SSH_TRANSFER_TIMEOUT,
+            )?;
+            if !output.status.success() {
+                return Err(command_failed("remote install failed", &output));
             }
 
             let staged_path = posix_shell_quote(&tmp_path);
@@ -495,17 +480,17 @@ impl Drop for RemoteSsh {
             return;
         };
 
-        let _ = self
-            .base_command()
-            .arg("-O")
-            .arg("exit")
-            .arg("-o")
-            .arg("BatchMode=yes")
-            .arg(&self.target)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
+        let _ = capture_output(
+            self.base_command()
+                .arg("-O")
+                .arg("exit")
+                .arg("-o")
+                .arg("BatchMode=yes")
+                .arg(&self.target),
+            io::empty(),
+            None,
+            Duration::from_secs(2),
+        );
     }
 }
 
@@ -1524,7 +1509,7 @@ fn parse_remote_install_paths(stdout: &[u8]) -> io::Result<(String, String)> {
 }
 
 fn remote_install_stream_command(tmp_path: &str) -> String {
-    format!("tee {}", posix_shell_quote(tmp_path))
+    format!("tee {} > /dev/null", posix_shell_quote(tmp_path))
 }
 
 fn remote_install_commit_script(
@@ -1850,14 +1835,17 @@ fn bridge_connection(
 ) -> io::Result<()> {
     let mut command = Command::new("ssh");
     apply_managed_ssh_options(&mut command, ssh_options);
+    let (bridge_command, stream_marker) =
+        frame_remote_stream_command(&remote_bridge_command(remote_gardn, session_name));
     command
         .arg("-T")
         .arg(target)
-        .arg(remote_bridge_command(remote_gardn, session_name))
+        .arg(bridge_command)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
 
+    crate::platform::configure_cancellable_command(&mut command);
     let mut child = command
         .spawn()
         .map_err(|err| io::Error::new(err.kind(), format!("failed to start ssh bridge: {err}")))?;
@@ -1865,10 +1853,13 @@ fn bridge_connection(
         Some(stdin) => stdin,
         None => return terminate_bridge_child(child, "ssh bridge stdin missing"),
     };
-    let mut child_stdout = match child.stdout.take() {
+    let child_stdout = match child.stdout.take() {
         Some(stdout) => stdout,
         None => return terminate_bridge_child(child, "ssh bridge stdout missing"),
     };
+    let mut child_stdout = await_stream_preamble(&mut child, child_stdout, stream_marker, || {
+        bridge_stop.load(Ordering::Acquire)
+    })?;
     let stream_to_child = match stream.try_clone() {
         Ok(stream) => stream,
         Err(err) => {

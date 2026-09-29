@@ -99,6 +99,17 @@ impl TerminalRuntime {
     pub(crate) fn process_remote_output(&self, bytes: &[u8]) -> Vec<Vec<u8>> {
         self.0.process_remote_output(bytes)
     }
+    pub(crate) fn snapshot_bytes<T>(
+        &self,
+        max_bytes: usize,
+        capture_revision: impl FnOnce() -> T,
+    ) -> std::io::Result<(T, Vec<u8>)> {
+        self.0.snapshot_bytes(max_bytes, capture_revision)
+    }
+
+    pub(crate) fn restore_snapshot(&self, bytes: &[u8]) -> std::io::Result<()> {
+        self.0.restore_snapshot(bytes)
+    }
 
     pub fn spawn(
         pane_id: PaneId,
