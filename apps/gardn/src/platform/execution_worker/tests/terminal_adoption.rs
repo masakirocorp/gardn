@@ -378,7 +378,7 @@ async fn evicted_output_checkpoint_restores_terminal_and_continues_deltas() {
         HostPath::new(std::env::temp_dir()).unwrap(),
     );
     let mut state = WorkerState::new(binding.clone()).unwrap();
-    let command = "printf 'PRIMARY-PERSISTENT\\033[?2004h\\033[?1049hALT-PERSISTENT-CHECKPOINT'; i=0; while [ \"$i\" -lt 4096 ]; do printf '\\033[0m'; i=$((i + 1)); done; printf 'CHECKPOINT-COMPLETE'; read -r; printf '\\033[?1049lPRIMARY-AFTER-CHECKPOINT'; sleep 30";
+    let command = "printf 'PRIMARY-PERSISTENT\\033[?2004h\\033[?1049hALT-PERSISTENT-CHECKPOINT'; i=0; while [ \"$i\" -lt 4096 ]; do printf '\\033[0m'; i=$((i + 1)); done; printf 'CHECKPOINT-COMPLETE'; read -r checkpoint_resume; printf '\\033[?1049lPRIMARY-AFTER-CHECKPOINT'; sleep 30";
     let (identity, resolved_location) =
         with_worker_connection(&mut state, hello(&binding, 4), |connection| {
             let ack: WorkerMessage = read_worker_message(connection).unwrap();
@@ -423,7 +423,7 @@ async fn evicted_output_checkpoint_restores_terminal_and_continues_deltas() {
         }
         assert!(
             Instant::now() < ready_deadline,
-            "PTY output should finish before reconnecting"
+            "PTY output should finish before reconnecting; visible screen: {visible:?}"
         );
         std::thread::sleep(Duration::from_millis(10));
     }
