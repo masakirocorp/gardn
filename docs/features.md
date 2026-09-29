@@ -246,6 +246,7 @@ The left sidebar includes:
 - Agents
 - Integrations
 - Advanced
+- About
 
 The general settings modal uses an expandable sidebar. Each category exposes subsection links that jump to the matching content group. The right panel keeps the category heading and description. A horizontal rule separates this introduction from the controls, and blank rows separate logical setting groups and independent fields. Press `tab` to move keyboard focus between the sidebar and the settings controls. Group and Space Settings use compact tabs. Group Settings separates General, Space defaults, Appearance, Agents, and GitHub. Space Settings keeps its name and execution location in General, with repository scope in GitHub. All settings modals support mouse navigation, scrollbars, and a top-right `Esc Close` action. GitHub text fields save on Enter; other controls retain their existing immediate updates. Visible control, menu, navigation, status, and modal labels use title casing. Integrations can select Local or a configured SSH connection before it checks, installs, updates, or uninstalls an integration. Appearance owns theme, sidebar, and pane-label settings. Notifications owns sounds and toasts. Behavior owns prompts and terminal defaults. Commands owns the Git, Diff, IDE, and GitHub project launchers. Agents uses a browse-and-edit workflow for launch profiles, with a separate danger zone for deletion.
 
@@ -254,6 +255,8 @@ Appearance > Panes exposes `Pane Borders`, `Pane Scrollbars`, `Pane Gaps`, `Hide
 The Connections section manages SSH execution hosts and their workers. Profiles have stable identity across renames and target-binding generations, plus an optional curated badge color. New profiles take the next unused accent. Older profiles without one remain neutral until edited. A saved connection opens to its status and runtime controls. Editing persistent details is a separate action. The new-connection form starts with the SSH target and uses it as the display name when the optional name is empty. Connecting installs or updates the versioned execution worker automatically. A compatible worker with live runtimes stays active until it is unused. Removing a connection first inventories every session and managed worker binding, shows each affected Group, Workspace, pane, pending termination, and owned binding, and requires confirmation. Affected Workspace defaults move to the displayed local home directory. Gardn then fences new work and drains or closes remote panes. It uses a durable journal to retry worker termination and remote managed-state cleanup. If cleanup fails, the failure screen can forget the local connection profile, but remote processes or files can remain.
 
 After a coordinator restart, restored remote panes reconnect their saved SSH connection and re-adopt the live worker runtime automatically.
+
+Settings > About credits Herdr, Fly.io Sprites, ghui by Kit Langton, Fresh IDE, terminal-browser, and Hunk. Each credit includes its original project URL. Credits and retained license notices wrap to the content width. Use the mouse wheel, arrow keys, or Page Up / Page Down to scroll. Home and End jump to the start and end. Fresh, terminal-browser, and Hunk are optional tools installed separately.
 
 ### Help and confirmations
 

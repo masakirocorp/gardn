@@ -23070,6 +23070,32 @@ command = "printf literal > '{}'"
     }
 
     #[test]
+    fn about_keyboard_scroll_reaches_license_end_and_returns_to_credits_on_a_narrow_terminal() {
+        use crossterm::event::{KeyCode, KeyEvent};
+        let mut app = test_app();
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        input::prepare_general_settings_state(
+            &app.state,
+            &mut view.settings,
+            state::SettingsSection::About,
+        );
+        view.mode = Mode::Settings;
+        compute_client_view(&app, &mut view, ratatui::layout::Rect::new(0, 0, 80, 24));
+
+        assert!(rendered_client_view_text(&app, &view, 80, 24).contains("Acknowledgments"));
+        send_settings_key(&mut app, &mut view, KeyEvent::from(KeyCode::End));
+        let end = rendered_client_view_text(&app, &view, 80, 24);
+        assert!(
+            end.contains("SOFTWARE."),
+            "the end of the license must remain readable: {end}"
+        );
+        assert!(!end.contains("Acknowledgments"));
+        send_settings_key(&mut app, &mut view, KeyEvent::from(KeyCode::Home));
+        let start = rendered_client_view_text(&app, &view, 80, 24);
+        assert!(start.contains("Acknowledgments"));
+    }
+
+    #[test]
     fn sprite_settings_edit_inside_integrations_without_navigation_shortcuts_stealing_text() {
         use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
         let mut app = test_app();

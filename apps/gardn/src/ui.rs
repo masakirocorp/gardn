@@ -110,9 +110,9 @@ pub(crate) use self::{
         group_name_input_rect_for_view, rename_button_rects, rename_modal_size_for_view,
     },
     settings::{
-        settings_close_button_rect, settings_section_list_rect, settings_sidebar_areas,
-        settings_sidebar_entries, settings_sidebar_hit_areas, settings_subsection_anchor,
-        SettingsSidebarEntry,
+        settings_close_button_rect, settings_content_rect, settings_footer_hints_for,
+        settings_section_list_rect, settings_sidebar_areas, settings_sidebar_entries,
+        settings_sidebar_hit_areas, settings_subsection_anchor, SettingsSidebarEntry,
     },
     sidebar::{
         agent_panel_body_rect, agent_panel_empty_row_at_for_view, agent_panel_entries_for_view,

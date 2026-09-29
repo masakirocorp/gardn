@@ -4311,6 +4311,37 @@ fn update_settings_state(state: &mut SettingsInput<'_>, key: KeyEvent) -> Option
             }
         },
         SettingsSection::About => match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                state.client.settings.scroll = state.client.settings.scroll.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                state.client.settings.scroll = state
+                    .client
+                    .settings
+                    .scroll
+                    .saturating_add(1)
+                    .min(settings_section_max_scroll(state, SettingsSection::About));
+            }
+            KeyCode::PageUp => {
+                let page =
+                    settings_section_list_rect(state, SettingsSection::About).height as usize;
+                state.client.settings.scroll = state.client.settings.scroll.saturating_sub(page);
+            }
+            KeyCode::PageDown => {
+                let page =
+                    settings_section_list_rect(state, SettingsSection::About).height as usize;
+                state.client.settings.scroll = state
+                    .client
+                    .settings
+                    .scroll
+                    .saturating_add(page)
+                    .min(settings_section_max_scroll(state, SettingsSection::About));
+            }
+            KeyCode::Home => state.client.settings.scroll = 0,
+            KeyCode::End => {
+                state.client.settings.scroll =
+                    settings_section_max_scroll(state, SettingsSection::About);
+            }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 switch_settings_section(state, SettingsSection::Experiments, 0);
             }
@@ -4915,54 +4946,10 @@ const WORKSPACE_SETTINGS_SECTIONS: &[SettingsSection] = &[
     SettingsSection::WorkspaceGithub,
 ];
 
-fn settings_footer_hints(settings: &SettingsState) -> &'static [(&'static str, &'static str)] {
-    const DEFAULT: &[(&str, &str)] =
-        &[("Move", "↑↓"), ("Action", "Space/↵"), ("Section", "←→/Tab")];
-    const SIDEBAR: &[(&str, &str)] = &[("Move", "↑↓"), ("Action", "Space/↵"), ("Sidebar", "Tab")];
-    const EDITABLE_LIST: &[(&str, &str)] = &[
-        ("Move", "↑↓"),
-        ("New/Edit", "Space/↵"),
-        ("Delete", "Ctrl+D"),
-        ("Section", "←→/Tab"),
-    ];
-    const SIDEBAR_EDITABLE_LIST: &[(&str, &str)] = &[
-        ("Move", "↑↓"),
-        ("New/Edit", "Space/↵"),
-        ("Delete", "Ctrl+D"),
-        ("Sidebar", "Tab"),
-    ];
-    const GROUP_PROFILES: &[(&str, &str)] = &[
-        ("Move", "↑↓"),
-        ("Favorite", "Ctrl+F"),
-        ("Default", "Ctrl+D"),
-        ("Section", "←→/tab"),
-    ];
-
-    let general =
-        settings.group_settings_target.is_none() && settings.workspace_settings_target.is_none();
-    let agent_editor = settings.pending_agent_profile_id.is_some()
-        || settings.pending_agent_profile_name.is_some()
-        || settings.pending_agent_profile_command.is_some();
-    let connection_editor = settings_connection_editor_open(settings);
-    if general {
-        return match settings.section {
-            SettingsSection::Agents if !agent_editor => SIDEBAR_EDITABLE_LIST,
-            SettingsSection::Connections if !connection_editor => SIDEBAR_EDITABLE_LIST,
-            _ => SIDEBAR,
-        };
-    }
-    match settings.section {
-        SettingsSection::Agents if !agent_editor => EDITABLE_LIST,
-        SettingsSection::Connections if !connection_editor => EDITABLE_LIST,
-        SettingsSection::GroupProfiles => GROUP_PROFILES,
-        _ => DEFAULT,
-    }
-}
-
 fn settings_footer_rows(settings: &SettingsState, width: u16) -> u16 {
     let mut rows = 1u16;
     let mut current_width = 0usize;
-    for (label, key) in settings_footer_hints(settings) {
+    for (label, key) in crate::ui::settings_footer_hints_for(settings) {
         let prefix = if current_width == 0 { 1 } else { 5 };
         let hint_width = prefix + label.width() + 1 + key.width();
         if current_width != 0 && current_width + hint_width > width as usize && rows < 2 {
@@ -5167,15 +5154,7 @@ impl SettingsInput<'_> {
     }
 
     pub(crate) fn settings_content_rect(&self) -> Rect {
-        let inner = self.settings_inner_rect();
-        let content = settings_stack_content(&self.client.settings, inner);
-        if self.client.settings.group_settings_target.is_none()
-            && self.client.settings.workspace_settings_target.is_none()
-        {
-            crate::ui::settings_sidebar_areas(content).content
-        } else {
-            content
-        }
+        crate::ui::settings_content_rect(&self.client.settings, self.client.screen_rect())
     }
 
     fn settings_list_hit_at(&self, col: u16, row: u16) -> Option<SettingsRowHit> {

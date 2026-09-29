@@ -1,3 +1,5 @@
+mod acknowledgments;
+
 use std::borrow::Cow;
 
 use crate::{
@@ -165,11 +167,16 @@ pub(crate) fn option_hit_for_visual_row(
     None
 }
 
-fn rows_for_section_with_settings(
+/// Builds settings rows for the requesting client's selected section.
+///
+/// Shared domain values remain derived from `AppState`; client-local drafts,
+/// selection, and scrolling are consumed from the client's settings state.
+pub(crate) fn rows_for_section_for_view(
     app: &AppState,
-    settings: &SettingsState,
-    section: SettingsSection,
+    view: &ClientViewState,
 ) -> Option<Vec<SettingsListRow>> {
+    let settings = &view.settings;
+    let section = settings.section;
     match section {
         SettingsSection::Theme => Some(appearance_rows(app, settings)),
         SettingsSection::Layout => Some(layout_rows(app, settings)),
@@ -187,19 +194,11 @@ fn rows_for_section_with_settings(
         SettingsSection::GroupGithub => Some(group_github_rows(app, settings)),
         SettingsSection::WorkspaceGeneral => Some(workspace_general_rows(app, settings)),
         SettingsSection::WorkspaceGithub => Some(workspace_github_rows(app, settings)),
-        SettingsSection::About => Some(about_rows()),
+        SettingsSection::About => {
+            let content = crate::ui::settings_content_rect(settings, view.screen_rect());
+            Some(acknowledgments::rows(content.width.saturating_sub(2)))
+        }
     }
-}
-
-/// Builds settings rows for the requesting client's selected section.
-///
-/// Shared domain values remain derived from `AppState`; client-local drafts,
-/// selection, and scrolling are consumed from the client's settings state.
-pub(crate) fn rows_for_section_for_view(
-    app: &AppState,
-    view: &ClientViewState,
-) -> Option<Vec<SettingsListRow>> {
-    rows_for_section_with_settings(app, &view.settings, view.settings.section)
 }
 
 pub(crate) fn selected_visual_row(rows: &[SettingsListRow], selected: usize) -> Option<usize> {
@@ -2398,22 +2397,6 @@ fn toast_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> 
             toast_delivery_label(current),
         )],
     )
-}
-
-fn about_rows() -> Vec<SettingsListRow> {
-    let mut rows = setting_group(
-        "Acknowledgments",
-        [SettingsListRow::Caption(
-            "GitHub workflow behavior adapted from ghui by Kit Langton.".into(),
-        )],
-    );
-    rows.push(SettingsListRow::Spacer);
-    rows.extend(
-        include_str!("github/LICENSE")
-            .lines()
-            .map(|line| SettingsListRow::Caption(line.into())),
-    );
-    rows
 }
 
 fn setting_group(

@@ -77,6 +77,9 @@ def scrub_allowed_provenance(path: Path, text: str) -> str:
         for allowed in ALLOWED_GUARD_LITERALS:
             text = text.replace(allowed, "")
     relative_path = path.relative_to(REPO_ROOT).as_posix()
+    if relative_path == "apps/gardn/assets/acknowledgments.md":
+        # Project credits use the upstream name, not its retired runtime identity.
+        text = re.sub(rf"(?i)\b{RETIRED_UPSTREAM_NAME}\b", "", text)
     if relative_path in COMPATIBILITY_PATHS:
         text = re.sub(rf"(?i){RETIRED_UPSTREAM_NAME}(?=_|\b)", "", text)
     if relative_path == "apps/gardn/src/platform/mod.rs":
@@ -98,6 +101,23 @@ class BrandIdentityTests(unittest.TestCase):
             for match in pattern.finditer(text)
         ]
         self.assertEqual(violations, [prefix, prefix])
+
+    def test_project_credit_does_not_allow_retired_runtime_identity(self) -> None:
+        prefix = "HER" + "DR_"
+        text = f"Based on {RETIRED_UPSTREAM_NAME}.\n{prefix}SOCKET_PATH=/tmp/socket\n"
+        credited = scrub_allowed_provenance(
+            REPO_ROOT / "apps/gardn/assets/acknowledgments.md", text
+        )
+        violations = [
+            match.group()
+            for _, pattern in FORBIDDEN_CONTENT
+            for match in pattern.finditer(credited)
+        ]
+        self.assertEqual(violations, [prefix])
+        ordinary_source = scrub_allowed_provenance(
+            REPO_ROOT / "apps/gardn/src/main.rs", text
+        )
+        self.assertIn(RETIRED_UPSTREAM_NAME, ordinary_source)
 
     def test_tracked_paths_use_gardn_identity(self) -> None:
         forbidden_path_parts = (

@@ -59,6 +59,10 @@ Maintainer local tooling lives in [`docs/development.md`](docs/development.md), 
 
 AI coding agents must read [`AGENTS.md`](./AGENTS.md) before changing this repository.
 
+## Acknowledgments
+
+See [Acknowledgments](apps/gardn/assets/acknowledgments.md) for project credits and original sources. Credits and retained license notices are also available in **Settings > About**.
+
 ## License
 
 Gardn is licensed under the [GNU Affero General Public License v3.0](./LICENSE).

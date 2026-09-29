@@ -450,6 +450,11 @@ const SETTINGS_DEFAULT_HINTS: &[(&str, &str)] =
     &[("Move", "↑↓"), ("Action", "Space/↵"), ("Section", "←→/Tab")];
 const SETTINGS_SIDEBAR_HINTS: &[(&str, &str)] =
     &[("Move", "↑↓"), ("Action", "Space/↵"), ("Sidebar", "Tab")];
+const SETTINGS_ABOUT_HINTS: &[(&str, &str)] = &[
+    ("Scroll", "↑↓/PgUp/PgDn"),
+    ("Jump", "Home/End"),
+    ("Sidebar", "Tab"),
+];
 const SETTINGS_SIDEBAR_AGENTS_HINTS: &[(&str, &str)] = &[
     ("Move", "↑↓"),
     ("New/Edit", "Space/↵"),
@@ -473,6 +478,19 @@ fn settings_stack_areas_for(
         4
     };
     modal_stack_areas(inner, header_rows, footer_rows, 0, 1)
+}
+
+pub(crate) fn settings_content_rect(settings: &SettingsState, area: Rect) -> Rect {
+    let Some(popup) = super::centered_popup_rect(area, 92, 26) else {
+        return Rect::default();
+    };
+    let inner = popup.inner(ratatui::layout::Margin::new(1, 1));
+    let content = settings_stack_areas_for(settings, inner).content;
+    if general_settings_sidebar_visible(settings) {
+        settings_sidebar_areas(content).content
+    } else {
+        content
+    }
 }
 
 pub(super) fn render_settings_overlay_for_view(
@@ -558,7 +576,7 @@ fn settings_agents_editor_open_for(settings: &crate::app::state::SettingsState) 
         || settings.pending_agent_profile_command.is_some()
 }
 
-fn settings_footer_hints_for(
+pub(crate) fn settings_footer_hints_for(
     settings: &crate::app::state::SettingsState,
 ) -> &'static [(&'static str, &'static str)] {
     if general_settings_sidebar_visible(settings) {
@@ -570,6 +588,8 @@ fn settings_footer_hints_for(
             && !crate::settings_rows::connection_editor_open(settings)
         {
             SETTINGS_SIDEBAR_CONNECTIONS_HINTS
+        } else if settings.section == SettingsSection::About {
+            SETTINGS_ABOUT_HINTS
         } else {
             SETTINGS_SIDEBAR_HINTS
         };
