@@ -807,14 +807,7 @@ impl ClientViewState {
             }
         }
         self.sprite_ui.reconcile(state);
-        if self.mode == Mode::Sprites
-            && !state.sprites_config.enabled
-            && !matches!(
-                self.sprite_ui.screen,
-                crate::app::sprites_ui::SpriteUiScreen::Settings
-                    | crate::app::sprites_ui::SpriteUiScreen::DisableConfirm
-            )
-        {
+        if self.mode == Mode::Sprites && !state.sprites_config.enabled {
             self.mode = Mode::Navigate;
             self.sprite_ui = crate::app::sprites_ui::SpriteUiState::default();
         }

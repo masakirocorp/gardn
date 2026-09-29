@@ -3,8 +3,8 @@ use std::borrow::Cow;
 use crate::{
     app::{
         state::{
-            normalize_theme_name, theme_names_for_appearance, AppState, SettingsSection,
-            SettingsState,
+            normalize_theme_name, theme_names_for_appearance, AppState, SettingsIntegrationsTab,
+            SettingsSection, SettingsState,
         },
         ClientViewState,
     },
@@ -2116,6 +2116,10 @@ fn connection_retirement_plan_rows(
 }
 
 fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    if settings.integrations_tab == SettingsIntegrationsTab::Sprites {
+        return sprite_settings_rows(app, settings);
+    }
+
     let selection = crate::app::integration_host::resolve(app, settings);
     let host_label = selection.label(app);
     let host_id = selection.host_id().cloned();
@@ -2171,12 +2175,6 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
                     }
                 }),
         );
-        rows.push(SettingsListRow::Action {
-            index: first_integration_index + app.integration_recommendations.len(),
-            icon: "◇".into(),
-            label: "Configure Sprites…".into(),
-            tone: SettingsMarkerTone::Accent,
-        });
         return rows;
     };
 
@@ -2210,16 +2208,120 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
             ));
         }
     }
-    let integration_count = match app.host_integration_observations.get(&host_id) {
-        Some(crate::integration::host::HostIntegrationObservation::Ready(snapshot)) => {
-            snapshot.entries.len()
+    rows
+}
+fn sprite_settings_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsListRow> {
+    if settings.sprites.confirm_disable {
+        let mut rows = vec![
+            SettingsListRow::Header("Disable Sprites?"),
+            SettingsListRow::Caption("Detach local terminals and cancel local work.".into()),
+            SettingsListRow::Caption("Remote resources and sessions stay alive.".into()),
+        ];
+        if let Some(message) = &settings.sprites.message {
+            rows.push(SettingsListRow::Caption(message.clone().into()));
         }
-        _ => 0,
-    };
+        rows.extend([
+            SettingsListRow::Spacer,
+            SettingsListRow::Action {
+                index: 0,
+                icon: "".into(),
+                label: "Keep enabled".into(),
+                tone: SettingsMarkerTone::Accent,
+            },
+            SettingsListRow::Action {
+                index: 1,
+                icon: "".into(),
+                label: "Disable locally".into(),
+                tone: SettingsMarkerTone::Danger,
+            },
+        ]);
+        return rows;
+    }
+
+    let draft = settings.sprites.draft.as_ref();
+    let config = &app.sprites_config;
+    let mut rows = vec![SettingsListRow::Toggle {
+        index: 0,
+        title: "Enabled".into(),
+        description: "Enable native Sprite management on this coordinator.".into(),
+        enabled: config.enabled,
+    }];
+    if let Some(message) = &settings.sprites.message {
+        rows.push(SettingsListRow::Caption(message.clone().into()));
+    }
+    rows.extend([
+        SettingsListRow::TextInput {
+            index: 1,
+            title: "Sprite organization".into(),
+            value: draft
+                .map_or_else(|| config.org.clone(), |draft| draft.org.clone())
+                .into(),
+        },
+        SettingsListRow::TextInput {
+            index: 2,
+            title: "Sprite CLI".into(),
+            value: draft
+                .map_or_else(
+                    || config.sprite_bin.clone(),
+                    |draft| draft.sprite_bin.clone(),
+                )
+                .into(),
+        },
+        SettingsListRow::TextInput {
+            index: 3,
+            title: "Node.js executable".into(),
+            value: draft
+                .map_or_else(|| config.node_bin.clone(), |draft| draft.node_bin.clone())
+                .into(),
+        },
+        SettingsListRow::TextInput {
+            index: 4,
+            title: "Name prefix (lowercase)".into(),
+            value: draft
+                .map_or_else(
+                    || config.name_prefix.clone(),
+                    |draft| draft.name_prefix.clone(),
+                )
+                .into(),
+        },
+        SettingsListRow::TextInput {
+            index: 5,
+            title: "Maximum Sprites".into(),
+            value: draft
+                .map_or_else(
+                    || config.max_sprites.to_string(),
+                    |draft| draft.max_sprites.clone(),
+                )
+                .into(),
+        },
+        SettingsListRow::TextInput {
+            index: 6,
+            title: "Concurrent operations (1–64)".into(),
+            value: draft
+                .map_or_else(
+                    || config.max_concurrent_operations.to_string(),
+                    |draft| draft.max_concurrent_operations.clone(),
+                )
+                .into(),
+        },
+        SettingsListRow::TextInput {
+            index: 7,
+            title: "Transfer limit (MiB, 1–512)".into(),
+            value: draft
+                .map_or_else(
+                    || config.max_transfer_mib.to_string(),
+                    |draft| draft.max_transfer_mib.clone(),
+                )
+                .into(),
+        },
+    ]);
+    rows.push(SettingsListRow::Caption(
+        "Authenticate with the Sprite CLI separately.".into(),
+    ));
     rows.push(SettingsListRow::Action {
-        index: first_integration_index + integration_count,
-        icon: "◇".into(),
-        label: "Configure Sprites…".into(),
+        index: 8,
+        icon: "✓".into(),
+        label: "Save".into(),
         tone: SettingsMarkerTone::Accent,
     });
     rows

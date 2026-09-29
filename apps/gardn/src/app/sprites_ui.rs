@@ -12,8 +12,6 @@ pub(crate) enum SpriteUiScreen {
     #[default]
     Manager,
     Create,
-    Settings,
-    DisableConfirm,
     Approval,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -63,16 +61,8 @@ pub(crate) struct SpriteUiState {
     pub(crate) pending_operation: Option<String>,
     pub(crate) approval: Option<crate::api::schema::SpriteApproval>,
     pub(crate) message: Option<String>,
-    pub(crate) org: String,
-    pub(crate) sprite_bin: String,
-    pub(crate) node_bin: String,
-    pub(crate) name_prefix: String,
-    pub(crate) max_sprites: String,
-    pub(crate) max_concurrent_operations: String,
-    pub(crate) max_transfer_mib: String,
     pub(crate) pending_command: Option<SpriteCommand>,
     pub(crate) pending_request: Option<SpriteRequest>,
-    pub(crate) enabled: bool,
     pub(crate) all_resources: bool,
     pub(crate) session_choice: usize,
     pub(crate) preview_resource_id: Option<String>,
@@ -124,24 +114,6 @@ impl SpriteUiState {
         self.field = 0;
         self.message = None;
         Ok(())
-    }
-
-    pub(crate) fn begin_settings(&mut self, config: &crate::api::schema::SpritesConfig) {
-        self.screen = SpriteUiScreen::Settings;
-        self.manager_prompt = None;
-        self.pending_operation = None;
-        self.pending_request = None;
-        self.pending_command = None;
-        self.enabled = config.enabled;
-        self.field = 0;
-        self.org.clone_from(&config.org);
-        self.sprite_bin.clone_from(&config.sprite_bin);
-        self.node_bin.clone_from(&config.node_bin);
-        self.name_prefix.clone_from(&config.name_prefix);
-        self.max_sprites = config.max_sprites.to_string();
-        self.max_concurrent_operations = config.max_concurrent_operations.to_string();
-        self.max_transfer_mib = config.max_transfer_mib.to_string();
-        self.message = None;
     }
 
     pub(crate) fn visible_records<'a>(
@@ -467,15 +439,6 @@ impl crate::app::App {
         }
     }
 
-    pub(crate) fn open_sprites_settings_for_view(
-        &mut self,
-        view: &mut crate::app::ClientViewState,
-    ) {
-        view.mode = crate::app::Mode::Sprites;
-        view.sprite_ui = SpriteUiState::default();
-        view.sprite_ui.begin_settings(&self.state.sprites_config);
-    }
-
     pub(crate) fn handle_sprites_mouse_for_view(
         &mut self,
         view: &mut crate::app::ClientViewState,
@@ -520,17 +483,6 @@ impl crate::app::App {
                         KeyCode::Down
                     };
                     self.handle_sprites_key_for_view(view, KeyEvent::from(key));
-                }
-                SpriteUiScreen::Settings => {
-                    let footer_start = inner.y.saturating_add(inner.height.saturating_sub(2));
-                    if mouse.row >= footer_start {
-                        return false;
-                    }
-                    view.sprite_ui.field = if mouse.kind == MouseEventKind::ScrollUp {
-                        view.sprite_ui.field.saturating_sub(1)
-                    } else {
-                        view.sprite_ui.field.saturating_add(1).min(8)
-                    };
                 }
                 SpriteUiScreen::Create => {
                     let footer_start = inner.y.saturating_add(inner.height.saturating_sub(2));
@@ -617,35 +569,6 @@ impl crate::app::App {
                     }
                 }
             }
-            SpriteUiScreen::Settings => {
-                let footer_start = inner.y.saturating_add(inner.height.saturating_sub(2));
-                if mouse.row >= footer_start {
-                    if mouse.column < inner.x.saturating_add(7) {
-                        view.sprite_ui.field = 8;
-                        self.handle_sprites_key_for_view(view, KeyEvent::from(KeyCode::Enter));
-                    } else {
-                        self.handle_sprites_key_for_view(view, KeyEvent::from(KeyCode::Esc));
-                    }
-                } else {
-                    let body_height = inner.height.saturating_sub(2).min(9) as usize;
-                    let scroll_offset = view
-                        .sprite_ui
-                        .field
-                        .saturating_sub(body_height.saturating_sub(1));
-                    let field = row.saturating_add(scroll_offset);
-                    if field <= 8 {
-                        view.sprite_ui.field = field;
-                        if field == 0 {
-                            self.handle_sprites_key_for_view(
-                                view,
-                                KeyEvent::from(KeyCode::Char(' ')),
-                            );
-                        } else if field == 8 {
-                            self.handle_sprites_key_for_view(view, KeyEvent::from(KeyCode::Enter));
-                        }
-                    }
-                }
-            }
             SpriteUiScreen::Create => {
                 let footer_start = inner.y.saturating_add(inner.height.saturating_sub(2));
                 if mouse.row >= footer_start {
@@ -691,16 +614,6 @@ impl crate::app::App {
                     }
                 }
             }
-            SpriteUiScreen::DisableConfirm => {
-                if row >= inner.height.saturating_sub(1) as usize {
-                    let key = if mouse.column < inner.x + 21 {
-                        KeyCode::Enter
-                    } else {
-                        KeyCode::Esc
-                    };
-                    self.handle_sprites_key_for_view(view, KeyEvent::from(key));
-                }
-            }
             SpriteUiScreen::Approval => {
                 if row >= inner.height.saturating_sub(1) as usize {
                     let key = if mouse.column < inner.x + 16 {
@@ -720,21 +633,9 @@ impl crate::app::App {
         view: &mut crate::app::ClientViewState,
         key: KeyEvent,
     ) {
-        if !self.state.sprites_config.enabled
-            && !matches!(
-                view.sprite_ui.screen,
-                SpriteUiScreen::Settings | SpriteUiScreen::DisableConfirm
-            )
-        {
+        if !self.state.sprites_config.enabled {
             view.mode = crate::app::Mode::Navigate;
             view.sprite_ui = SpriteUiState::default();
-            return;
-        }
-        if matches!(
-            view.sprite_ui.screen,
-            SpriteUiScreen::Settings | SpriteUiScreen::DisableConfirm
-        ) {
-            self.handle_sprite_settings_key(view, key);
             return;
         }
         if view.sprite_ui.screen == SpriteUiScreen::Approval {
@@ -1168,113 +1069,6 @@ impl crate::app::App {
         }
     }
 
-    fn handle_sprite_settings_key(
-        &mut self,
-        view: &mut crate::app::ClientViewState,
-        key: KeyEvent,
-    ) {
-        use KeyCode::*;
-        if view.sprite_ui.screen == SpriteUiScreen::DisableConfirm {
-            match key.code {
-                Esc | Char('n') => {
-                    view.sprite_ui.screen = SpriteUiScreen::Settings;
-                    view.sprite_ui.message =
-                        Some("Sprites remain enabled; no remote resources changed.".into());
-                }
-                Enter | Char('y') => {
-                    let mut config = self.state.sprites_config.clone();
-                    config.enabled = false;
-                    match self.save_sprites_config(config) {
-                        Ok(()) => {
-                            view.sprite_ui.enabled = false;
-                            view.sprite_ui.screen = SpriteUiScreen::Settings;
-                            view.sprite_ui.message = Some("Sprites disabled. Remote resources and sessions are still alive; use Sprite Manager for explicit cleanup.".into());
-                        }
-                        Err(error) => view.sprite_ui.message = Some(error),
-                    }
-                }
-                _ => {}
-            }
-            return;
-        }
-        if key.code == Esc {
-            view.mode = crate::app::Mode::Settings;
-            return;
-        }
-        match key.code {
-            Up => view.sprite_ui.field = view.sprite_ui.field.saturating_sub(1),
-            Down | Tab => view.sprite_ui.field = (view.sprite_ui.field + 1).min(8),
-            BackTab => view.sprite_ui.field = view.sprite_ui.field.saturating_sub(1),
-            Char(' ') if view.sprite_ui.field == 0 => {
-                let next = !view.sprite_ui.enabled;
-                if !next
-                    && (!self.state.sprites_snapshot.resources.is_empty()
-                        || self.state.sprites_snapshot.operations.iter().any(|op| {
-                            matches!(
-                                op.status,
-                                crate::api::schema::SpriteOperationStatus::Queued
-                                    | crate::api::schema::SpriteOperationStatus::Running
-                            )
-                        }))
-                {
-                    view.sprite_ui.screen = SpriteUiScreen::DisableConfirm;
-                } else {
-                    let mut config = self.state.sprites_config.clone();
-                    config.enabled = next;
-                    match self.save_sprites_config(config) {
-                        Ok(()) => {
-                            view.sprite_ui.enabled = next;
-                            view.sprite_ui.message = Some("Sprite setting saved.".into());
-                        }
-                        Err(error) => view.sprite_ui.message = Some(error),
-                    }
-                }
-            }
-            Enter if view.sprite_ui.field == 8 => {
-                let parse = |value: &str, label: &str| {
-                    value
-                        .parse::<usize>()
-                        .map_err(|_| format!("{label} must be a positive integer."))
-                };
-                let config = crate::api::schema::SpritesConfig {
-                    enabled: view.sprite_ui.enabled,
-                    org: view.sprite_ui.org.trim().to_string(),
-                    sprite_bin: view.sprite_ui.sprite_bin.trim().to_string(),
-                    node_bin: view.sprite_ui.node_bin.trim().to_string(),
-                    name_prefix: view.sprite_ui.name_prefix.trim().to_string(),
-                    max_sprites: parse(&view.sprite_ui.max_sprites, "Maximum Sprites").unwrap_or(0),
-                    max_concurrent_operations: parse(
-                        &view.sprite_ui.max_concurrent_operations,
-                        "Concurrent operations",
-                    )
-                    .unwrap_or(0),
-                    max_transfer_mib: parse(&view.sprite_ui.max_transfer_mib, "Transfer limit")
-                        .unwrap_or(0),
-                };
-                match crate::config::validate_sprites_config(&config) {
-                    Err(error) => view.sprite_ui.message = Some(error),
-                    Ok(()) => match self.save_sprites_config(config) {
-                        Ok(()) => {
-                            view.sprite_ui.message =
-                                Some("Sprite configuration saved and reloaded.".into())
-                        }
-                        Err(error) => view.sprite_ui.message = Some(error),
-                    },
-                }
-            }
-            Backspace => {
-                if let Some(value) = sprite_setting_field_mut(&mut view.sprite_ui) {
-                    value.pop();
-                }
-            }
-            Char(c) => {
-                if let Some(value) = sprite_setting_field_mut(&mut view.sprite_ui) {
-                    value.push(c);
-                }
-            }
-            _ => {}
-        }
-    }
     fn handle_sprite_create_key(&mut self, view: &mut crate::app::ClientViewState, key: KeyEvent) {
         use KeyCode::*;
         match key.code {
@@ -1567,19 +1361,6 @@ impl crate::app::App {
     }
 }
 
-fn sprite_setting_field_mut(state: &mut SpriteUiState) -> Option<&mut String> {
-    match state.field {
-        1 => Some(&mut state.org),
-        2 => Some(&mut state.sprite_bin),
-        3 => Some(&mut state.node_bin),
-        4 => Some(&mut state.name_prefix),
-        5 => Some(&mut state.max_sprites),
-        6 => Some(&mut state.max_concurrent_operations),
-        7 => Some(&mut state.max_transfer_mib),
-        _ => None,
-    }
-}
-
 fn apply_sprite_approval(mut command: SpriteCommand, token: String) -> Option<SpriteCommand> {
     let target = match &mut command {
         SpriteCommand::Stop(target)
@@ -1612,33 +1393,6 @@ fn new_sprite_request_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
-    struct TemporaryConfig(PathBuf);
-
-    impl TemporaryConfig {
-        fn new() -> Self {
-            let directory = std::env::temp_dir().join(format!(
-                "gardn-sprites-ui-{}-{}",
-                std::process::id(),
-                NEXT_SPRITE_UI_REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            ));
-            std::fs::create_dir_all(&directory).expect("create temporary config directory");
-            let path = directory.join("config.toml");
-            std::fs::write(&path, "").expect("create isolated config");
-            Self(directory)
-        }
-
-        fn path(&self) -> PathBuf {
-            self.0.join("config.toml")
-        }
-    }
-
-    impl Drop for TemporaryConfig {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
-    }
 
     fn test_app() -> crate::app::App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1714,56 +1468,6 @@ mod tests {
         assert!(
             output.contains("dangerous"),
             "search must retain every typed character: {output}"
-        );
-    }
-
-    #[test]
-    fn sprite_settings_type_printable_j_and_k_into_the_focused_field() {
-        let mut app = test_app();
-        app.state.sprites_config.name_prefix = "prefix".into();
-        let mut view = app.default_client_view.clone();
-        app.open_sprites_settings_for_view(&mut view);
-        view.sprite_ui.field = 4;
-        for character in ['j', 'k'] {
-            app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char(character)));
-        }
-        let output = rendered_output(&app, &mut view, 100, 30);
-        assert_eq!(view.sprite_ui.name_prefix, "prefixjk");
-        assert!(
-            output.contains("prefixjk"),
-            "focused settings text must render typed j/k: {output}"
-        );
-    }
-
-    #[test]
-    fn confirmed_sprite_disable_remains_off_after_save() {
-        let _lock = crate::config::test_config_env_lock()
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let temporary_config = TemporaryConfig::new();
-        let _config_path = crate::config::TestEnvVar::set(
-            crate::config::CONFIG_PATH_ENV_VAR,
-            temporary_config.path(),
-        );
-        let mut app = test_app();
-        app.state.sprites_config.enabled = true;
-        app.state
-            .sprites_snapshot
-            .resources
-            .push(foreign_sprite(Vec::new()));
-        let mut view = app.default_client_view.clone();
-        app.open_sprites_settings_for_view(&mut view);
-        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char(' ')));
-        assert_eq!(view.sprite_ui.screen, SpriteUiScreen::DisableConfirm);
-        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char('y')));
-        assert!(!view.sprite_ui.enabled);
-        view.sprite_ui.field = 8;
-        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Enter));
-        let output = rendered_output(&app, &mut view, 100, 30);
-        assert!(!app.state.sprites_config.enabled);
-        assert!(
-            output.contains("Enabled: no"),
-            "confirmed disable must remain disabled after Save: {output}"
         );
     }
 

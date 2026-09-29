@@ -310,8 +310,12 @@ Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAU
 
 ## Sprites
 
-Sprites is an optional native integration. Enable it in **Settings > Integrations > Sprites**.
-Set the Sprite organization and the local `sprite` and `node` executable paths there.
+Configure Sprites in its own **Settings > Integrations > Sprites** tab.
+The adjacent **Agent tools** tab manages agent hooks separately.
+Set the Sprite organization, local `sprite` and `node` executable paths, name prefix, and limits.
+Press Enter in a field or select **Save** to apply text changes. The **Enabled** toggle applies immediately.
+The tab uses the standard settings controls, scrolling, and close action.
+Disable confirmation stays inside the tab and explains the local-only effects.
 Authenticate the Sprite CLI before refreshing inventory or creating a resource.
 The integration is off by default. While it is off, Gardn hides its creation and manager
 actions and does not probe its tools or contact the provider.

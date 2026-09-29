@@ -2246,6 +2246,45 @@ impl Default for ModalListState {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum SettingsIntegrationsTab {
+    #[default]
+    AgentTools,
+    Sprites,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct SpriteSettingsState {
+    pub(crate) draft: Option<SpriteSettingsDraft>,
+    pub(crate) confirm_disable: bool,
+    pub(crate) message: Option<String>,
+}
+
+#[derive(Clone)]
+pub(crate) struct SpriteSettingsDraft {
+    pub(crate) org: String,
+    pub(crate) sprite_bin: String,
+    pub(crate) node_bin: String,
+    pub(crate) name_prefix: String,
+    pub(crate) max_sprites: String,
+    pub(crate) max_concurrent_operations: String,
+    pub(crate) max_transfer_mib: String,
+}
+
+impl From<&crate::api::schema::SpritesConfig> for SpriteSettingsDraft {
+    fn from(config: &crate::api::schema::SpritesConfig) -> Self {
+        Self {
+            org: config.org.clone(),
+            sprite_bin: config.sprite_bin.clone(),
+            node_bin: config.node_bin.clone(),
+            name_prefix: config.name_prefix.clone(),
+            max_sprites: config.max_sprites.to_string(),
+            max_concurrent_operations: config.max_concurrent_operations.to_string(),
+            max_transfer_mib: config.max_transfer_mib.to_string(),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct SettingsState {
     /// Which settings section is active.
@@ -2379,6 +2418,8 @@ pub struct SettingsState {
     pub agent_profile_kind_filter: Option<crate::agent_profiles::AgentKind>,
     /// SSH profile selected for integration inspection and actions; `None` is Local.
     pub integration_host_profile_id: Option<String>,
+    pub(crate) integrations_tab: SettingsIntegrationsTab,
+    pub(crate) sprites: SpriteSettingsState,
     /// Connection profile editor draft and related install/forget substate.
     pub connection_editor: Option<ConnectionEditorState>,
     /// Group whose settings are being edited, if settings was opened from a group menu.
@@ -2464,6 +2505,8 @@ impl Default for SettingsState {
             pending_agent_profile_enabled: None,
             agent_profile_kind_filter: None,
             integration_host_profile_id: None,
+            integrations_tab: SettingsIntegrationsTab::default(),
+            sprites: SpriteSettingsState::default(),
             connection_editor: None,
             group_settings_target: None,
             group_icon_picker_open: false,

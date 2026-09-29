@@ -3362,8 +3362,13 @@ impl App {
                     }
                 }
             }
-            input::SettingsAction::OpenSpritesSettings => {
-                self.open_sprites_settings_for_view(client_view);
+            input::SettingsAction::SaveSpritesConfig(config) => {
+                self.save_sprite_settings_for_view(client_view, config, true);
+            }
+            input::SettingsAction::SetSpritesEnabled(enabled) => {
+                let mut config = self.state.sprites_config.clone();
+                config.enabled = enabled;
+                self.save_sprite_settings_for_view(client_view, config, false);
             }
             action => self.apply_settings_action(action),
         }
@@ -23033,6 +23038,152 @@ command = "printf literal > '{}'"
         assert_eq!(app.default_client_view.active_workspace, Some(0));
         assert_eq!(first_client.active_workspace, Some(0));
         assert_eq!(second_client.active_workspace, Some(1));
+    }
+
+    fn click_settings_label(
+        app: &mut App,
+        view: &mut ClientViewState,
+        label: &str,
+        row_offset: u16,
+    ) {
+        compute_client_view(app, view, ratatui::layout::Rect::new(0, 0, 130, 42));
+        let (column, row) = rendered_client_view_text_point(app, view, label, 130, 42);
+        app.handle_client_view_settings_mouse(
+            view,
+            crossterm::event::MouseEvent {
+                kind: crossterm::event::MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column,
+                row: row + row_offset,
+                modifiers: crossterm::event::KeyModifiers::empty(),
+            },
+        );
+    }
+
+    fn send_settings_key(
+        app: &mut App,
+        view: &mut ClientViewState,
+        key: crossterm::event::KeyEvent,
+    ) {
+        if let Some(action) = input::update_settings_state_for_view(&mut app.state, view, key) {
+            app.apply_settings_action_for_client(view, action);
+        }
+    }
+
+    #[test]
+    fn sprite_settings_edit_inside_integrations_without_navigation_shortcuts_stealing_text() {
+        use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent, MouseEventKind};
+        let mut app = test_app();
+        app.state.sprites_config.name_prefix = "prefix-".into();
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        input::prepare_general_settings_state(
+            &app.state,
+            &mut view.settings,
+            state::SettingsSection::Integrations,
+        );
+        view.mode = Mode::Settings;
+        let mut other_view = view.clone();
+        click_settings_label(&mut app, &mut view, "Sprites", 0);
+        click_settings_label(&mut app, &mut view, "Name prefix", 1);
+        for character in ['j', 'k'] {
+            send_settings_key(
+                &mut app,
+                &mut view,
+                KeyEvent::from(KeyCode::Char(character)),
+            );
+        }
+        let (column, row) = rendered_client_view_text_point(&app, &view, "Enabled", 130, 42);
+        app.handle_client_view_settings_mouse(
+            &mut view,
+            MouseEvent {
+                kind: MouseEventKind::Moved,
+                column,
+                row,
+                modifiers: KeyModifiers::empty(),
+            },
+        );
+        send_settings_key(&mut app, &mut view, KeyEvent::from(KeyCode::Char('h')));
+        assert_eq!(view.mode, Mode::Settings);
+        let output = rendered_client_view_text(&app, &view, 130, 42);
+        assert!(
+            output.contains("prefix-jkh"),
+            "focused input must retain typed shortcuts: {output}"
+        );
+        compute_client_view(
+            &app,
+            &mut other_view,
+            ratatui::layout::Rect::new(0, 0, 130, 42),
+        );
+        assert!(
+            rendered_client_view_text(&app, &other_view, 130, 42).contains("Agent Integrations")
+        );
+        click_settings_label(&mut app, &mut view, "Agent tools", 0);
+        let output = rendered_client_view_text(&app, &view, 130, 42);
+        assert!(output.contains("Agent Integrations"));
+        assert!(!output.contains("Name prefix"));
+        click_settings_label(&mut app, &mut view, "Sprites", 0);
+        assert!(rendered_client_view_text(&app, &view, 130, 42).contains("prefix-jkh"));
+    }
+
+    #[test]
+    fn sprite_settings_confirmed_disable_stays_off_when_pending_text_is_saved() {
+        use crossterm::event::{KeyCode, KeyEvent};
+        let _guard = config_env_lock().lock().unwrap();
+        let path = temp_config_path("sprite-settings-disable");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "onboarding = false\n").unwrap();
+        let _config_path =
+            crate::config::TestEnvVar::set(crate::config::CONFIG_PATH_ENV_VAR, &path);
+        let mut app = test_app();
+        app.state.sprites_config.enabled = true;
+        app.state.sprites_config.name_prefix = "prefix-".into();
+        app.state
+            .sprites_snapshot
+            .resources
+            .push(crate::api::schema::SpriteRecord {
+                id: "remote-id".into(),
+                org: "test-org".into(),
+                name: "remote-resource".into(),
+                managed: false,
+                workspace_id: None,
+                source: None,
+                agent: None,
+                phase: "running".into(),
+                provider_state: None,
+                sessions: Vec::new(),
+                checkpoint_id: None,
+                revision: 1,
+                updated_unix_ms: 0,
+                observed_unix_ms: None,
+                last_error: None,
+                unpulled_changes: None,
+                attached_panes: Vec::new(),
+                agent_status: None,
+            });
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        input::prepare_general_settings_state(
+            &app.state,
+            &mut view.settings,
+            state::SettingsSection::Integrations,
+        );
+        view.mode = Mode::Settings;
+        click_settings_label(&mut app, &mut view, "Sprites", 0);
+        click_settings_label(&mut app, &mut view, "Name prefix", 1);
+        send_settings_key(&mut app, &mut view, KeyEvent::from(KeyCode::Char('j')));
+        click_settings_label(&mut app, &mut view, "Enabled", 0);
+        click_settings_label(&mut app, &mut view, "Keep enabled", 0);
+        assert!(app.state.sprites_config.enabled);
+        click_settings_label(&mut app, &mut view, "Enabled", 0);
+        click_settings_label(&mut app, &mut view, "Disable locally", 0);
+        assert!(!app.state.sprites_config.enabled);
+        assert_eq!(view.mode, Mode::Settings);
+        click_settings_label(&mut app, &mut view, "Name prefix", 1);
+        send_settings_key(&mut app, &mut view, KeyEvent::from(KeyCode::Enter));
+        assert!(!app.state.sprites_config.enabled);
+        assert_eq!(app.state.sprites_config.name_prefix, "prefix-j");
+        let saved: toml::Value = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(saved["sprites"]["enabled"].as_bool(), Some(false));
+        assert_eq!(saved["sprites"]["name_prefix"].as_str(), Some("prefix-j"));
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]

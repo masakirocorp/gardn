@@ -123,10 +123,16 @@ const AGENT_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
     label: "Profiles",
     anchor: Some("Saved Profiles"),
 }];
-const INTEGRATION_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
-    label: "Agent tools",
-    anchor: None,
-}];
+const INTEGRATION_SUBSECTIONS: &[SettingsSubsection] = &[
+    SettingsSubsection {
+        label: "Agent tools",
+        anchor: None,
+    },
+    SettingsSubsection {
+        label: "Sprites",
+        anchor: None,
+    },
+];
 const CONNECTION_SUBSECTIONS: &[SettingsSubsection] = &[SettingsSubsection {
     label: "SSH profiles",
     anchor: Some("Saved Profiles"),
@@ -351,7 +357,20 @@ fn render_settings_sidebar(settings: &SettingsState, frame: &mut Frame, area: Re
     for (entry, row) in settings_sidebar_hit_areas(settings, area) {
         let selected = settings.sidebar_selection.section == entry.section
             && settings.sidebar_selection.subsection == entry.subsection;
-        let active = if let Some(subsection) = entry.subsection {
+        let active = if entry.section == SettingsSection::Integrations {
+            settings.section == entry.section
+                && match entry.subsection {
+                    Some(0) => {
+                        settings.integrations_tab
+                            == crate::app::state::SettingsIntegrationsTab::AgentTools
+                    }
+                    Some(1) => {
+                        settings.integrations_tab
+                            == crate::app::state::SettingsIntegrationsTab::Sprites
+                    }
+                    _ => false,
+                }
+        } else if let Some(subsection) = entry.subsection {
             settings.section == entry.section
                 && (settings.sidebar_selection.subsection == Some(subsection)
                     || (settings.sidebar_selection.subsection.is_none() && subsection == 0))
@@ -582,7 +601,11 @@ fn settings_section_title_for(
     settings: &crate::app::state::SettingsState,
     section: SettingsSection,
 ) -> &'static str {
-    if section == SettingsSection::Agents && settings_agents_editor_open_for(settings) {
+    if section == SettingsSection::Integrations
+        && settings.integrations_tab == crate::app::state::SettingsIntegrationsTab::Sprites
+    {
+        "Sprites"
+    } else if section == SettingsSection::Agents && settings_agents_editor_open_for(settings) {
         if settings.pending_agent_profile_id.is_some() {
             "Edit Agent Profile"
         } else {
@@ -647,6 +670,11 @@ fn settings_section_description_for(
             "Configure the label, agent type, and launch command"
         }
         SettingsSection::Agents => "Create and manage agent launch profiles",
+        SettingsSection::Integrations
+            if settings.integrations_tab == crate::app::state::SettingsIntegrationsTab::Sprites =>
+        {
+            "Configure native Sprite management and local operation limits"
+        }
         SettingsSection::Integrations => "Install hooks so agents report state directly",
         SettingsSection::Connections
             if settings
@@ -732,6 +760,18 @@ fn render_settings_content_for_view(
 ) {
     let settings = &client_view.settings;
     let body_area = render_settings_section_intro_for_view(client_view, frame, area, p);
+    if settings.section == SettingsSection::Integrations
+        && settings.integrations_tab == crate::app::state::SettingsIntegrationsTab::Sprites
+    {
+        render_settings_rows_for_view(
+            rows_for_section_for_view(app, client_view),
+            settings,
+            frame,
+            body_area,
+            p,
+        );
+        return;
+    }
     if settings.section != SettingsSection::Integrations {
         render_settings_rows_for_view(
             rows_for_section_for_view(app, client_view),

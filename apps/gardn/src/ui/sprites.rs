@@ -23,8 +23,6 @@ pub(crate) fn render_sprites_overlay(
         .title(match view.sprite_ui.screen {
             SpriteUiScreen::Manager => " Sprites · search / actions ",
             SpriteUiScreen::Create => " New Sprite · local source only ",
-            SpriteUiScreen::Settings => " Settings → Integrations → Sprites ",
-            SpriteUiScreen::DisableConfirm => " Disable Sprites? ",
             SpriteUiScreen::Approval => " Confirm exact Sprite action ",
         })
         .border_style(Style::default().fg(palette.accent))
@@ -36,8 +34,6 @@ pub(crate) fn render_sprites_overlay(
         SpriteUiScreen::Manager => render_manager(app, view, frame, inner, palette),
         SpriteUiScreen::Approval => render_approval(view, frame, inner, palette),
         SpriteUiScreen::Create => render_create(app, view, frame, inner, palette),
-        SpriteUiScreen::Settings => render_settings(app, view, frame, inner, palette),
-        SpriteUiScreen::DisableConfirm => render_disable_confirm(view, frame, inner, palette),
     }
 }
 fn render_approval(view: &ClientViewState, frame: &mut Frame, area: Rect, palette: &Palette) {
@@ -437,120 +433,6 @@ fn render_create(
     );
     frame.render_widget(
         Paragraph::new("[Create]    [Cancel]").style(Style::default().fg(palette.accent)),
-        footer,
-    );
-}
-fn render_settings(
-    app: &AppState,
-    view: &ClientViewState,
-    frame: &mut Frame,
-    area: Rect,
-    palette: &Palette,
-) {
-    let lines = [
-        format!(
-            "{} Enabled: {}",
-            marker(view.sprite_ui.field == 0),
-            if view.sprite_ui.enabled { "yes" } else { "no" }
-        ),
-        format!(
-            "{} Sprite organization: {}",
-            marker(view.sprite_ui.field == 1),
-            view.sprite_ui.org
-        ),
-        format!(
-            "{} Sprite CLI: {}",
-            marker(view.sprite_ui.field == 2),
-            view.sprite_ui.sprite_bin
-        ),
-        format!(
-            "{} Node executable: {}",
-            marker(view.sprite_ui.field == 3),
-            view.sprite_ui.node_bin
-        ),
-        format!(
-            "{} Managed-name prefix (lowercase): {}",
-            marker(view.sprite_ui.field == 4),
-            view.sprite_ui.name_prefix
-        ),
-        format!(
-            "{} Maximum managed Sprites: {}",
-            marker(view.sprite_ui.field == 5),
-            view.sprite_ui.max_sprites
-        ),
-        format!(
-            "{} Concurrent operations (1–64): {}",
-            marker(view.sprite_ui.field == 6),
-            view.sprite_ui.max_concurrent_operations
-        ),
-        format!(
-            "{} Maximum transfer (MiB, 1–512): {}",
-            marker(view.sprite_ui.field == 7),
-            view.sprite_ui.max_transfer_mib
-        ),
-        format!("{} Save and reload", marker(view.sprite_ui.field == 8)),
-    ];
-    let notes = [
-        view.sprite_ui.message.clone().unwrap_or_default(),
-        "Authentication is manual; credentials are never persisted here.".to_string(),
-        "Disable/unlink any legacy Sprites plugin separately before using native launch."
-            .to_string(),
-    ];
-    let [body, notes_area, footer] = Layout::vertical([
-        Constraint::Length(9),
-        Constraint::Min(0),
-        Constraint::Length(2),
-    ])
-    .areas(area);
-    let scroll_offset = view
-        .sprite_ui
-        .field
-        .saturating_sub(body.height.saturating_sub(1) as usize);
-    frame.render_widget(
-        Paragraph::new(lines.join("\n"))
-            .scroll((scroll_offset as u16, 0))
-            .style(Style::default().fg(palette.text)),
-        body,
-    );
-    frame.render_widget(
-        Paragraph::new(notes.join("\n"))
-            .style(Style::default().fg(palette.subtext0))
-            .wrap(Wrap { trim: true }),
-        notes_area,
-    );
-    frame.render_widget(
-        Paragraph::new("[Save]    [Back]").style(Style::default().fg(palette.accent)),
-        footer,
-    );
-    let _ = app;
-}
-
-fn render_disable_confirm(
-    view: &ClientViewState,
-    frame: &mut Frame,
-    area: Rect,
-    palette: &Palette,
-) {
-    let lines = [
-        "Disabling fences new work and stops local workers.".to_string(),
-        "Remote Sprites and their sessions continue living; nothing is deleted.".to_string(),
-        "You can explicitly Destroy or Forget resources later by re-enabling the manager."
-            .to_string(),
-        view.sprite_ui
-            .message
-            .clone()
-            .unwrap_or_else(|| "Disable Sprites?".into()),
-    ];
-    let [body, footer] = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).areas(area);
-    frame.render_widget(
-        Paragraph::new(lines.join("\n"))
-            .style(Style::default().fg(palette.text))
-            .wrap(Wrap { trim: true }),
-        body,
-    );
-    frame.render_widget(
-        Paragraph::new("[Disable locally]     [Keep enabled]")
-            .style(Style::default().fg(palette.accent)),
         footer,
     );
 }

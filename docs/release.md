@@ -22,7 +22,7 @@ Rules:
 - Add a `.tegami/*.md` file for user-facing app, docs, Nix, or website changes.
 - Skip `.tegami/` for pure tests, refactors, or internal chores.
 - Every release-worthy changefile must target `gardn`; `just release` rejects pending changefiles that do not.
-- Also target `gardn-docs` for docs and `gardn-nix` for Nix packaging so their package changelogs stay surface-specific.
+- Include docs and Nix changes under `gardn`. The `gardn-docs` and `gardn-nix` packages are excluded from the release workspace.
 - Keep prose user-facing. No implementation notes.
 - Do not edit package `CHANGELOG.md` files by hand.
 
