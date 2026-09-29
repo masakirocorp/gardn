@@ -1,3 +1,13 @@
+## gardn@0.12.1
+
+### Credit upstream projects and default tools
+
+Settings > About now links to the original projects for all six credits. The list distinguishes adapted code from separately installed command tools. Credits and retained license notices wrap on narrow terminals. Page Up, Page Down, Home, and End make the full list easier to read.
+
+### Keep Sprites configuration inside Settings
+
+Sprites now has its own tab under Integrations, separate from agent tools. It uses the standard settings controls, scrolling, and close action instead of a separate dialog. Disable confirmation stays in the same tab.
+
 ## gardn@0.12.0
 
 ### Support the Sprites plugin
