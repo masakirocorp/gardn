@@ -25,10 +25,11 @@ if(route.endsWith('/checkpoints')){out({checkpoints:s.checkpoints??[]});process.
 if(route.endsWith('/exec')){out({sessions:s.sessions??[]});process.exit(0)}
 if(a.includes('checkpoint')&&a.includes('create')){const id='v'+(s.checkpoints.filter(row=>row.id!=='Current').length+1);s.checkpoints.push({id});save();process.stdout.write('Checkpoint '+id+' created\\n');process.exit(0)}
 if(a.includes('create')){if(s.createFailure){process.stderr.write(s.createFailure);process.exit(2)}if(s.delayMs)Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,s.delayMs);s.creates++;s.sprites.push({name:a[a.indexOf('create')+1],state:'running'});save();process.exit(0)}
-if(a.includes('destroy')){const name=a[a.indexOf('destroy')+1];s.sprites=s.sprites.filter(sprite=>sprite.name!==name);save();process.exit(0)}
+if(a.includes('destroy')){if(s.destroyGate){fs.writeFileSync(s.destroyGate+'.ready','ready');while(!fs.existsSync(s.destroyGate+'.release'))Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}const name=a[a.indexOf('destroy')+1];s.sprites=s.sprites.filter(sprite=>sprite.name!==name);save();process.exit(0)}
 if(a.includes('restore')){s.restored=a[a.indexOf('restore')+1];save();process.exit(0)}
 if(a.includes('sessions')&&a.includes('kill')){const id=a[a.indexOf('kill')+1];s.sessions=(s.sessions??[]).filter(x=>x.id!==id);save();process.exit(0)}
 if(a.includes('sessions')&&a.includes('attach')){if(s.attachFailure){process.stderr.write('remote attach rejected\\n');process.exit(2)}process.stdin.resume();process.stdin.on('end',()=>process.exit(0));setInterval(()=>{},1000)}
+  if(a.some(x=>typeof x==='string'&&x.includes('invalid snapshot'))&&s.uploadGate){fs.writeFileSync(s.uploadGate+'.ready','ready');while(!fs.existsSync(s.uploadGate+'.release'))Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}
 if(a.includes('exec')){
   if(s.failExec){process.stderr.write('simulated remote exec failure\\n');process.exit(2)}
   if(a.includes('--tty')){const text=a.join(' '),marker=text.match(/GARDN_SPRITE_OPERATION=[a-f0-9]+/),sid=715,id=String(sid),created='2026-09-29T02:57:53.569345439Z';s.sessions??=[];s.markerProcesses??=[];s.sessions.push({id,created,command:'bash --noprofile --norc',tty:true});s.markerProcesses.push({marker:marker?.[0],sid});save();setInterval(()=>{},1000)}
@@ -294,6 +295,53 @@ test('workspace transfer excludes secrets and symlinks, prevents unsafe pulls, a
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
 
+test('pull preview rejects an ignored local destination and preserves its contents', () => {
+  const f = fixture();
+  try {
+    fs.writeFileSync(path.join(f.gitRoot, '.gitignore'), 'local-data.txt\n');
+    fs.writeFileSync(path.join(f.gitRoot, 'local-data.txt'), 'keep this ignored data\n');
+    const base = snapshot(f.gitRoot);
+    assert.equal(base.files.some(file => file.path === 'local-data.txt'), false);
+    const incoming = { version: 1, files: [...base.files, { path: 'local-data.txt', mode: 0o644, data: Buffer.from('remote overwrite\n').toString('base64') }] };
+    const preview = previewTransfer(f.gitRoot, base, incoming);
+    assert.deepEqual(preview.conflicts, ['local-data.txt']);
+    assert.throws(() => applyPull(f.gitRoot, base, preview), { code: 'transfer_conflict' });
+    assert.equal(fs.readFileSync(path.join(f.gitRoot, 'local-data.txt'), 'utf8'), 'keep this ignored data\n');
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('reapplying an unchanged added file remains idempotent', () => {
+  const f = fixture();
+  try {
+    const base = snapshot(f.gitRoot);
+    const incoming = { version: 1, files: [...base.files, { path: 'remote-added.txt', mode: 0o644, data: Buffer.from('remote content\n').toString('base64') }] };
+    const firstPreview = previewTransfer(f.gitRoot, base, incoming);
+    assert.deepEqual(firstPreview.conflicts, []);
+    assert.equal(applyPull(f.gitRoot, base, firstPreview), 1);
+    const retryPreview = previewTransfer(f.gitRoot, base, incoming);
+    assert.deepEqual(retryPreview.conflicts, []);
+    assert.equal(applyPull(f.gitRoot, base, retryPreview), 1);
+    assert.equal(fs.readFileSync(path.join(f.gitRoot, 'remote-added.txt'), 'utf8'), 'remote content\n');
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('pull preview protects an ignored local file from a remote deletion', () => {
+  const f = fixture();
+  try {
+    const localFile = path.join(f.gitRoot, 'local-data.txt');
+    fs.writeFileSync(localFile, 'baseline workspace data\n');
+    const base = snapshot(f.gitRoot);
+    assert.ok(base.files.some(file => file.path === 'local-data.txt'));
+    fs.appendFileSync(path.join(f.gitRoot, '.git', 'info', 'exclude'), '\nlocal-data.txt\n');
+    fs.writeFileSync(localFile, 'preserve changed ignored data\n');
+    const incoming = { version: 1, files: base.files.filter(file => file.path !== 'local-data.txt') };
+    const preview = previewTransfer(f.gitRoot, base, incoming);
+    assert.deepEqual(preview.conflicts, ['local-data.txt']);
+    assert.throws(() => applyPull(f.gitRoot, base, preview), { code: 'transfer_conflict' });
+    assert.equal(fs.readFileSync(localFile, 'utf8'), 'preserve changed ignored data\n');
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
 test('destructive approvals bind exact action, resource, revision, expiration, and are single-use', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'gardn-approval-'));
   try {
@@ -361,6 +409,74 @@ test('confirmed partial Create is not silently recreated after later absence', (
     assert.equal(retry.frames.findLast(frame => frame.type === 'operation').operation.error.code, 'resource_missing');
     assert.equal(JSON.parse(fs.readFileSync(f.db, 'utf8')).creates, 1);
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('partial Create retry keeps its operation-bound organization and name after config changes', () => {
+  const f = fixture();
+  try {
+    const params = { workspace_id: 'workspace-1', source: { execution_host_id: 'local', path: f.gitRoot }, agent: { profile_id: 'claude', kind: 'claude', command: ['claude'], share_credentials: false } };
+    fs.writeFileSync(f.db, JSON.stringify({ sprites: [], creates: 0, sessions: [], checkpoints: [], failExec: true }));
+    const first = invoke(f, 'create', params, 'create-identity');
+    assert.equal(first.status, 1);
+    fs.writeFileSync(f.db, JSON.stringify({ ...JSON.parse(fs.readFileSync(f.db, 'utf8')), failExec: false }));
+    const retry = invoke(f, 'create', params, 'create-identity', { org: 'changed-org', name_prefix: 'changed-' });
+    assert.equal(retry.status, 0, retry.stderr);
+    assert.equal(retry.frames.findLast(frame => frame.type === 'operation').operation.result.data.id, `acme/gardn-${hash('create-identity').slice(0, 18)}`);
+    assert.equal(JSON.parse(fs.readFileSync(f.db, 'utf8')).creates, 1);
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+
+test('approved Destroy wins admission over a previously planned Start', async () => {
+  const f = fixture();
+  let bridge;
+  const gate = path.join(f.root, 'destroy-gate');
+  try {
+    const params = { name: 'guarded', workspace_id: 'workspace-1', source: { execution_host_id: 'local', path: f.gitRoot }, agent: { profile_id: 'claude', kind: 'claude', command: ['claude'], share_credentials: false } };
+    const created = invoke(f, 'create', params, 'create-guarded').frames.findLast(frame => frame.type === 'operation').operation;
+    assert.equal(created.status, 'succeeded');
+    const target = { sprite_id: created.result.data.id };
+    const plan = invoke(f, 'start', target, 'start-before-destroy').frames.findLast(frame => frame.type === 'operation').operation.result.data;
+    const approval = invoke(f, 'destroy', target, 'destroy-approval-guard').frames.findLast(frame => frame.type === 'operation').operation.result.data.token;
+    fs.writeFileSync(f.db, JSON.stringify({ ...JSON.parse(fs.readFileSync(f.db, 'utf8')), destroyGate: gate }));
+    const destroying = launch(f, 'destroy', { ...target, approval }, 'destroy-guarded');
+    await until(() => fs.existsSync(`${gate}.ready`));
+    bridge = spawn(process.execPath, plan.args, { stdio: 'ignore', env: { ...process.env, SPRITES_FAKE_DB: f.db } });
+    const bridgeStatus = await new Promise(resolve => bridge.once('close', resolve));
+    assert.notEqual(bridgeStatus, 0);
+    fs.writeFileSync(`${gate}.release`, 'release');
+    const destroyed = await destroying.done;
+    assert.equal(destroyed.status, 0, destroyed.stderr);
+    const record = JSON.parse(fs.readFileSync(path.join(f.state, 'resources', hash(target.sprite_id), 'record.json'), 'utf8'));
+    assert.equal(record.phase, 'destroyed');
+    assert.deepEqual(JSON.parse(fs.readFileSync(f.db, 'utf8')).sessions, []);
+  } finally {
+    fs.writeFileSync(`${gate}.release`, 'release');
+    if (bridge && bridge.exitCode === null) bridge.kill('SIGKILL');
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
+});
+
+test('Create reserves resource capacity without holding catalog admission through upload', async () => {
+  const f = fixture();
+  const gate = path.join(f.root, 'upload-gate');
+  try {
+    const params = { name: 'reserved', workspace_id: 'workspace-1', source: { execution_host_id: 'local', path: f.gitRoot }, agent: { profile_id: 'claude', kind: 'claude', command: ['claude'], share_credentials: false } };
+    fs.writeFileSync(f.db, JSON.stringify({ sprites: [], creates: 0, sessions: [], checkpoints: [], uploadGate: gate }));
+    const creating = launch(f, 'create', params, 'create-reserved', { max_sprites: 1 });
+    await until(() => fs.existsSync(`${gate}.ready`));
+    const refreshed = invoke(f, 'list', { refresh: true }, 'refresh-during-upload');
+    assert.equal(refreshed.status, 0, refreshed.stderr);
+    assert.equal(refreshed.frames.findLast(frame => frame.type === 'operation').operation.status, 'succeeded');
+    const second = invoke(f, 'create', { ...params, name: 'over-limit' }, 'create-over-limit', { max_sprites: 1 });
+    assert.equal(second.frames.findLast(frame => frame.type === 'operation').operation.error.code, 'resource_limit');
+    fs.writeFileSync(`${gate}.release`, 'release');
+    const complete = await creating.done;
+    assert.equal(complete.status, 0, complete.stderr);
+    assert.equal(JSON.parse(fs.readFileSync(f.db, 'utf8')).creates, 1);
+  } finally {
+    fs.writeFileSync(`${gate}.release`, 'release');
+    fs.rmSync(f.root, { recursive: true, force: true });
+  }
 });
 
 test('installation-wide operation admission refuses excess concurrent work', async () => {
@@ -440,5 +556,21 @@ test('provider diagnostics cannot leak arbitrary secrets into operation state or
     const operation = fs.readFileSync(path.join(f.state, 'operations', `${hash('secret-error')}.json`), 'utf8');
     assert.equal(operation.includes(secret), false);
     assert.equal(run.frames.findLast(frame => frame.type === 'operation').operation.error.code, 'provider_error');
+  } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
+});
+test('Destroy and Forget retire Create reservations so a new managed resource can use released capacity', () => {
+  const f = fixture();
+  try {
+    const params = { name: 'capacity-one', workspace_id: 'workspace-1', source: { execution_host_id: 'local', path: f.gitRoot }, agent: { profile_id: 'claude', kind: 'claude', command: ['claude'], share_credentials: false } };
+    const created = invoke(f, 'create', params, 'capacity-create', { max_sprites: 1 });
+    assert.equal(created.status, 0, created.stderr);
+    const target = { sprite_id: created.frames.findLast(frame => frame.type === 'operation').operation.result.data.id };
+    const destroyApproval = invoke(f, 'destroy', target, 'capacity-destroy-approval').frames.findLast(frame => frame.type === 'operation').operation.result.data.token;
+    assert.equal(invoke(f, 'destroy', { ...target, approval: destroyApproval }, 'capacity-destroy', { max_sprites: 1 }).status, 0);
+    const forgetApproval = invoke(f, 'forget', target, 'capacity-forget-approval').frames.findLast(frame => frame.type === 'operation').operation.result.data.token;
+    assert.equal(invoke(f, 'forget', { ...target, approval: forgetApproval }, 'capacity-forget', { max_sprites: 1 }).status, 0);
+    const next = invoke(f, 'create', { ...params, name: 'capacity-two' }, 'capacity-create-two', { max_sprites: 1 });
+    assert.equal(next.status, 0, next.stderr);
+    assert.equal(next.frames.findLast(frame => frame.type === 'operation').operation.result.data.id, 'acme/capacity-two');
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });

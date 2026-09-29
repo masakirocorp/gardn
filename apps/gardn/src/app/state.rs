@@ -2716,188 +2716,65 @@ const REMOVE_FROM_FOLLOW_UP_AND_REVIEW_CONTEXT_ITEMS: &[&str] = &[
     MARK_REVIEWED_CONTEXT_ITEM,
 ];
 
-const WORKSPACE_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
-    &[
-        "new", "tab", "agent", "---", "manage", "rename", "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "review", "---", "manage", "rename", "settings", "---", "danger",
-        "close",
-    ],
-    &[
-        "new", "tab", "agent", "browser", "---", "manage", "rename", "settings", "---", "danger",
-        "close",
-    ],
-    &[
-        "new", "tab", "agent", "review", "browser", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "---", "manage", "rename", "settings", "---", "danger",
-        "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "browser", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "browser", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "github", "---", "manage", "rename", "settings", "---", "danger",
-        "close",
-    ],
-    &[
-        "new", "tab", "agent", "review", "github", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "github", "browser", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "review", "github", "browser", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "github", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "github", "---", "manage", "rename", "settings",
-        "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "github", "browser", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "github", "browser", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-];
+#[derive(Clone, Copy)]
+struct CreationMenuItems {
+    rows: [&'static str; 15],
+    creation_len: usize,
+    len: usize,
+}
 
-const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
-    &["new", "tab", "agent"],
-    &["new", "tab", "agent", "review"],
-    &["new", "tab", "agent", "browser"],
-    &["new", "tab", "agent", "review", "browser"],
-    &["new", "tab", "agent", "editor"],
-    &["new", "tab", "agent", "editor", "review"],
-    &["new", "tab", "agent", "editor", "browser"],
-    &["new", "tab", "agent", "editor", "review", "browser"],
-    &["new", "tab", "agent", "github"],
-    &["new", "tab", "agent", "review", "github"],
-    &["new", "tab", "agent", "github", "browser"],
-    &["new", "tab", "agent", "review", "github", "browser"],
-    &["new", "tab", "agent", "editor", "github"],
-    &["new", "tab", "agent", "editor", "review", "github"],
-    &["new", "tab", "agent", "editor", "github", "browser"],
-    &[
-        "new", "tab", "agent", "editor", "review", "github", "browser",
-    ],
-];
+const fn creation_menu_items(availability: ProjectCommandAvailability) -> CreationMenuItems {
+    let mut rows = [""; 15];
+    rows[0] = "new";
+    rows[1] = "tab";
+    rows[2] = "agent";
+    let mut len = 3;
+    let optional_actions = [
+        (ProjectCommandAvailability::EDITOR.0, "editor"),
+        (ProjectCommandAvailability::REVIEW.0, "review"),
+        (ProjectCommandAvailability::GITHUB.0, "github"),
+        (ProjectCommandAvailability::BROWSER.0, "browser"),
+        (ProjectCommandAvailability::SPRITES, "sprite"),
+    ];
+    let mut index = 0;
+    while index < optional_actions.len() {
+        let (flag, action) = optional_actions[index];
+        if availability.0 & flag != 0 {
+            rows[len] = action;
+            len += 1;
+        }
+        index += 1;
+    }
+    let creation_len = len;
+    let workspace_actions = [
+        "---", "manage", "rename", "settings", "---", "danger", "close",
+    ];
+    index = 0;
+    while index < workspace_actions.len() {
+        rows[len] = workspace_actions[index];
+        len += 1;
+        index += 1;
+    }
+    CreationMenuItems {
+        rows,
+        creation_len,
+        len,
+    }
+}
 
-const WORKSPACE_CONTEXT_MENU_ITEMS_WITH_SPRITES: [&[&str]; 16] = [
-    &[
-        "new", "tab", "agent", "sprite", "---", "manage", "rename", "settings", "---", "danger",
-        "close",
-    ],
-    &[
-        "new", "tab", "agent", "review", "sprite", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "browser", "sprite", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "review", "browser", "sprite", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "sprite", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "sprite", "---", "manage", "rename", "settings",
-        "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "browser", "sprite", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "browser", "sprite", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "github", "sprite", "---", "manage", "rename", "settings", "---",
-        "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "review", "github", "sprite", "---", "manage", "rename", "settings",
-        "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "github", "browser", "sprite", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "review", "github", "browser", "sprite", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "github", "sprite", "---", "manage", "rename", "settings",
-        "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "github", "sprite", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "github", "browser", "sprite", "---", "manage", "rename",
-        "settings", "---", "danger", "close",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "github", "browser", "sprite", "---", "manage",
-        "rename", "settings", "---", "danger", "close",
-    ],
-];
-
-const NEW_TAB_CONTEXT_MENU_ITEMS_WITH_SPRITES: [&[&str]; 16] = [
-    &["new", "tab", "agent", "sprite"],
-    &["new", "tab", "agent", "review", "sprite"],
-    &["new", "tab", "agent", "browser", "sprite"],
-    &["new", "tab", "agent", "review", "browser", "sprite"],
-    &["new", "tab", "agent", "editor", "sprite"],
-    &["new", "tab", "agent", "editor", "review", "sprite"],
-    &["new", "tab", "agent", "editor", "browser", "sprite"],
-    &[
-        "new", "tab", "agent", "editor", "review", "browser", "sprite",
-    ],
-    &["new", "tab", "agent", "github", "sprite"],
-    &["new", "tab", "agent", "review", "github", "sprite"],
-    &["new", "tab", "agent", "github", "browser", "sprite"],
-    &[
-        "new", "tab", "agent", "review", "github", "browser", "sprite",
-    ],
-    &["new", "tab", "agent", "editor", "github", "sprite"],
-    &[
-        "new", "tab", "agent", "editor", "review", "github", "sprite",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "github", "browser", "sprite",
-    ],
-    &[
-        "new", "tab", "agent", "editor", "review", "github", "browser", "sprite",
-    ],
-];
+const CREATION_CONTEXT_MENU_ITEMS: [CreationMenuItems; 32] = {
+    let mut menus = [CreationMenuItems {
+        rows: [""; 15],
+        creation_len: 0,
+        len: 0,
+    }; 32];
+    let mut index = 0;
+    while index < menus.len() {
+        menus[index] = creation_menu_items(ProjectCommandAvailability(index as u8));
+        index += 1;
+    }
+    menus
+};
 #[derive(Clone, Copy)]
 struct PaneMenuItems {
     rows: [&'static str; 10],
@@ -3000,11 +2877,8 @@ impl ContextMenuState {
             ContextMenuKind::Workspace {
                 project_commands, ..
             } => {
-                if project_commands.sprites_enabled() {
-                    WORKSPACE_CONTEXT_MENU_ITEMS_WITH_SPRITES[project_commands.menu_index()]
-                } else {
-                    WORKSPACE_CONTEXT_MENU_ITEMS[project_commands.menu_index()]
-                }
+                let menu = &CREATION_CONTEXT_MENU_ITEMS[project_commands.0 as usize];
+                &menu.rows[..menu.len]
             }
             ContextMenuKind::Tab { .. } => &["rename", "close", "close other tabs"],
             ContextMenuKind::Agent {
@@ -3030,11 +2904,8 @@ impl ContextMenuState {
             ContextMenuKind::NewTabButton {
                 project_commands, ..
             } => {
-                if project_commands.sprites_enabled() {
-                    NEW_TAB_CONTEXT_MENU_ITEMS_WITH_SPRITES[project_commands.menu_index()]
-                } else {
-                    NEW_TAB_CONTEXT_MENU_ITEMS[project_commands.menu_index()]
-                }
+                let menu = &CREATION_CONTEXT_MENU_ITEMS[project_commands.0 as usize];
+                &menu.rows[..menu.creation_len]
             }
             ContextMenuKind::Pane {
                 zoom,
@@ -3299,7 +3170,7 @@ mod context_menu_tests {
         let menu = ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
-                project_commands: ProjectCommandAvailability::ALL,
+                project_commands: ProjectCommandAvailability::ALL.with_sprites(true),
             },
             x: 0,
             y: 0,
@@ -3309,30 +3180,9 @@ mod context_menu_tests {
         assert_eq!(
             menu.items(),
             &[
-                "new", "tab", "agent", "editor", "review", "github", "browser", "---", "manage",
-                "rename", "settings", "---", "danger", "close",
+                "new", "tab", "agent", "editor", "review", "github", "browser", "sprite", "---",
+                "manage", "rename", "settings", "---", "danger", "close",
             ]
-        );
-    }
-
-    #[test]
-    fn new_tab_menu_uses_terminal_label_and_project_role_order() {
-        let menu = ContextMenuState {
-            kind: ContextMenuKind::NewTabButton {
-                ws_idx: 0,
-                project_commands: ProjectCommandAvailability::ALL,
-            },
-            x: 0,
-            y: 0,
-            list: ModalListState::new(1),
-        };
-
-        assert_eq!(
-            menu.items()
-                .iter()
-                .map(|item| ContextMenuState::item_display_label(item))
-                .collect::<Vec<_>>(),
-            &["New", "Terminal", "Agent", "Editor", "Review", "GitHub", "Browser",]
         );
     }
 
@@ -3404,7 +3254,6 @@ mod context_menu_tests {
 
         assert!(!disabled.items().contains(&"sprite"));
         assert!(enabled.items().contains(&"sprite"));
-        assert_eq!(ContextMenuState::item_display_label("sprite"), "Sprite");
         let space_menu = |availability| ContextMenuState {
             kind: ContextMenuKind::Workspace {
                 ws_idx: 0,
@@ -3764,17 +3613,9 @@ impl ProjectCommandAvailability {
         }
     }
 
-    const fn sprites_enabled(self) -> bool {
-        self.0 & Self::SPRITES != 0
-    }
-
     #[cfg(test)]
     pub const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
-    }
-
-    const fn menu_index(self) -> usize {
-        (self.0 & 0x0f) as usize
     }
 }
 

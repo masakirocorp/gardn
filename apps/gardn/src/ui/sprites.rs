@@ -85,25 +85,32 @@ fn render_manager(
         || freshness_label(now, app.sprites_snapshot.observed_unix_ms, "Inventory"),
         |record| freshness_label(now, record.observed_unix_ms, "Sprite"),
     );
-    let heading = if state.operation_picker {
-        "Operations · newest first".to_string()
-    } else if state.checkpoint_target.is_some() {
-        "Choose exact checkpoint".to_string()
-    } else if let Some(action) = state.session_prompt {
-        format!("Choose exact {action:?} session")
-    } else if state.resume_prompt {
-        format!("Conversation reference: {}", state.resume_ref)
-    } else {
-        format!(
+    let heading = match state.manager_prompt.as_ref() {
+        Some(crate::app::sprites_ui::SpriteManagerPrompt::OperationPicker) => {
+            "Operations · newest first".to_string()
+        }
+        Some(crate::app::sprites_ui::SpriteManagerPrompt::CheckpointPicker { .. }) => {
+            "Choose exact checkpoint".to_string()
+        }
+        Some(crate::app::sprites_ui::SpriteManagerPrompt::SessionPicker { action, .. }) => {
+            format!("Choose exact {action:?} session")
+        }
+        Some(crate::app::sprites_ui::SpriteManagerPrompt::Resume { reference }) => {
+            format!("Conversation reference: {reference}")
+        }
+        Some(crate::app::sprites_ui::SpriteManagerPrompt::Search) | None => format!(
             "{} · {}: {}",
             if state.all_resources { "All" } else { "Space" },
-            if state.search_active {
+            if matches!(
+                state.manager_prompt.as_ref(),
+                Some(crate::app::sprites_ui::SpriteManagerPrompt::Search)
+            ) {
                 "Typing search"
             } else {
                 "/ Search"
             },
             state.search
-        )
+        ),
     };
     let [search_text, back] =
         Layout::horizontal([Constraint::Min(0), Constraint::Length(7)]).areas(search);
@@ -119,25 +126,24 @@ fn render_manager(
     let selection = state.list_selection();
     let visible_rows = list.height.saturating_sub(1) as usize;
     let offset = selection.saturating_sub(visible_rows / 2);
-    let mut rows: Vec<String> = if state.operation_picker {
-        app.sprites_snapshot
+    let mut rows: Vec<String> = match state.manager_prompt.as_ref() {
+        Some(crate::app::sprites_ui::SpriteManagerPrompt::OperationPicker) => app
+            .sprites_snapshot
             .operations
             .iter()
             .rev()
             .skip(offset)
             .take(visible_rows)
             .map(|op| format!("{:?} · {} · {}", op.status, op.stage, op.request.request_id))
-            .collect()
-    } else if state.checkpoint_target.is_some() {
-        state
+            .collect(),
+        Some(crate::app::sprites_ui::SpriteManagerPrompt::CheckpointPicker { .. }) => state
             .checkpoints
             .iter()
             .skip(offset)
             .take(visible_rows)
             .cloned()
-            .collect()
-    } else if state.session_prompt.is_some() {
-        record
+            .collect(),
+        Some(crate::app::sprites_ui::SpriteManagerPrompt::SessionPicker { .. }) => record
             .into_iter()
             .flat_map(|record| record.sessions.iter())
             .skip(offset)
@@ -150,9 +156,8 @@ fn render_manager(
                     session.command.join(" ")
                 )
             })
-            .collect()
-    } else {
-        records
+            .collect(),
+        _ => records
             .iter()
             .skip(offset)
             .take(visible_rows)
@@ -168,7 +173,7 @@ fn render_manager(
                     }
                 )
             })
-            .collect()
+            .collect(),
     };
     if rows.is_empty() {
         rows.push("No matching items. Refresh or create explicitly.".into());

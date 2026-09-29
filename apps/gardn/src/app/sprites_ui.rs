@@ -16,6 +16,23 @@ pub(crate) enum SpriteUiScreen {
     DisableConfirm,
     Approval,
 }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SpriteManagerPrompt {
+    Search,
+    Resume {
+        reference: String,
+    },
+    SessionPicker {
+        action: SpriteSessionAction,
+        presentation_workspace_id: Option<String>,
+    },
+    CheckpointPicker {
+        target: SpriteTarget,
+        operation_id: String,
+    },
+    OperationPicker,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SpriteSessionAction {
     Connect,
@@ -25,14 +42,11 @@ pub(crate) enum SpriteSessionAction {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SpriteUiState {
     pub(crate) screen: SpriteUiScreen,
+    pub(crate) manager_prompt: Option<SpriteManagerPrompt>,
     pub(crate) search: String,
-    pub(crate) search_active: bool,
     pub(crate) detail_scroll: u16,
     pub(crate) checkpoints: Vec<String>,
-    pub(crate) checkpoint_target: Option<SpriteTarget>,
-    pub(crate) checkpoint_choice: usize,
     pub(crate) selected_checkpoint: Option<(String, String)>,
-    pub(crate) operation_picker: bool,
     pub(crate) operation_choice: usize,
     pub(crate) selected: usize,
     pub(crate) field: usize,
@@ -57,12 +71,9 @@ pub(crate) struct SpriteUiState {
     pub(crate) max_concurrent_operations: String,
     pub(crate) max_transfer_mib: String,
     pub(crate) pending_command: Option<SpriteCommand>,
-    pub(crate) pending_request: Option<String>,
+    pub(crate) pending_request: Option<SpriteRequest>,
     pub(crate) enabled: bool,
     pub(crate) all_resources: bool,
-    pub(crate) resume_prompt: bool,
-    pub(crate) resume_ref: String,
-    pub(crate) session_prompt: Option<SpriteSessionAction>,
     pub(crate) session_choice: usize,
     pub(crate) preview_resource_id: Option<String>,
     pub(crate) preview_revision: Option<u64>,
@@ -83,6 +94,11 @@ impl SpriteUiState {
             .get(workspace_index)
             .ok_or_else(|| "Choose a Space before creating a Sprite.".to_string())?;
         self.screen = SpriteUiScreen::Create;
+        self.manager_prompt = None;
+        self.pending_operation = None;
+        self.pending_request = None;
+        self.pending_command = None;
+        self.operation_result_seen = false;
         self.workspace_id = Some(workspace.id.clone());
         self.source_host_id = workspace.default_location.execution_host_id.to_string();
         self.source_path = workspace
@@ -112,6 +128,10 @@ impl SpriteUiState {
 
     pub(crate) fn begin_settings(&mut self, config: &crate::api::schema::SpritesConfig) {
         self.screen = SpriteUiScreen::Settings;
+        self.manager_prompt = None;
+        self.pending_operation = None;
+        self.pending_request = None;
+        self.pending_command = None;
         self.enabled = config.enabled;
         self.field = 0;
         self.org.clone_from(&config.org);
@@ -153,6 +173,9 @@ impl SpriteUiState {
             .collect()
     }
     pub(crate) fn reconcile(&mut self, app_state: &crate::app::state::AppState) {
+        if self.screen != SpriteUiScreen::Manager {
+            return;
+        }
         let snapshot = &app_state.sprites_snapshot;
         let Some(operation_id) = self.pending_operation.as_deref() else {
             return;
@@ -164,6 +187,13 @@ impl SpriteUiState {
         else {
             return;
         };
+        if self
+            .pending_request
+            .as_ref()
+            .is_some_and(|request| request.request_id != operation.request.request_id)
+        {
+            return;
+        }
         use crate::api::schema::{SpriteOperationStatus, SpriteResult};
         match &operation.status {
             SpriteOperationStatus::Queued | SpriteOperationStatus::Running => {
@@ -204,14 +234,18 @@ impl SpriteUiState {
                         ));
                     }
                     Some(SpriteResult::Checkpoints(checkpoints)) => {
-                        self.checkpoints.clone_from(checkpoints);
-                        self.checkpoint_choice = 0;
-                        self.checkpoint_target = match &operation.request.command {
-                            SpriteCommand::Checkpoints(target) => Some(target.clone()),
-                            _ => None,
-                        };
-                        self.message =
-                            Some("Choose a checkpoint, then use Restore explicitly.".into());
+                        if self.manager_prompt.is_none() {
+                            self.checkpoints.clone_from(checkpoints);
+                            self.operation_choice = 0;
+                            if let SpriteCommand::Checkpoints(target) = &operation.request.command {
+                                self.manager_prompt = Some(SpriteManagerPrompt::CheckpointPicker {
+                                    target: target.clone(),
+                                    operation_id: operation.id.clone(),
+                                });
+                            }
+                            self.message =
+                                Some("Choose a checkpoint, then use Restore explicitly.".into());
+                        }
                     }
                     Some(SpriteResult::Completed { message }) => {
                         self.message = Some(message.clone());
@@ -240,22 +274,15 @@ impl SpriteUiState {
     }
 
     pub(crate) fn is_prompt(&self) -> bool {
-        self.search_active
-            || self.resume_prompt
-            || self.session_prompt.is_some()
-            || self.checkpoint_target.is_some()
-            || self.operation_picker
+        self.manager_prompt.is_some()
     }
 
     pub(crate) fn list_selection(&self) -> usize {
-        if self.operation_picker {
-            self.operation_choice
-        } else if self.checkpoint_target.is_some() {
-            self.checkpoint_choice
-        } else if self.session_prompt.is_some() {
-            self.session_choice
-        } else {
-            self.selected
+        match self.manager_prompt.as_ref() {
+            Some(SpriteManagerPrompt::OperationPicker)
+            | Some(SpriteManagerPrompt::CheckpointPicker { .. }) => self.operation_choice,
+            Some(SpriteManagerPrompt::SessionPicker { .. }) => self.session_choice,
+            _ => self.selected,
         }
     }
 }
@@ -309,10 +336,14 @@ pub(crate) fn sprite_manager_layout(area: Rect, state: &SpriteUiState) -> [Rect;
     } else {
         sprite_manager_action_rows(area.width).len() as u16
     };
-    let detail = if state.session_prompt.is_some()
-        || state.checkpoint_target.is_some()
-        || state.operation_picker
-    {
+    let detail = if matches!(
+        state.manager_prompt.as_ref(),
+        Some(
+            SpriteManagerPrompt::SessionPicker { .. }
+                | SpriteManagerPrompt::CheckpointPicker { .. }
+                | SpriteManagerPrompt::OperationPicker
+        )
+    ) {
         1
     } else {
         area.height.saturating_sub(footer + 4).min(7)
@@ -544,7 +575,7 @@ impl crate::app::App {
                     if mouse.column >= inner.right().saturating_sub(7) {
                         self.handle_sprites_key_for_view(view, KeyEvent::from(KeyCode::Esc));
                     } else if !view.sprite_ui.is_prompt() {
-                        view.sprite_ui.search_active = true;
+                        view.sprite_ui.manager_prompt = Some(SpriteManagerPrompt::Search);
                     }
                 } else if mouse.row >= list.y && mouse.row < list.bottom().saturating_sub(1) {
                     let offset = view
@@ -552,31 +583,37 @@ impl crate::app::App {
                         .list_selection()
                         .saturating_sub(list.height.saturating_sub(1) as usize / 2);
                     let index = offset + mouse.row.saturating_sub(list.y) as usize;
-                    if view.sprite_ui.operation_picker {
-                        if index < self.state.sprites_snapshot.operations.len() {
-                            view.sprite_ui.operation_choice = index;
+                    match view.sprite_ui.manager_prompt.as_ref() {
+                        Some(SpriteManagerPrompt::OperationPicker) => {
+                            if index < self.state.sprites_snapshot.operations.len() {
+                                view.sprite_ui.operation_choice = index;
+                            }
                         }
-                    } else if view.sprite_ui.checkpoint_target.is_some() {
-                        if index < view.sprite_ui.checkpoints.len() {
-                            view.sprite_ui.checkpoint_choice = index;
+                        Some(SpriteManagerPrompt::CheckpointPicker { .. }) => {
+                            if index < view.sprite_ui.checkpoints.len() {
+                                view.sprite_ui.operation_choice = index;
+                            }
                         }
-                    } else if view.sprite_ui.session_prompt.is_some() {
-                        let count = view
-                            .sprite_ui
-                            .visible_records(&self.state.sprites_snapshot)
-                            .get(view.sprite_ui.selected)
-                            .map_or(0, |record| record.sessions.len());
-                        if index < count {
-                            view.sprite_ui.session_choice = index;
+                        Some(SpriteManagerPrompt::SessionPicker { .. }) => {
+                            let count = view
+                                .sprite_ui
+                                .visible_records(&self.state.sprites_snapshot)
+                                .get(view.sprite_ui.selected)
+                                .map_or(0, |record| record.sessions.len());
+                            if index < count {
+                                view.sprite_ui.session_choice = index;
+                            }
                         }
-                    } else if index
-                        < view
-                            .sprite_ui
-                            .visible_records(&self.state.sprites_snapshot)
-                            .len()
-                    {
-                        view.sprite_ui.selected = index;
-                        view.sprite_ui.detail_scroll = 0;
+                        _ if index
+                            < view
+                                .sprite_ui
+                                .visible_records(&self.state.sprites_snapshot)
+                                .len() =>
+                        {
+                            view.sprite_ui.selected = index;
+                            view.sprite_ui.detail_scroll = 0;
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -724,179 +761,227 @@ impl crate::app::App {
             }
             return;
         }
-        if view.sprite_ui.search_active {
-            match key.code {
-                KeyCode::Esc | KeyCode::Enter => view.sprite_ui.search_active = false,
-                KeyCode::Backspace => {
-                    view.sprite_ui.search.pop();
-                }
-                KeyCode::Char(c)
-                    if !key
-                        .modifiers
-                        .contains(crossterm::event::KeyModifiers::CONTROL) =>
-                {
-                    view.sprite_ui.search.push(c);
-                }
-                _ => {}
-            }
-            view.sprite_ui.selected = 0;
-            view.sprite_ui.detail_scroll = 0;
-            return;
-        }
-        if view.sprite_ui.checkpoint_target.is_some() {
-            match key.code {
-                KeyCode::Esc => view.sprite_ui.checkpoint_target = None,
-                KeyCode::Up => {
-                    view.sprite_ui.checkpoint_choice =
-                        view.sprite_ui.checkpoint_choice.saturating_sub(1)
-                }
-                KeyCode::Down => {
-                    view.sprite_ui.checkpoint_choice = view
-                        .sprite_ui
-                        .checkpoint_choice
-                        .saturating_add(1)
-                        .min(view.sprite_ui.checkpoints.len().saturating_sub(1))
-                }
-                KeyCode::Enter => {
-                    if let (Some(target), Some(checkpoint)) = (
-                        view.sprite_ui.checkpoint_target.take(),
-                        view.sprite_ui
-                            .checkpoints
-                            .get(view.sprite_ui.checkpoint_choice),
-                    ) {
-                        view.sprite_ui.selected_checkpoint =
-                            Some((target.sprite_id, checkpoint.clone()));
-                        view.sprite_ui.message = Some(format!("Selected checkpoint {checkpoint}. Use Restore to request confirmation."));
+        match view.sprite_ui.manager_prompt.clone() {
+            Some(SpriteManagerPrompt::Search) => {
+                match key.code {
+                    KeyCode::Esc | KeyCode::Enter => view.sprite_ui.manager_prompt = None,
+                    KeyCode::Backspace => {
+                        view.sprite_ui.search.pop();
                     }
-                }
-                _ => {}
-            }
-            return;
-        }
-        if view.sprite_ui.operation_picker {
-            let operations = &self.state.sprites_snapshot.operations;
-            match key.code {
-                KeyCode::Esc => view.sprite_ui.operation_picker = false,
-                KeyCode::Up => {
-                    view.sprite_ui.operation_choice =
-                        view.sprite_ui.operation_choice.saturating_sub(1)
-                }
-                KeyCode::Down => {
-                    view.sprite_ui.operation_choice = view
-                        .sprite_ui
-                        .operation_choice
-                        .saturating_add(1)
-                        .min(operations.len().saturating_sub(1))
-                }
-                KeyCode::Enter => {
-                    if let Some(operation) =
-                        operations.iter().rev().nth(view.sprite_ui.operation_choice)
+                    KeyCode::Char(c)
+                        if !key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL) =>
                     {
-                        view.sprite_ui.pending_operation = Some(operation.id.clone());
-                        view.sprite_ui.pending_command = Some(operation.request.command.clone());
-                        view.sprite_ui.operation_result_seen = true;
-                        view.sprite_ui.detail_scroll = 0;
-                        view.sprite_ui.message = Some(operation.error.as_ref().map_or_else(
-                            || format!("{:?} · {}", operation.status, operation.stage),
-                            |error| format!("{} · {}", error.code, error.message),
-                        ));
+                        view.sprite_ui.search.push(c);
                     }
-                    view.sprite_ui.operation_picker = false;
+                    _ => {}
                 }
-                _ => {}
+                view.sprite_ui.selected = 0;
+                view.sprite_ui.detail_scroll = 0;
+                return;
             }
-            return;
-        }
-        if let Some(action) = view.sprite_ui.session_prompt {
-            let record = view
-                .sprite_ui
-                .visible_records(&self.state.sprites_snapshot)
-                .get(view.sprite_ui.selected)
-                .map(|record| (*record).clone());
-            match key.code {
-                KeyCode::Esc => view.sprite_ui.session_prompt = None,
-                KeyCode::Up | KeyCode::Char('k') => {
-                    view.sprite_ui.session_choice = view.sprite_ui.session_choice.saturating_sub(1);
+            Some(SpriteManagerPrompt::CheckpointPicker {
+                target,
+                operation_id,
+            }) => {
+                if view.sprite_ui.pending_operation.as_deref() != Some(operation_id.as_str()) {
+                    view.sprite_ui.manager_prompt = None;
+                    return;
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    if let Some(record) = &record {
-                        view.sprite_ui.session_choice = view
-                            .sprite_ui
-                            .session_choice
-                            .saturating_add(1)
-                            .min(record.sessions.len().saturating_sub(1));
+                match key.code {
+                    KeyCode::Esc => view.sprite_ui.manager_prompt = None,
+                    KeyCode::Up => {
+                        view.sprite_ui.operation_choice =
+                            view.sprite_ui.operation_choice.saturating_sub(1)
                     }
+                    KeyCode::Down => {
+                        view.sprite_ui.operation_choice = view
+                            .sprite_ui
+                            .operation_choice
+                            .saturating_add(1)
+                            .min(view.sprite_ui.checkpoints.len().saturating_sub(1))
+                    }
+                    KeyCode::Enter => {
+                        if let Some(checkpoint) = view
+                            .sprite_ui
+                            .checkpoints
+                            .get(view.sprite_ui.operation_choice)
+                        {
+                            view.sprite_ui.selected_checkpoint =
+                                Some((target.sprite_id, checkpoint.clone()));
+                            view.sprite_ui.message = Some(format!(
+                                "Selected checkpoint {checkpoint}. Use Restore to request confirmation."
+                            ));
+                        }
+                        view.sprite_ui.manager_prompt = None;
+                    }
+                    _ => {}
                 }
-                KeyCode::Enter => {
-                    if let Some(record) = record {
-                        if let Some(session) = record.sessions.get(view.sprite_ui.session_choice) {
-                            if action == SpriteSessionAction::Stop && !session.owned {
-                                view.sprite_ui.message = Some("Only a known owned session can be stopped; select an owned session.".into());
-                            } else {
-                                let mut exact_target = target(&record);
-                                exact_target.session_id = Some(session.id.clone());
-                                let command = match action {
-                                    SpriteSessionAction::Connect => {
-                                        SpriteCommand::Connect(exact_target)
-                                    }
-                                    SpriteSessionAction::Stop => SpriteCommand::Stop(exact_target),
-                                };
-                                let workspace = if action == SpriteSessionAction::Connect {
-                                    record.workspace_id.clone()
-                                } else {
-                                    None
-                                };
-                                self.submit_sprite_ui_request(view, command, workspace);
-                                view.sprite_ui.session_prompt = None;
-                            }
-                        } else {
-                            view.sprite_ui.message =
-                                Some("No session is available for this Sprite.".into());
-                            view.sprite_ui.session_prompt = None;
+                return;
+            }
+            Some(SpriteManagerPrompt::OperationPicker) => {
+                let operations = &self.state.sprites_snapshot.operations;
+                match key.code {
+                    KeyCode::Esc => view.sprite_ui.manager_prompt = None,
+                    KeyCode::Up => {
+                        view.sprite_ui.operation_choice =
+                            view.sprite_ui.operation_choice.saturating_sub(1)
+                    }
+                    KeyCode::Down => {
+                        view.sprite_ui.operation_choice = view
+                            .sprite_ui
+                            .operation_choice
+                            .saturating_add(1)
+                            .min(operations.len().saturating_sub(1))
+                    }
+                    KeyCode::Enter => {
+                        if let Some(operation) =
+                            operations.iter().rev().nth(view.sprite_ui.operation_choice)
+                        {
+                            view.sprite_ui.pending_operation = Some(operation.id.clone());
+                            view.sprite_ui.pending_request = Some(operation.request.clone());
+                            view.sprite_ui.pending_command =
+                                Some(operation.request.command.clone());
+                            view.sprite_ui.operation_result_seen = true;
+                            view.sprite_ui.detail_scroll = 0;
+                            view.sprite_ui.message = Some(operation.error.as_ref().map_or_else(
+                                || format!("{:?} · {}", operation.status, operation.stage),
+                                |error| format!("{} · {}", error.code, error.message),
+                            ));
+                        }
+                        view.sprite_ui.manager_prompt = None;
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            Some(SpriteManagerPrompt::SessionPicker {
+                action,
+                presentation_workspace_id,
+            }) => {
+                let record = view
+                    .sprite_ui
+                    .visible_records(&self.state.sprites_snapshot)
+                    .get(view.sprite_ui.selected)
+                    .map(|record| (*record).clone());
+                match key.code {
+                    KeyCode::Esc => view.sprite_ui.manager_prompt = None,
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        view.sprite_ui.session_choice =
+                            view.sprite_ui.session_choice.saturating_sub(1)
+                    }
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if let Some(record) = &record {
+                            view.sprite_ui.session_choice = view
+                                .sprite_ui
+                                .session_choice
+                                .saturating_add(1)
+                                .min(record.sessions.len().saturating_sub(1));
                         }
                     }
-                }
-                _ => {}
-            }
-            return;
-        }
-        if view.sprite_ui.resume_prompt {
-            match key.code {
-                KeyCode::Esc => {
-                    view.sprite_ui.resume_prompt = false;
-                    view.sprite_ui.resume_ref.clear();
-                }
-                KeyCode::Backspace => {
-                    view.sprite_ui.resume_ref.pop();
-                }
-                KeyCode::Enter => {
-                    let conversation_ref = view.sprite_ui.resume_ref.trim().to_string();
-                    let record = view
-                        .sprite_ui
-                        .visible_records(&self.state.sprites_snapshot)
-                        .get(view.sprite_ui.selected)
-                        .map(|record| (*record).clone());
-                    if conversation_ref.is_empty() {
-                        view.sprite_ui.message =
-                            Some("Enter a supported agent conversation reference.".into());
-                    } else if let Some(record) = record {
-                        let workspace = record.workspace_id.clone();
-                        self.submit_sprite_ui_request(
-                            view,
-                            SpriteCommand::Resume {
-                                target: target(&record),
-                                conversation_ref,
-                            },
-                            workspace,
-                        );
-                        view.sprite_ui.resume_prompt = false;
-                        view.sprite_ui.resume_ref.clear();
+                    KeyCode::Enter => {
+                        if let Some(record) = record {
+                            if let Some(session) =
+                                record.sessions.get(view.sprite_ui.session_choice)
+                            {
+                                if action == SpriteSessionAction::Stop && !session.owned {
+                                    view.sprite_ui.message = Some(
+                                        "Only a known owned session can be stopped; select an owned session."
+                                            .into(),
+                                    );
+                                } else {
+                                    let workspace = if action == SpriteSessionAction::Connect {
+                                        presentation_workspace_id.as_deref().and_then(|id| {
+                                            self.state.workspaces.iter().find(|workspace| {
+                                                workspace.id == id
+                                                    && workspace
+                                                        .default_location
+                                                        .execution_host_id
+                                                        .is_local()
+                                            })
+                                        })
+                                    } else {
+                                        None
+                                    };
+                                    if action == SpriteSessionAction::Connect && workspace.is_none()
+                                    {
+                                        view.sprite_ui.manager_prompt = None;
+                                        view.sprite_ui.message = Some(
+                                            "The selected local Space is no longer available; choose a current local Space and retry."
+                                                .into(),
+                                        );
+                                        return;
+                                    }
+                                    let mut exact_target = target(&record);
+                                    exact_target.session_id = Some(session.id.clone());
+                                    let command = match action {
+                                        SpriteSessionAction::Connect => {
+                                            SpriteCommand::Connect(exact_target)
+                                        }
+                                        SpriteSessionAction::Stop => {
+                                            SpriteCommand::Stop(exact_target)
+                                        }
+                                    };
+                                    let workspace_id =
+                                        workspace.map(|workspace| workspace.id.clone());
+                                    view.sprite_ui.manager_prompt = None;
+                                    self.submit_sprite_ui_request(view, command, workspace_id);
+                                }
+                            } else {
+                                view.sprite_ui.manager_prompt = None;
+                                view.sprite_ui.message =
+                                    Some("No session is available for this Sprite.".into());
+                            }
+                        }
                     }
+                    _ => {}
                 }
-                KeyCode::Char(c) => view.sprite_ui.resume_ref.push(c),
-                _ => {}
+                return;
             }
-            return;
+            Some(SpriteManagerPrompt::Resume { mut reference }) => {
+                match key.code {
+                    KeyCode::Esc => {
+                        view.sprite_ui.manager_prompt = None;
+                    }
+                    KeyCode::Backspace => {
+                        reference.pop();
+                        view.sprite_ui.manager_prompt =
+                            Some(SpriteManagerPrompt::Resume { reference });
+                    }
+                    KeyCode::Enter => {
+                        let conversation_ref = reference.trim().to_string();
+                        let record = view
+                            .sprite_ui
+                            .visible_records(&self.state.sprites_snapshot)
+                            .get(view.sprite_ui.selected)
+                            .map(|record| (*record).clone());
+                        if conversation_ref.is_empty() {
+                            view.sprite_ui.message =
+                                Some("Enter a supported agent conversation reference.".into());
+                        } else if let Some(record) = record {
+                            let workspace = record.workspace_id.clone();
+                            view.sprite_ui.manager_prompt = None;
+                            self.submit_sprite_ui_request(
+                                view,
+                                SpriteCommand::Resume {
+                                    target: target(&record),
+                                    conversation_ref,
+                                },
+                                workspace,
+                            );
+                        }
+                    }
+                    KeyCode::Char(c) => {
+                        reference.push(c);
+                        view.sprite_ui.manager_prompt =
+                            Some(SpriteManagerPrompt::Resume { reference });
+                    }
+                    _ => {}
+                }
+                return;
+            }
+            None => {}
         }
         if key.code == KeyCode::Esc {
             if view.sprite_ui.screen == SpriteUiScreen::Create {
@@ -919,7 +1004,7 @@ impl crate::app::App {
                 view.sprite_ui.detail_scroll = view.sprite_ui.detail_scroll.saturating_add(3)
             }
             KeyCode::Char('o') => {
-                view.sprite_ui.operation_picker = true;
+                view.sprite_ui.manager_prompt = Some(SpriteManagerPrompt::OperationPicker);
                 view.sprite_ui.operation_choice = 0;
             }
             KeyCode::Up | KeyCode::Char('k') => {
@@ -933,7 +1018,7 @@ impl crate::app::App {
                     .min(resources.len().saturating_sub(1));
             }
             KeyCode::Char('/') => {
-                view.sprite_ui.search_active = true;
+                view.sprite_ui.manager_prompt = Some(SpriteManagerPrompt::Search);
                 view.sprite_ui.message =
                     Some("Search: type any text. Enter or Escape returns to actions.".into());
             }
@@ -954,8 +1039,9 @@ impl crate::app::App {
                 });
             }
             KeyCode::Char('u') => {
-                view.sprite_ui.resume_prompt = true;
-                view.sprite_ui.resume_ref.clear();
+                view.sprite_ui.manager_prompt = Some(SpriteManagerPrompt::Resume {
+                    reference: String::new(),
+                });
                 view.sprite_ui.message = Some(
                     "Enter the exact supported agent conversation reference, then press Enter."
                         .into(),
@@ -1100,6 +1186,7 @@ impl crate::app::App {
                     config.enabled = false;
                     match self.save_sprites_config(config) {
                         Ok(()) => {
+                            view.sprite_ui.enabled = false;
                             view.sprite_ui.screen = SpriteUiScreen::Settings;
                             view.sprite_ui.message = Some("Sprites disabled. Remote resources and sessions are still alive; use Sprite Manager for explicit cleanup.".into());
                         }
@@ -1115,8 +1202,8 @@ impl crate::app::App {
             return;
         }
         match key.code {
-            Up | Char('k') => view.sprite_ui.field = view.sprite_ui.field.saturating_sub(1),
-            Down | Tab | Char('j') => view.sprite_ui.field = (view.sprite_ui.field + 1).min(8),
+            Up => view.sprite_ui.field = view.sprite_ui.field.saturating_sub(1),
+            Down | Tab => view.sprite_ui.field = (view.sprite_ui.field + 1).min(8),
             BackTab => view.sprite_ui.field = view.sprite_ui.field.saturating_sub(1),
             Char(' ') if view.sprite_ui.field == 0 => {
                 let next = !view.sprite_ui.enabled;
@@ -1296,103 +1383,137 @@ impl crate::app::App {
         }
     }
 
+    fn local_presentation_workspace_id(
+        &self,
+        view: &crate::app::ClientViewState,
+    ) -> Option<String> {
+        [view.active_workspace, Some(view.selected_workspace)]
+            .into_iter()
+            .flatten()
+            .filter_map(|index| self.state.workspaces.get(index))
+            .find(|workspace| workspace.default_location.execution_host_id.is_local())
+            .map(|workspace| workspace.id.clone())
+    }
+
     fn with_selected_sprite(
         &mut self,
         view: &mut crate::app::ClientViewState,
         command: impl FnOnce(SpriteTarget) -> SpriteCommand,
     ) {
-        if let Some(record) = view
+        let Some(record) = view
             .sprite_ui
             .visible_records(&self.state.sprites_snapshot)
             .get(view.sprite_ui.selected)
-        {
-            let mut command = command(target(record));
-            match &command {
-                SpriteCommand::PullPreview(_) => {
-                    view.sprite_ui.preview_resource_id = Some(record.id.clone());
-                    view.sprite_ui.preview_revision = Some(record.revision);
-                    view.sprite_ui.transfer_preview = None;
-                }
-                SpriteCommand::Pull(_)
-                    if view.sprite_ui.transfer_preview.is_none()
-                        || view.sprite_ui.preview_resource_id.as_deref()
-                            != Some(record.id.as_str())
-                        || view.sprite_ui.preview_revision != Some(record.revision) =>
-                {
-                    view.sprite_ui.message = Some("Run and review a fresh Pull preview for this Sprite before confirming with P.".into());
-                    return;
-                }
-                _ => {}
+            .map(|record| (*record).clone())
+        else {
+            return;
+        };
+        let mut command = command(target(&record));
+        match &command {
+            SpriteCommand::PullPreview(_) => {
+                view.sprite_ui.preview_resource_id = Some(record.id.clone());
+                view.sprite_ui.preview_revision = Some(record.revision);
+                view.sprite_ui.transfer_preview = None;
             }
-            if !record.managed
-                && matches!(
-                    &command,
-                    SpriteCommand::Stop(_)
-                        | SpriteCommand::PullPreview(_)
-                        | SpriteCommand::Pull(_)
-                        | SpriteCommand::Checkpoint(_)
-                        | SpriteCommand::Restore(_)
-                        | SpriteCommand::Destroy(_)
-                        | SpriteCommand::Forget(_)
-                )
+            SpriteCommand::Pull(_)
+                if view.sprite_ui.transfer_preview.is_none()
+                    || view.sprite_ui.preview_resource_id.as_deref()
+                        != Some(record.id.as_str())
+                    || view.sprite_ui.preview_revision != Some(record.revision) =>
             {
-                let action = match &command {
-                    SpriteCommand::Stop(_) => "Stop",
-                    SpriteCommand::PullPreview(_) => "Pull preview",
-                    SpriteCommand::Pull(_) => "Pull",
-                    SpriteCommand::Checkpoint(_) => "Checkpoint",
-                    SpriteCommand::Restore(_) => "Restore",
-                    SpriteCommand::Destroy(_) => "Destroy",
-                    _ => "Forget",
-                };
-                view.sprite_ui.message =
-                    Some(format!("{action} is unavailable for foreign Sprites."));
+                view.sprite_ui.message = Some(
+                    "Run and review a fresh Pull preview for this Sprite before confirming with P."
+                        .into(),
+                );
                 return;
             }
-            if matches!(&command, SpriteCommand::Pull(_)) {
-                view.sprite_ui.transfer_preview = None;
-                view.sprite_ui.preview_resource_id = None;
-                view.sprite_ui.preview_revision = None;
-            }
-            match &mut command {
-                SpriteCommand::Connect(target) => {
-                    if record.sessions.is_empty() {
-                        view.sprite_ui.message = Some("This Sprite has no existing session to connect to; use Start explicitly.".into());
-                        return;
-                    }
-                    if record.sessions.len() > 1 {
-                        view.sprite_ui.session_prompt = Some(SpriteSessionAction::Connect);
-                        view.sprite_ui.session_choice = 0;
-                        return;
-                    }
-                    target.session_id = Some(record.sessions[0].id.clone());
-                }
-                SpriteCommand::Stop(target) => {
-                    if record.sessions.len() > 1 {
-                        view.sprite_ui.session_prompt = Some(SpriteSessionAction::Stop);
-                        view.sprite_ui.session_choice = 0;
-                        return;
-                    }
-                    if !record.sessions.first().is_some_and(|session| session.owned) {
-                        view.sprite_ui.message =
-                            Some("Stop is available only for a known owned session.".into());
-                        return;
-                    }
-                    target.session_id = Some(record.sessions[0].id.clone());
-                }
-                _ => {}
-            }
-            let open_in_workspace = matches!(
-                &command,
-                SpriteCommand::Connect(_)
-                    | SpriteCommand::Start(_)
-                    | SpriteCommand::Shell(_)
-                    | SpriteCommand::Resume { .. }
-            )
-            .then(|| record.workspace_id.clone())
-            .flatten();
-            self.submit_sprite_ui_request(view, command, open_in_workspace);
+            _ => {}
         }
+        if !record.managed
+            && matches!(
+                &command,
+                SpriteCommand::Stop(_)
+                    | SpriteCommand::PullPreview(_)
+                    | SpriteCommand::Pull(_)
+                    | SpriteCommand::Checkpoint(_)
+                    | SpriteCommand::Restore(_)
+                    | SpriteCommand::Destroy(_)
+                    | SpriteCommand::Forget(_)
+            )
+        {
+            let action = match &command {
+                SpriteCommand::Stop(_) => "Stop",
+                SpriteCommand::PullPreview(_) => "Pull preview",
+                SpriteCommand::Pull(_) => "Pull",
+                SpriteCommand::Checkpoint(_) => "Checkpoint",
+                SpriteCommand::Restore(_) => "Restore",
+                SpriteCommand::Destroy(_) => "Destroy",
+                _ => "Forget",
+            };
+            view.sprite_ui.message = Some(format!("{action} is unavailable for foreign Sprites."));
+            return;
+        }
+        if matches!(&command, SpriteCommand::Pull(_)) {
+            view.sprite_ui.transfer_preview = None;
+            view.sprite_ui.preview_resource_id = None;
+            view.sprite_ui.preview_revision = None;
+        }
+        let presentation_workspace_id = if matches!(
+            &command,
+            SpriteCommand::Connect(_) | SpriteCommand::Shell(_)
+        ) {
+            let Some(workspace_id) = self.local_presentation_workspace_id(view) else {
+                view.sprite_ui.message =
+                    Some("Choose a current local Space before opening this Sprite.".into());
+                return;
+            };
+            Some(workspace_id)
+        } else {
+            None
+        };
+        match &mut command {
+            SpriteCommand::Connect(target) => {
+                if record.sessions.is_empty() {
+                    view.sprite_ui.message = Some(
+                        "This Sprite has no existing session to connect to; use Start explicitly."
+                            .into(),
+                    );
+                    return;
+                }
+                if record.sessions.len() > 1 {
+                    view.sprite_ui.manager_prompt = Some(SpriteManagerPrompt::SessionPicker {
+                        action: SpriteSessionAction::Connect,
+                        presentation_workspace_id,
+                    });
+                    view.sprite_ui.session_choice = 0;
+                    return;
+                }
+                target.session_id = Some(record.sessions[0].id.clone());
+            }
+            SpriteCommand::Stop(target) => {
+                if record.sessions.len() > 1 {
+                    view.sprite_ui.manager_prompt = Some(SpriteManagerPrompt::SessionPicker {
+                        action: SpriteSessionAction::Stop,
+                        presentation_workspace_id: None,
+                    });
+                    view.sprite_ui.session_choice = 0;
+                    return;
+                }
+                if !record.sessions.first().is_some_and(|session| session.owned) {
+                    view.sprite_ui.message =
+                        Some("Stop is available only for a known owned session.".into());
+                    return;
+                }
+                target.session_id = Some(record.sessions[0].id.clone());
+            }
+            _ => {}
+        }
+        let open_in_workspace = match &command {
+            SpriteCommand::Connect(_) | SpriteCommand::Shell(_) => presentation_workspace_id,
+            SpriteCommand::Start(_) | SpriteCommand::Resume { .. } => record.workspace_id.clone(),
+            _ => None,
+        };
+        self.submit_sprite_ui_request(view, command, open_in_workspace);
     }
 
     fn submit_sprite_ui_request(
@@ -1409,7 +1530,7 @@ impl crate::app::App {
             open_in_workspace: open_in_workspace.clone(),
             focus: open_in_workspace.is_some(),
         };
-        view.sprite_ui.pending_request = Some(request_id.clone());
+        view.sprite_ui.pending_request = Some(request.clone());
         view.sprite_ui.operation_result_seen = false;
         view.sprite_ui.pending_command = Some(command);
         match self.submit_sprite_request(request) {
@@ -1491,16 +1612,97 @@ fn new_sprite_request_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn sprite_search_treats_action_shortcuts_as_literal_text() {
+    use std::path::PathBuf;
+
+    struct TemporaryConfig(PathBuf);
+
+    impl TemporaryConfig {
+        fn new() -> Self {
+            let directory = std::env::temp_dir().join(format!(
+                "gardn-sprites-ui-{}-{}",
+                std::process::id(),
+                NEXT_SPRITE_UI_REQUEST_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            ));
+            std::fs::create_dir_all(&directory).expect("create temporary config directory");
+            let path = directory.join("config.toml");
+            std::fs::write(&path, "").expect("create isolated config");
+            Self(directory)
+        }
+
+        fn path(&self) -> PathBuf {
+            self.0.join("config.toml")
+        }
+    }
+
+    impl Drop for TemporaryConfig {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn test_app() -> crate::app::App {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = crate::app::App::new(
+        crate::app::App::new(
             &crate::config::Config::default(),
             true,
             None,
             api_rx,
             crate::api::EventHub::default(),
-        );
+        )
+    }
+
+    fn rendered_output(
+        app: &crate::app::App,
+        view: &mut crate::app::ClientViewState,
+        width: u16,
+        height: u16,
+    ) -> String {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, height))
+                .expect("test terminal");
+        terminal
+            .draw(|frame| {
+                view.computed.terminal_area = frame.area();
+                crate::ui::render(&app.state, view, &app.terminal_runtimes, frame);
+            })
+            .expect("render Sprite UI");
+        terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect()
+    }
+
+    fn foreign_sprite(
+        sessions: Vec<crate::api::schema::SpriteSession>,
+    ) -> crate::api::schema::SpriteRecord {
+        crate::api::schema::SpriteRecord {
+            id: "foreign-id".into(),
+            org: "foreign-org".into(),
+            name: "foreign-resource".into(),
+            managed: false,
+            workspace_id: None,
+            source: None,
+            agent: None,
+            phase: "running".into(),
+            provider_state: None,
+            sessions,
+            checkpoint_id: None,
+            revision: 1,
+            updated_unix_ms: 0,
+            observed_unix_ms: None,
+            last_error: None,
+            unpulled_changes: None,
+            attached_panes: Vec::new(),
+            agent_status: None,
+        }
+    }
+
+    #[test]
+    fn sprite_search_treats_action_shortcuts_as_literal_text() {
+        let mut app = test_app();
         app.state.sprites_config.enabled = true;
         let mut view = app.default_client_view.clone();
         app.open_sprites_for_view(&mut view, None);
@@ -1508,24 +1710,220 @@ mod tests {
         for character in "dangerous".chars() {
             app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char(character)));
         }
-        let mut terminal = ratatui::Terminal::new(ratatui::backend::TestBackend::new(55, 18))
-            .expect("test terminal");
-        terminal
-            .draw(|frame| {
-                view.computed.terminal_area = frame.area();
-                crate::ui::render(&app.state, &view, &app.terminal_runtimes, frame);
-            })
-            .expect("render Sprite search");
-        let output: String = terminal
-            .backend()
-            .buffer()
-            .content
-            .iter()
-            .map(|cell| cell.symbol())
-            .collect();
+        let output = rendered_output(&app, &mut view, 55, 18);
         assert!(
             output.contains("dangerous"),
             "search must retain every typed character: {output}"
+        );
+    }
+
+    #[test]
+    fn sprite_settings_type_printable_j_and_k_into_the_focused_field() {
+        let mut app = test_app();
+        app.state.sprites_config.name_prefix = "prefix".into();
+        let mut view = app.default_client_view.clone();
+        app.open_sprites_settings_for_view(&mut view);
+        view.sprite_ui.field = 4;
+        for character in ['j', 'k'] {
+            app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char(character)));
+        }
+        let output = rendered_output(&app, &mut view, 100, 30);
+        assert_eq!(view.sprite_ui.name_prefix, "prefixjk");
+        assert!(
+            output.contains("prefixjk"),
+            "focused settings text must render typed j/k: {output}"
+        );
+    }
+
+    #[test]
+    fn confirmed_sprite_disable_remains_off_after_save() {
+        let _lock = crate::config::test_config_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let temporary_config = TemporaryConfig::new();
+        let _config_path = crate::config::TestEnvVar::set(
+            crate::config::CONFIG_PATH_ENV_VAR,
+            temporary_config.path(),
+        );
+        let mut app = test_app();
+        app.state.sprites_config.enabled = true;
+        app.state
+            .sprites_snapshot
+            .resources
+            .push(foreign_sprite(Vec::new()));
+        let mut view = app.default_client_view.clone();
+        app.open_sprites_settings_for_view(&mut view);
+        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char(' ')));
+        assert_eq!(view.sprite_ui.screen, SpriteUiScreen::DisableConfirm);
+        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char('y')));
+        assert!(!view.sprite_ui.enabled);
+        view.sprite_ui.field = 8;
+        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Enter));
+        let output = rendered_output(&app, &mut view, 100, 30);
+        assert!(!app.state.sprites_config.enabled);
+        assert!(
+            output.contains("Enabled: no"),
+            "confirmed disable must remain disabled after Save: {output}"
+        );
+    }
+
+    #[test]
+    fn foreign_sprite_connect_targets_the_current_local_presentation_space() {
+        let mut app = test_app();
+        app.state.sprites_config.enabled = true;
+        app.state
+            .workspaces
+            .push(crate::workspace::Workspace::test_new("presentation-space"));
+        app.state
+            .sprites_snapshot
+            .resources
+            .push(foreign_sprite(vec![
+                crate::api::schema::SpriteSession {
+                    id: "session-1".into(),
+                    command: vec!["agent".into()],
+                    tty: true,
+                    owned: false,
+                },
+                crate::api::schema::SpriteSession {
+                    id: "session-2".into(),
+                    command: vec!["shell".into()],
+                    tty: true,
+                    owned: false,
+                },
+            ]));
+        let mut view = app.default_client_view.clone();
+        view.active_workspace = Some(0);
+        view.selected_workspace = 0;
+        app.open_sprites_for_view(&mut view, None);
+        view.sprite_ui.all_resources = true;
+        let _ = rendered_output(&app, &mut view, 100, 30);
+        let popup = sprite_popup_rect(view.computed.terminal_area);
+        let inner = Rect {
+            x: popup.x.saturating_add(1),
+            y: popup.y.saturating_add(1),
+            width: popup.width.saturating_sub(2),
+            height: popup.height.saturating_sub(2),
+        };
+        let [_, list, _, _] = sprite_manager_layout(inner, &view.sprite_ui);
+        app.handle_sprites_mouse_for_view(
+            &mut view,
+            MouseEvent {
+                kind: MouseEventKind::Down(crossterm::event::MouseButton::Left),
+                column: list.x.saturating_add(2),
+                row: list.y,
+                modifiers: crossterm::event::KeyModifiers::NONE,
+            },
+        );
+        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char('c')));
+        let prompt_output = rendered_output(&app, &mut view, 100, 30);
+        assert!(
+            prompt_output.contains("Choose exact Connect session"),
+            "foreign resource must open the exact-session picker: {prompt_output}"
+        );
+        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Enter));
+        let request = view
+            .sprite_ui
+            .pending_request
+            .as_ref()
+            .expect("connect request was issued");
+        assert_eq!(
+            request.open_in_workspace.as_deref(),
+            Some(app.state.workspaces[0].id.as_str())
+        );
+        assert!(matches!(
+            &request.command,
+            SpriteCommand::Connect(crate::api::schema::SpriteTarget {
+                session_id: Some(_),
+                ..
+            })
+        ));
+        let output = rendered_output(&app, &mut view, 100, 30);
+        assert!(
+            output.contains("foreign-resource"),
+            "manager continues to present the foreign resource: {output}"
+        );
+
+        let mut shell_view = app.default_client_view.clone();
+        shell_view.active_workspace = Some(0);
+        shell_view.selected_workspace = 0;
+        app.open_sprites_for_view(&mut shell_view, None);
+        shell_view.sprite_ui.all_resources = true;
+        let shell_output = rendered_output(&app, &mut shell_view, 100, 30);
+        app.handle_sprites_key_for_view(&mut shell_view, KeyEvent::from(KeyCode::Char('a')));
+        let shell_request = shell_view
+            .sprite_ui
+            .pending_request
+            .as_ref()
+            .expect("shell request was issued");
+        assert_eq!(
+            shell_request.open_in_workspace.as_deref(),
+            Some(app.state.workspaces[0].id.as_str())
+        );
+        assert!(
+            shell_output.contains("foreign-resource"),
+            "Shell starts from the visibly selected foreign resource: {shell_output}"
+        );
+    }
+
+    #[test]
+    fn late_checkpoint_results_do_not_intercept_create_input() {
+        let mut app = test_app();
+        app.state.sprites_config.enabled = true;
+        app.state
+            .workspaces
+            .push(crate::workspace::Workspace::test_new("create-space"));
+        let command = SpriteCommand::Checkpoints(SpriteTarget {
+            sprite_id: "old-resource".into(),
+            session_id: None,
+            checkpoint_id: None,
+            approval: None,
+        });
+        app.state
+            .sprites_snapshot
+            .operations
+            .push(crate::api::schema::SpriteOperation {
+                id: "delayed-checkpoints".into(),
+                request: SpriteRequest {
+                    request_id: "delayed-request".into(),
+                    command,
+                    open_in_workspace: None,
+                    focus: false,
+                },
+                status: crate::api::schema::SpriteOperationStatus::Running,
+                stage: "fetching_checkpoints".into(),
+                created_unix_ms: 0,
+                updated_unix_ms: 0,
+                result: None,
+                error: None,
+            });
+        let mut view = app.default_client_view.clone();
+        view.active_workspace = Some(0);
+        view.selected_workspace = 0;
+        app.open_sprites_for_view(&mut view, None);
+        view.sprite_ui.pending_operation = Some("delayed-checkpoints".into());
+        view.sprite_ui.pending_request =
+            Some(app.state.sprites_snapshot.operations[0].request.clone());
+        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char('n')));
+        assert_eq!(view.sprite_ui.screen, SpriteUiScreen::Create);
+        app.state.sprites_snapshot.operations[0].status =
+            crate::api::schema::SpriteOperationStatus::Succeeded;
+        app.state.sprites_snapshot.operations[0].result =
+            Some(crate::api::schema::SpriteResult::Checkpoints(vec![
+                "late-checkpoint".into(),
+            ]));
+        view.sprite_ui.reconcile(&app.state);
+        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Tab));
+        app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Tab));
+        for character in "new-flow".chars() {
+            app.handle_sprites_key_for_view(&mut view, KeyEvent::from(KeyCode::Char(character)));
+        }
+        let output = rendered_output(&app, &mut view, 100, 30);
+        assert_eq!(view.sprite_ui.screen, SpriteUiScreen::Create);
+        assert_eq!(view.sprite_ui.sprite_name, "new-flow");
+        assert!(view.sprite_ui.manager_prompt.is_none());
+        assert!(
+            output.contains("new-flow") && output.contains("[Create]"),
+            "Create stays visible and editable after the delayed result: {output}"
         );
     }
 }

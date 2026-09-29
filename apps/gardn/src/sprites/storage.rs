@@ -145,7 +145,7 @@ pub(super) fn read_operation(
             .join(format!("{}.json", hash_id(id))),
     )
 }
-fn read_optional_json<T: serde::de::DeserializeOwned>(
+pub(super) fn read_optional_json<T: serde::de::DeserializeOwned>(
     path: &Path,
 ) -> Result<Option<T>, SpriteError> {
     match fs::read(path) {

@@ -4,7 +4,8 @@ import { createHash } from 'node:crypto';
 import { connectionReceiptFile, readJson, readRecords, saveConnectionReceipt, saveRecord, withConnectionLock, withLock } from './store.mjs';
 import { SpriteProvider, spawnProvider } from './provider.mjs';
 
-const [stateDir, spriteId, mode, sessionId = '', conversationRef = '', operationId = '', ownerPidArg = '', attemptId = ''] = process.argv.slice(2);
+const [stateDir, spriteId, mode, sessionId = '', conversationRef = '', operationId = '', ownerPidArg = '', expectedRevisionArg = '', attemptId = ''] = process.argv.slice(2);
+const expectedRevision = Number(expectedRevisionArg);
 const ownerPid = Number(ownerPidArg);
 const fail = message => { process.stderr.write(`${message}\n`); process.exitCode = 1; };
 const killTransport = child => {
@@ -31,7 +32,7 @@ function saveStartedSession(record, sessions, started) {
   });
 }
 async function main() {
-  if (!stateDir || !path.isAbsolute(stateDir) || !spriteId || !operationId || !attemptId || !Number.isInteger(ownerPid) || ownerPid < 1 || !['connect', 'start', 'resume', 'shell'].includes(mode)) throw Object.assign(new Error('Invalid Sprite connection arguments.'), { code: 'invalid_request' });
+  if (!stateDir || !path.isAbsolute(stateDir) || !spriteId || !operationId || !attemptId || !Number.isInteger(ownerPid) || ownerPid < 1 || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1 || !['connect', 'start', 'resume', 'shell'].includes(mode)) throw Object.assign(new Error('Invalid Sprite connection arguments.'), { code: 'invalid_request' });
   const config = readJson(path.join(stateDir, 'backend-config.json'));
   if (config.enabled !== true) throw Object.assign(new Error('Sprites integration is disabled; refusing to connect.'), { code: 'disabled' });
   try { process.kill(ownerPid, 0); } catch (error) { if (error.code === 'ESRCH') throw Object.assign(new Error('Owning Gardn coordinator is no longer alive.'), { code: 'owner_unavailable' }); }
@@ -40,7 +41,7 @@ async function main() {
   if (!record.managed && mode !== 'connect' && mode !== 'shell') throw Object.assign(new Error('Starting or opening a shell in a foreign Sprite is not permitted.'), { code: 'foreign_resource' });
   if (mode === 'connect' && !sessionId) throw Object.assign(new Error('Connect requires an exact existing session ID.'), { code: 'session_required' });
   if (mode === 'resume' && (!conversationRef || /[\0\r\n]/.test(conversationRef))) throw Object.assign(new Error('Resume requires an exact conversation reference.'), { code: 'invalid_conversation_ref' });
-  const provider = new SpriteProvider({ ...config, org: record.org }, { ownerPid, fencePath: path.join(stateDir, 'backend-config.json') });
+  let provider;
   const workspace = `/home/sprite/gardn/${hash(record.id)}/workspace`;
   const command = [...(record.agent?.command ?? [])];
   if (mode === 'resume') {
@@ -57,10 +58,12 @@ async function main() {
     : ['exec', '--tty', '--no-port-forward', '--', ...(mode === 'shell'
       ? ['/bin/sh', '-lc', `export ${marker} && cd ${JSON.stringify(record.managed ? workspace : '/home/sprite')} && exec /bin/sh`]
       : ['/bin/sh', '-lc', invocation, 'gardn', ...command])])];
-
-  await withConnectionLock(stateDir, spriteId, () => {
+  await withConnectionLock(stateDir, spriteId, () => withLock(stateDir, spriteId, () => {
     const currentConfig = readJson(path.join(stateDir, 'backend-config.json'));
     if (currentConfig.enabled !== true) throw Object.assign(new Error('Sprites integration was disabled before connection launch.'), { code: 'disabled' });
+    provider = new SpriteProvider({ ...currentConfig, org: record.org }, { ownerPid, fencePath: path.join(stateDir, 'backend-config.json') });
+    const current = readRecords(stateDir).find(item => item.id === spriteId);
+    if (!current || current.phase === 'destroyed' || current.revision !== expectedRevision) throw Object.assign(new Error('Sprite changed after the connection plan was approved; request a fresh connection.'), { code: 'stale_connection_plan' });
     try { process.kill(ownerPid, 0); } catch (error) { if (error.code === 'ESRCH') throw Object.assign(new Error('Owning Gardn coordinator exited before connection launch.'), { code: 'owner_unavailable' }); }
     const before = mode === 'connect' ? [] : provider.sessions(record.name);
     if (mode === 'connect' && !provider.sessions(record.name).some(session => session.id === sessionId)) throw Object.assign(new Error('The exact requested session is no longer present.'), { code: 'session_missing' });
@@ -144,7 +147,7 @@ async function main() {
       });
       child.once('exit', (code, signal) => finish(null, code, signal));
     });
-  });
+  }));
 }
 
 main().catch(error => {

@@ -441,6 +441,9 @@ impl App {
         ratio: f32,
         pane: &LayoutPane,
     ) -> Result<PaneId, String> {
+        if let Some(message) = self.sprite_split_unavailable(target_pane_id) {
+            return Err(message.into());
+        }
         let (rows, cols) = self.state.estimate_pane_size();
         let default_shell = self.state.default_shell.clone();
         let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;

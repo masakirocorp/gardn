@@ -333,12 +333,15 @@ actions and does not probe its tools or contact the provider.
   Start begins a new run. Resume uses an explicit Claude Code or Codex conversation reference.
   Shell opens a separate remote shell. Disconnect closes only the local transport.
   A local transport-open result is not proof that the provider accepted attachment.
+  Connect and Shell open in the current local Space, including for foreign resources.
+  Opening a pane does not change the resource's recorded Space association.
 - **Safe detach.** Closing a pane, closing Gardn, or disabling the integration does not stop
   remote sessions or destroy resources. After restarting Gardn, open Sprite Manager and
   connect explicitly. Gardn does not restore a Sprite transport as a local shell.
 - **Return changes.** Pull Preview lists changed paths and local conflicts. Stop remote
-  sessions before pulling. Pull rejects conflicts, unsafe paths, and symlinks. Transfers
-  exclude common credential paths and do not modify the local Git index.
+  sessions before pulling. Pull rejects conflicts, unsafe paths, and symlinks. It also
+  protects ignored local files from remote overwrites and deletions. Transfers exclude
+  common credential paths and do not modify the local Git index.
 - **Explicit cleanup.** Stop targets one known owned session. Checkpoints preserve remote
   state. Choose an exact version in **Checks** before **Restore**. Restore creates a recovery checkpoint first. Restore and Destroy require an
   expiring, single-use approval for the exact resource and action. Forget removes only
@@ -347,14 +350,16 @@ actions and does not probe its tools or contact the provider.
 - **Authentication.** Agent authentication is manual by default. Credential handoff requires
   explicit per-create consent and is limited to supported Claude Code and Codex credentials.
   Gardn does not copy the profile's entire environment or store credentials in operation records.
-- **Boundaries.** SSH source transfer and native editor, Git, or filesystem actions inside a
-  Sprite pane are unavailable. Gardn reports that boundary instead of using a local directory.
+- **Boundaries.** SSH source transfer, local pane splits, and native editor, Git, or filesystem
+  actions inside a Sprite pane are unavailable. Use Shell for a remote shell instead.
+  Gardn reports that boundary instead of using a local directory.
   Agent screen detection and notifications use the attached terminal; a detached cloud
   session does not provide live agent-state updates.
 - **Limits and recovery.** Creation and operation limits apply across local Gardn sessions.
   Create requires an idempotency key. Reuse it after a lost response, or retry the recorded
-  failed operation. Retry reconciles the original intent; it does not silently recreate
-  a confirmed missing resource or overwrite a changed remote workspace.
+  failed operation. Retry keeps the original organization and resource name even after
+  settings change. It does not silently recreate a confirmed missing resource or overwrite
+  a changed remote workspace. Inventory refresh remains available during provisioning.
 
 Automation uses `gardn sprites` or the `sprites.request` socket method. Commands use stable
 Space and resource IDs, not whichever pane has focus. Use `--session-id` for a remote

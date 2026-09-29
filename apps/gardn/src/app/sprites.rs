@@ -13,6 +13,15 @@ use super::{
 };
 
 impl App {
+    pub(crate) fn sprite_split_unavailable(
+        &self,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<&'static str> {
+        self.state
+            .sprite_panes
+            .contains_key(&pane_id)
+            .then_some("A Sprite pane cannot be split locally. Use Sprites > Shell.")
+    }
     pub(crate) fn workspaces_without_sprite_transports(
         &self,
     ) -> std::borrow::Cow<'_, [crate::workspace::Workspace]> {
@@ -102,15 +111,9 @@ impl App {
 
     fn present_sprite_operation(&mut self, operation: SpriteOperation) {
         let workspace = operation.request.open_in_workspace.clone();
-        let parent = operation
-            .request
-            .request_id
-            .strip_suffix(":launch")
-            .filter(|id| {
-                self.sprites_runtime.snapshot().operations.iter().any(|op| {
-                    op.id == *id && matches!(op.request.command, SpriteCommand::Create(_))
-                })
-            })
+        let parent = self
+            .sprites_runtime
+            .launch_parent(&operation.id)
             .map(str::to_owned);
         if let Some(error) = operation.error.clone() {
             if operation.stage == "connection_canceled" {
@@ -124,8 +127,8 @@ impl App {
                     }
                 }
             }
-            if let Some(parent) = parent {
-                self.finish_sprite_presentation(&parent, Err(error));
+            if parent.is_some() {
+                self.finish_sprite_launch_parent(&operation.id, Err(error));
             }
             self.sprite_request_views.remove(&operation.id);
             return;
@@ -169,7 +172,7 @@ impl App {
                     return;
                 }
                 let request = SpriteRequest {
-                    request_id: format!("{}:launch", operation.id),
+                    request_id: String::new(),
                     command: SpriteCommand::Start(SpriteTarget {
                         sprite_id: resource.id,
                         session_id: None,
@@ -179,7 +182,10 @@ impl App {
                     open_in_workspace: Some(workspace),
                     focus: operation.request.focus,
                 };
-                match self.submit_sprite_request(request) {
+                match self
+                    .sprites_runtime
+                    .submit_launch_follow_up(&operation.id, request)
+                {
                     Ok(SpriteReply::Operation(child)) => {
                         if let Some(view) = self.sprite_request_views.remove(&operation.id) {
                             self.sprite_request_views.insert(child.id.clone(), view);
@@ -220,6 +226,16 @@ impl App {
                 }
             }
             (Some(SpriteResult::Connection(connection)), Some(workspace)) => {
+                if let Err(error) = self
+                    .sprites_runtime
+                    .begin_presentation(&operation.id, "opening_sprite_terminal")
+                {
+                    self.state.config_diagnostic = Some(format!(
+                        "Could not begin Sprite terminal presentation: {}",
+                        error.message
+                    ));
+                    return;
+                }
                 match self.open_sprite_connection(&workspace, connection) {
                     Ok((connection, newly_opened)) => {
                         if newly_opened {
@@ -261,6 +277,18 @@ impl App {
         if let Err(error) = self.sprites_runtime.finish_presentation(id, result) {
             self.state.config_diagnostic = Some(format!(
                 "Could not record Sprite terminal outcome: {}",
+                error.message
+            ));
+        }
+    }
+    fn finish_sprite_launch_parent(
+        &mut self,
+        child_id: &str,
+        result: Result<SpriteResult, SpriteError>,
+    ) {
+        if let Err(error) = self.sprites_runtime.finish_launch_parent(child_id, result) {
+            self.state.config_diagnostic = Some(format!(
+                "Could not record Sprite launch outcome: {}",
                 error.message
             ));
         }

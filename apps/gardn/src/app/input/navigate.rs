@@ -261,6 +261,11 @@ impl App {
         target: CustomCommandTarget,
         client_owner: u64,
     ) -> std::io::Result<(usize, usize, crate::layout::PaneId)> {
+        if self.sprite_split_unavailable(target.pane_id).is_some() {
+            return Err(std::io::Error::other(
+                "Local commands cannot open in a Sprite pane",
+            ));
+        }
         let (rows, cols) = self.state.estimate_pane_size();
         let new_rows = rows.max(4);
         let new_cols = cols.max(10);
@@ -311,6 +316,11 @@ impl App {
         target: CustomCommandTarget,
         client_owner: u64,
     ) -> std::io::Result<(usize, crate::workspace::NewPane)> {
+        if self.sprite_split_unavailable(target.pane_id).is_some() {
+            return Err(std::io::Error::other(
+                "Local commands cannot open in a Sprite pane",
+            ));
+        }
         let (rows, cols) = self.state.estimate_pane_size();
         let new_rows = rows.max(4);
         let new_cols = cols.max(10);

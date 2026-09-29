@@ -73,39 +73,71 @@ function validate(snapshot, limit = LIMIT) {
   }
   return { ...snapshot, bytes: total };
 }
+function localDestination(root, name) {
+  let cursor = root;
+  const parts = name.split('/');
+  for (const part of parts.slice(0, -1)) {
+    cursor = path.join(cursor, part);
+    try {
+      const stat = fs.lstatSync(cursor);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) return { unsafe: true };
+    } catch (error) {
+      if (error.code === 'ENOENT') return { exists: false };
+      return { unsafe: true };
+    }
+  }
+  const target = path.join(root, ...parts);
+  try { return { exists: true, stat: fs.lstatSync(target) }; }
+  catch (error) { if (error.code === 'ENOENT') return { exists: false }; return { unsafe: true }; }
+}
 export function preview(root, baseline, incoming, limit) {
   const remote = validate(incoming, limit), base = validate(baseline, limit);
   const current = new Map(snapshot(root, limit).files.map(f => [f.path, f]));
   const before = new Map(base.files.map(f => [f.path, f])), after = new Map(remote.files.map(f => [f.path, f]));
   const paths = [...new Set([...before.keys(), ...after.keys()])].sort();
   const changed = paths.filter(p => !equal(before.get(p), after.get(p)));
-  const conflicts = changed.filter(p => !equal(current.get(p), before.get(p)) && !equal(current.get(p), after.get(p)));
+  const conflicts = changed.filter(p => {
+    const local = localDestination(root, p);
+    if (local.unsafe || (local.exists && (!local.stat.isFile() || local.stat.isSymbolicLink() || !current.has(p)))) return true;
+    if (!equal(current.get(p), before.get(p)) && !equal(current.get(p), after.get(p))) return true;
+    return false;
+  });
   return { incoming: remote, files: remote.files.length, bytes: remote.bytes, excluded: remote.excluded ?? [], changed_paths: changed, conflicts };
 }
 function equal(a, b) { return a?.data === b?.data && a?.mode === b?.mode; }
 export function applyPull(root, baseline, previewResult, limit) {
-  if (previewResult.conflicts.length) throw Object.assign(new Error(`Pull has local conflicts: ${previewResult.conflicts.slice(0, 20).join(', ')}`), { code: 'transfer_conflict' });
   const base = validate(baseline, limit), incoming = validate(previewResult.incoming, limit);
   const before = new Map(base.files.map(f => [f.path, f])), after = new Map(incoming.files.map(f => [f.path, f]));
   const changed = [...new Set([...before.keys(), ...after.keys()])].filter(p => !equal(before.get(p), after.get(p)));
+  const rechecked = preview(root, base, incoming, limit);
+  if (rechecked.conflicts.length) {
+    if (rechecked.conflicts.some(name => localDestination(root, name).unsafe)) throw Object.assign(new Error('Refusing pull through unsafe parent path.'), { code: 'unsafe_path' });
+    throw Object.assign(new Error(`Pull has local conflicts: ${rechecked.conflicts.slice(0, 20).join(', ')}`), { code: 'transfer_conflict' });
+  }
   for (const name of changed) {
     if (!safePath(name)) throw Object.assign(new Error('Refusing unsafe pull path.'), { code: 'unsafe_path' });
     const target = path.resolve(root, name), relative = path.relative(root, target);
     if (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) throw Object.assign(new Error('Refusing pull path outside workspace.'), { code: 'unsafe_path' });
-    let cursor = root;
-    for (const part of name.split('/').slice(0, -1)) {
-      cursor = path.join(cursor, part);
-      try { const st = fs.lstatSync(cursor); if (!st.isDirectory() || st.isSymbolicLink()) throw new Error(); }
-      catch (error) { if (error.code === 'ENOENT') break; throw Object.assign(new Error(`Refusing pull through unsafe parent path: ${name}`), { code: 'unsafe_path' }); }
+    const local = localDestination(root, name);
+    if (local.unsafe || (local.exists && (!local.stat.isFile() || local.stat.isSymbolicLink()))) {
+      throw Object.assign(new Error(`Refusing pull through unsafe destination: ${name}`), { code: 'unsafe_path' });
     }
   }
   for (const name of changed) {
-    const file = after.get(name), target = path.resolve(root, name);
-    if (!file) { try { fs.unlinkSync(target); } catch (error) { if (error.code !== 'ENOENT') throw error; } }
+    const target = path.resolve(root, name), file = after.get(name);
+    let cursor = root;
+    for (const part of name.split('/').slice(0, -1)) {
+      cursor = path.join(cursor, part);
+      try { const stat = fs.lstatSync(cursor); if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(); }
+      catch (error) {
+        if (error.code !== 'ENOENT') throw Object.assign(new Error(`Refusing pull through unsafe parent path: ${name}`), { code: 'unsafe_path' });
+        fs.mkdirSync(cursor);
+      }
+    }
+    const local = localDestination(root, name);
+    if (local.unsafe || (local.exists && (!local.stat.isFile() || local.stat.isSymbolicLink()))) throw Object.assign(new Error(`Refusing pull through unsafe destination: ${name}`), { code: 'unsafe_path' });
+    if (!file) { if (local.exists) fs.unlinkSync(target); }
     else {
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      let cursor = root;
-      for (const part of name.split('/').slice(0, -1)) { cursor = path.join(cursor, part); const st = fs.lstatSync(cursor); if (!st.isDirectory() || st.isSymbolicLink()) throw Object.assign(new Error(`Refusing pull through unsafe parent path: ${name}`), { code: 'unsafe_path' }); }
       const temp = `${target}.${process.pid}.sprites.tmp`;
       try { fs.writeFileSync(temp, Buffer.from(file.data, 'base64'), { mode: file.mode, flag: 'wx' }); fs.renameSync(temp, target); }
       finally { fs.rmSync(temp, { force: true }); }

@@ -527,7 +527,7 @@ impl App {
         requested_location: Option<crate::execution_host::ResourceLocation>,
         cwd_was_explicit: bool,
     ) -> Result<AgentStartPlacement, AgentStartError> {
-        if self.state.sprite_panes.contains_key(&target_pane) {
+        if self.sprite_split_unavailable(target_pane).is_some() {
             return Err(AgentStartError::SpriteTarget);
         }
         let (rows, cols) = self.state.estimate_pane_size();

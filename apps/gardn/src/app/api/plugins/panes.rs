@@ -233,6 +233,13 @@ impl App {
                 format!("pane {target_pane_id} not found"),
             ));
         };
+        if let Some(message) = self.sprite_split_unavailable(target_pane) {
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "sprite_operation_unavailable",
+                message,
+            ));
+        }
         let launch = match resolve_plugin_pane_launch(plugin, params.cwd.as_deref(), &location) {
             Ok(plan) => plan,
             Err((code, message)) => {

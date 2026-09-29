@@ -19,3 +19,8 @@ detaches local terminals without stopping remote sessions. Automation uses durab
 IDs, bounded waits, creation limits, and scoped destructive approvals.
 Workspace imports exclude files reached through directory symlinks or Windows junctions.
 Source selection resolves native path aliases before checking the Git worktree boundary.
+Pull protects ignored local files from remote overwrites and deletions. Connection admission
+cannot race Restore or Destroy, and Create retries keep their original resource identity.
+Foreign Connect and Shell open in the current Space. Local pane splits stay unavailable
+inside Sprite terminals. Settings preserve printable input and confirmed disable state.
+Delayed manager results do not intercept another screen's input.

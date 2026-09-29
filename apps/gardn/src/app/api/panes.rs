@@ -107,11 +107,11 @@ impl App {
                 params.target_pane_id.as_deref().unwrap_or("active pane"),
             ));
         };
-        if self.state.sprite_panes.contains_key(&target_pane_id) {
+        if let Some(message) = self.sprite_split_unavailable(target_pane_id) {
             return crate::api::ApiRequestDisposition::Respond(encode_error(
                 id,
                 "sprite_operation_unavailable",
-                "Generic pane splits cannot run inside a Sprite. Use Sprites > Shell.",
+                message,
             ));
         }
         if params.cwd.is_some() && params.location.is_some() {

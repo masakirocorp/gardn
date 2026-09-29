@@ -5484,7 +5484,6 @@ impl App {
             Action::OpenEditor => Some("Open editor"),
             Action::OpenGithub | Action::Github(_) => Some("Git/GitHub"),
             Action::NewAgent => Some("Start a new agent"),
-            Action::SplitVertical | Action::SplitHorizontal => Some("Split pane"),
             Action::ProjectCommand(_) => Some("Project command"),
             _ => None,
         }
@@ -6299,6 +6298,10 @@ impl App {
         else {
             return;
         };
+        if self.sprite_split_unavailable(pane_id).is_some() {
+            self.reject_sprite_local_action("Split pane");
+            return;
+        }
         let (rows, cols) = self.state.estimate_pane_size();
         let new_rows = (rows / 2).max(4);
         let new_cols = (cols / 2).max(10);
@@ -7260,18 +7263,9 @@ impl App {
         context: input::ActionContext,
     ) {
         if self.client_view_focused_pane_is_sprite(client_view)
-            && matches!(
-                action,
-                input::NavigateAction::SplitVertical
-                    | input::NavigateAction::SplitHorizontal
-                    | input::NavigateAction::EditScrollback
-            )
+            && action == input::NavigateAction::EditScrollback
         {
-            self.reject_sprite_local_action(if action == input::NavigateAction::EditScrollback {
-                "Open file/editor"
-            } else {
-                "Split pane"
-            });
+            self.reject_sprite_local_action("Open file/editor");
             Self::leave_client_view_command_mode(client_view);
             return;
         }
@@ -13036,11 +13030,17 @@ mod tests {
             &mut view,
             crate::app::command_palette::CommandPaletteAction::OpenEditor,
         );
+        let pane_count = app.state.workspaces[0]
+            .terminal_tab(0)
+            .expect("source terminal")
+            .panes
+            .len();
         assert!(app.state.request_open_project_command.is_none());
-        assert!(app.state.toast.as_ref().is_some_and(|toast| {
-            toast.title == "Action Unavailable in Sprite Terminal"
-                && toast.context.contains("Open editor")
-        }));
+        assert!(app
+            .state
+            .toast
+            .as_ref()
+            .is_some_and(|toast| toast.context.contains("Open editor")));
 
         app.execute_client_view_command_palette_action(
             &mut view,
@@ -13058,6 +13058,15 @@ mod tests {
             .toast
             .as_ref()
             .is_some_and(|toast| { toast.context.contains("Split pane") }));
+        assert_eq!(
+            app.state.workspaces[0]
+                .terminal_tab(0)
+                .expect("source terminal")
+                .panes
+                .len(),
+            pane_count,
+            "a split request from a Sprite context must not create a local pane"
+        );
     }
 
     #[tokio::test]

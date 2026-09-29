@@ -29,6 +29,8 @@ pub(crate) struct SpritesRuntime {
     epochs: HashMap<String, u64>,
     owned: HashSet<String>,
     presentations: HashSet<String>,
+    launch_children: HashMap<String, String>,
+    launch_parents: HashMap<String, String>,
     queued: VecDeque<String>,
     completed: Vec<SpriteOperation>,
     waker: Option<Sender<crate::events::AppEvent>>,
@@ -47,6 +49,8 @@ impl SpritesRuntime {
             epochs: HashMap::new(),
             owned: HashSet::new(),
             presentations: HashSet::new(),
+            launch_children: HashMap::new(),
+            launch_parents: HashMap::new(),
             queued: VecDeque::new(),
             completed: Vec::new(),
             waker: None,
@@ -113,6 +117,12 @@ impl SpritesRuntime {
             let _lock = lock_intents(&root)?;
             self.snapshot.operations = load_operations(&root)?;
             self.snapshot.resources = load_resources(&root)?;
+            self.launch_parents = read_launch_relationships(&root)?;
+            self.launch_children = self
+                .launch_parents
+                .iter()
+                .map(|(child, parent)| (parent.clone(), child.clone()))
+                .collect();
         }
         write_backend_fence(&root, &config)?;
         self.root = Some(root);
@@ -185,6 +195,90 @@ impl SpritesRuntime {
         drop(_lock);
         self.start_queued();
         Ok(SpriteReply::Operation(Box::new(operation)))
+    }
+    pub(crate) fn submit_launch_follow_up(
+        &mut self,
+        parent_id: &str,
+        mut request: SpriteRequest,
+    ) -> Result<SpriteReply, SpriteError> {
+        if !matches!(&request.command, SpriteCommand::Start(_)) {
+            return Err(error(
+                "invalid_internal_operation",
+                "Create follow-up must start a Sprite session",
+                false,
+            ));
+        }
+        let root = self.storage()?.to_owned();
+        let _lock = lock_intents(&root)?;
+        self.merge_launch_relationships(&root)?;
+        if let Some(child_id) = self.launch_children.get(parent_id).cloned() {
+            if let Some(existing) = read_operation(&root, &child_id)? {
+                self.replace(existing.clone());
+                return Ok(SpriteReply::Operation(Box::new(existing)));
+            }
+        }
+        let child_id = format!("launch-{}", hash_id(parent_id));
+        if let Some(existing) = read_operation(&root, &child_id)? {
+            self.replace(existing.clone());
+            self.launch_children
+                .insert(parent_id.into(), child_id.clone());
+            self.launch_parents.insert(child_id, parent_id.into());
+            persist_launch_relationships(&root, &self.launch_parents)?;
+            return Ok(SpriteReply::Operation(Box::new(existing)));
+        }
+        request.request_id = format!("gardn-internal-launch-v1-{}", hash_id(parent_id));
+        let now = unix_ms();
+        let operation = SpriteOperation {
+            id: child_id.clone(),
+            request,
+            status: SpriteOperationStatus::Queued,
+            stage: "queued".into(),
+            created_unix_ms: now,
+            updated_unix_ms: now,
+            result: None,
+            error: None,
+        };
+        self.launch_children
+            .insert(parent_id.into(), child_id.clone());
+        self.launch_parents.insert(child_id, parent_id.into());
+        persist_launch_relationships(&root, &self.launch_parents)?;
+        self.admit(&root, operation.clone())?;
+        drop(_lock);
+        self.start_queued();
+        Ok(SpriteReply::Operation(Box::new(operation)))
+    }
+
+    pub(crate) fn launch_parent(&self, child_id: &str) -> Option<&str> {
+        self.launch_parents.get(child_id).map(String::as_str)
+    }
+    fn merge_launch_relationships(&mut self, root: &Path) -> Result<(), SpriteError> {
+        let mut relationships = read_launch_relationships(root)?;
+        for (child, parent) in &self.launch_parents {
+            relationships
+                .entry(child.clone())
+                .or_insert_with(|| parent.clone());
+        }
+        self.launch_parents = relationships;
+        self.launch_children = self
+            .launch_parents
+            .iter()
+            .map(|(child, parent)| (parent.clone(), child.clone()))
+            .collect();
+        Ok(())
+    }
+    pub(crate) fn finish_launch_parent(
+        &mut self,
+        child_id: &str,
+        result: Result<SpriteResult, SpriteError>,
+    ) -> Result<(), SpriteError> {
+        let parent_id = self.launch_parents.get(child_id).cloned().ok_or_else(|| {
+            error(
+                "operation_not_found",
+                "The Sprite launch child has no recorded parent",
+                false,
+            )
+        })?;
+        self.finish_presentation(&parent_id, result)
     }
 
     fn observe_operation(&mut self, id: &str) -> Result<SpriteOperation, SpriteError> {
@@ -280,15 +374,14 @@ impl SpritesRuntime {
                 false,
             ));
         }
-        if self.presentations.contains(id) {
-            let child_key = format!("{id}:launch");
-            if let Some(child_id) = self
-                .snapshot
-                .operations
-                .iter()
-                .find(|item| item.request.request_id == child_key)
-                .map(|item| item.id.clone())
-            {
+        let root = self.storage()?.to_owned();
+        {
+            let _lock = lock_intents(&root)?;
+            self.merge_launch_relationships(&root)?;
+        }
+        if let Some(child_id) = self.launch_children.get(id).cloned() {
+            let child = self.observe_operation(&child_id)?;
+            if !is_terminal(&child.status) {
                 self.cancel(&child_id)?;
             }
         }
@@ -422,6 +515,13 @@ impl SpritesRuntime {
                 false,
             )
         })?;
+        if operation.status != SpriteOperationStatus::Succeeded || !self.owned.contains(id) {
+            return Err(error(
+                "invalid_transition",
+                "Only a successful operation owned by this Gardn session can begin presentation",
+                false,
+            ));
+        }
         operation.status = SpriteOperationStatus::Running;
         operation.stage = stage.into();
         operation.updated_unix_ms = unix_ms();
@@ -444,6 +544,22 @@ impl SpritesRuntime {
                 false,
             )
         })?;
+        if !self.owned.contains(id)
+            || !self.presentations.contains(id)
+            || operation.status != SpriteOperationStatus::Running
+        {
+            if is_terminal(&operation.status)
+                && !self.owned.contains(id)
+                && !self.presentations.contains(id)
+            {
+                return Ok(());
+            }
+            return Err(error(
+                "invalid_transition",
+                "This operation does not own an active presentation transition",
+                false,
+            ));
+        }
         match result {
             Ok(result) => {
                 operation.status = SpriteOperationStatus::Succeeded;
@@ -476,7 +592,6 @@ impl SpritesRuntime {
                 true,
             ));
         }
-        self.begin_presentation(id, "awaiting_connection")?;
         let mut operation = self.find(id).cloned().ok_or_else(|| {
             error(
                 "operation_not_found",
@@ -484,6 +599,17 @@ impl SpritesRuntime {
                 false,
             )
         })?;
+        if !self.owned.contains(id)
+            || !self.presentations.contains(id)
+            || operation.status != SpriteOperationStatus::Running
+        {
+            return Err(error(
+                "invalid_transition",
+                "Connection observation requires an active presentation transition",
+                false,
+            ));
+        }
+        operation.stage = "awaiting_connection".into();
         operation.result = Some(SpriteResult::Connection(connection.clone()));
         self.record(operation.clone(), false)?;
         let root = self.storage()?.to_owned();
@@ -605,6 +731,24 @@ impl Drop for SpritesRuntime {
         }
     }
 }
+fn read_launch_relationships(root: &Path) -> Result<HashMap<String, String>, SpriteError> {
+    read_optional_json(&root.join("launch-relationships.json"))
+        .map(|value| value.unwrap_or_default())
+}
+
+fn persist_launch_relationships(
+    root: &Path,
+    relationships: &HashMap<String, String>,
+) -> Result<(), SpriteError> {
+    let bytes = serde_json::to_vec(relationships).map_err(|cause| {
+        error(
+            "persistence",
+            format!("Could not encode Sprite launch relationships: {cause}"),
+            false,
+        )
+    })?;
+    atomic_write(&root.join("launch-relationships.json"), &bytes)
+}
 
 #[cfg(test)]
 mod tests {
@@ -660,6 +804,77 @@ mod tests {
             focus: false,
         }
     }
+    fn successful_create(runtime: &mut SpritesRuntime) -> SpriteOperation {
+        let now = unix_ms();
+        let operation = SpriteOperation {
+            id: "successful-create-operation-id".into(),
+            request: SpriteRequest {
+                request_id: "create-request".into(),
+                command: SpriteCommand::Create(gardn_local_api::sprites::SpriteCreateParams {
+                    workspace_id: "workspace".into(),
+                    source: gardn_local_api::sprites::SpriteSource {
+                        execution_host_id: "local".into(),
+                        path: "/tmp/source".into(),
+                    },
+                    agent: gardn_local_api::sprites::SpriteAgent {
+                        profile_id: "profile".into(),
+                        kind: "test".into(),
+                        command: vec!["agent".into()],
+                        share_credentials: false,
+                    },
+                    name: None,
+                }),
+                open_in_workspace: Some("workspace".into()),
+                focus: true,
+            },
+            status: SpriteOperationStatus::Succeeded,
+            stage: "succeeded".into(),
+            created_unix_ms: now,
+            updated_unix_ms: now,
+            result: Some(SpriteResult::Resource(Box::new(
+                gardn_local_api::sprites::SpriteRecord {
+                    id: "sprite-resource".into(),
+                    org: "test-org".into(),
+                    name: "resource".into(),
+                    managed: true,
+                    workspace_id: Some("workspace".into()),
+                    source: None,
+                    agent: None,
+                    phase: "ready".into(),
+                    provider_state: None,
+                    sessions: Vec::new(),
+                    checkpoint_id: None,
+                    revision: 1,
+                    updated_unix_ms: now,
+                    observed_unix_ms: Some(now),
+                    last_error: None,
+                    unpulled_changes: None,
+                    attached_panes: Vec::new(),
+                    agent_status: None,
+                },
+            ))),
+            error: None,
+        };
+        persist_operation(runtime.root.as_deref().expect("test storage"), &operation)
+            .expect("persist successful create");
+        runtime.replace(operation.clone());
+        runtime.owned.insert(operation.id.clone());
+        operation
+    }
+
+    fn launch_request(request_id: String) -> SpriteRequest {
+        SpriteRequest {
+            request_id,
+            command: SpriteCommand::Start(gardn_local_api::sprites::SpriteTarget {
+                sprite_id: "sprite-resource".into(),
+                session_id: None,
+                checkpoint_id: None,
+                approval: None,
+            }),
+            open_in_workspace: Some("workspace".into()),
+            focus: true,
+        }
+    }
 
     fn submitted(runtime: &mut SpritesRuntime, request: SpriteRequest) -> SpriteOperation {
         let SpriteReply::Operation(operation) = runtime.submit(request).expect("submit operation")
@@ -693,6 +908,192 @@ mod tests {
             );
             thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    fn public_launch_suffix_is_opaque_and_parent_cancel_only_cancels_its_internal_child() {
+        let directory = TestDirectory::new();
+        let mut runtime = enabled_runtime(directory.path());
+        let parent = successful_create(&mut runtime);
+        runtime
+            .begin_presentation(&parent.id, "opening_agent_terminal")
+            .expect("begin successful create presentation");
+        for index in 0..runtime.config.max_concurrent_operations {
+            runtime.controls.insert(
+                format!("test-blocker-{index}"),
+                Arc::new(AtomicBool::new(false)),
+            );
+        }
+        let before_public_request = runtime.find(&parent.id).cloned().expect("parent");
+        let public = submitted(
+            &mut runtime,
+            launch_request(format!("{}:launch", parent.id)),
+        );
+        assert_ne!(public.id, format!("launch-{}", hash_id(&parent.id)));
+        assert_eq!(runtime.find(&parent.id), Some(&before_public_request));
+        assert_eq!(runtime.launch_parent(&public.id), None);
+        let internal = match runtime
+            .submit_launch_follow_up(&parent.id, launch_request(String::new()))
+            .expect("submit internal Create follow-up")
+        {
+            SpriteReply::Operation(operation) => *operation,
+            _ => panic!("expected launch operation"),
+        };
+        assert_ne!(internal.id, public.id);
+        assert_eq!(
+            runtime.launch_parent(&internal.id),
+            Some(parent.id.as_str())
+        );
+        let recovered = enabled_runtime(directory.path());
+        assert_eq!(
+            recovered.launch_parent(&internal.id),
+            Some(parent.id.as_str()),
+            "the private parent relationship survives coordinator recovery"
+        );
+        let public_status = runtime
+            .find(&public.id)
+            .expect("public operation")
+            .status
+            .clone();
+        runtime
+            .submit(SpriteRequest {
+                request_id: String::new(),
+                command: SpriteCommand::Cancel {
+                    operation_id: parent.id.clone(),
+                },
+                open_in_workspace: None,
+                focus: false,
+            })
+            .expect("cancel parent");
+        assert_eq!(
+            runtime.find(&internal.id).expect("internal child").status,
+            SpriteOperationStatus::Interrupted
+        );
+        assert_eq!(
+            runtime.find(&public.id).expect("public child").status,
+            public_status
+        );
+    }
+
+    #[test]
+    fn launch_relationship_writes_merge_across_coordinators() {
+        let directory = TestDirectory::new();
+        let mut first = enabled_runtime(directory.path());
+        let first_parent = successful_create(&mut first);
+        first
+            .begin_presentation(&first_parent.id, "opening_agent_terminal")
+            .expect("begin first presentation");
+        let mut second = enabled_runtime(directory.path());
+        let mut second_parent = first_parent.clone();
+        second_parent.id = "second-successful-create-operation-id".into();
+        second_parent.request.request_id = "second-create-request".into();
+        persist_operation(directory.path(), &second_parent).expect("persist second parent");
+        second.replace(second_parent.clone());
+        second.owned.insert(second_parent.id.clone());
+        second
+            .begin_presentation(&second_parent.id, "opening_agent_terminal")
+            .expect("begin second presentation");
+        let first_child = match first
+            .submit_launch_follow_up(&first_parent.id, launch_request(String::new()))
+            .expect("submit first internal launch")
+        {
+            SpriteReply::Operation(operation) => *operation,
+            _ => panic!("expected first launch operation"),
+        };
+        let second_child = match second
+            .submit_launch_follow_up(&second_parent.id, launch_request(String::new()))
+            .expect("submit second internal launch")
+        {
+            SpriteReply::Operation(operation) => *operation,
+            _ => panic!("expected second launch operation"),
+        };
+        let recovered = enabled_runtime(directory.path());
+        assert_eq!(
+            recovered.launch_parent(&first_child.id),
+            Some(first_parent.id.as_str())
+        );
+        assert_eq!(
+            recovered.launch_parent(&second_child.id),
+            Some(second_parent.id.as_str())
+        );
+    }
+    #[test]
+    fn presentation_completion_requires_owned_transition_and_does_not_rewrite_terminal_state() {
+        let directory = TestDirectory::new();
+        let mut runtime = enabled_runtime(directory.path());
+        let parent = successful_create(&mut runtime);
+        let failure = runtime
+            .finish_presentation(
+                &parent.id,
+                Err(error("failed", "not an owned transition", false)),
+            )
+            .expect_err("cannot finish an unclaimed successful operation");
+        assert_eq!(failure.code, "invalid_transition");
+        runtime
+            .begin_presentation(&parent.id, "opening_agent_terminal")
+            .expect("begin presentation");
+        runtime
+            .finish_presentation(
+                &parent.id,
+                Ok(SpriteResult::Completed {
+                    message: "opened".into(),
+                }),
+            )
+            .expect("finish presentation");
+        runtime
+            .finish_presentation(
+                &parent.id,
+                Err(error("late_failure", "must not rewrite success", false)),
+            )
+            .expect("ignore completion after terminal state");
+        let completed = runtime
+            .find(&parent.id)
+            .expect("unchanged completed parent");
+        assert_eq!(completed.status, SpriteOperationStatus::Succeeded);
+        assert_eq!(completed.stage, "presentation_succeeded");
+        let failed = successful_create(&mut runtime);
+        runtime
+            .begin_presentation(&failed.id, "opening_agent_terminal")
+            .expect("begin second presentation");
+        runtime
+            .finish_presentation(&failed.id, Err(error("launch_failed", "no session", false)))
+            .expect("record presentation failure");
+        let failed = runtime.find(&failed.id).expect("failed parent");
+        assert_eq!(failed.status, SpriteOperationStatus::Failed);
+        assert_eq!(failed.stage, "presentation_failed");
+    }
+
+    #[test]
+    fn failed_internal_launch_completes_its_create_parent_as_failed() {
+        let directory = TestDirectory::new();
+        let mut runtime = enabled_runtime(directory.path());
+        let parent = successful_create(&mut runtime);
+        runtime
+            .begin_presentation(&parent.id, "opening_agent_terminal")
+            .expect("begin presentation");
+        let child = match runtime
+            .submit_launch_follow_up(&parent.id, launch_request(String::new()))
+            .expect("submit internal launch")
+        {
+            SpriteReply::Operation(operation) => *operation,
+            _ => panic!("expected launch operation"),
+        };
+        let failed_child = await_failure(&mut runtime, &child.id);
+        assert_eq!(failed_child.status, SpriteOperationStatus::Failed);
+        runtime
+            .finish_launch_parent(
+                &child.id,
+                Err(failed_child.error.expect("worker spawn failure")),
+            )
+            .expect("propagate child failure to its Create parent");
+        assert_eq!(
+            runtime.find(&parent.id).expect("parent").status,
+            SpriteOperationStatus::Failed
+        );
+        assert_eq!(
+            runtime.find(&child.id).expect("child").status,
+            SpriteOperationStatus::Failed
+        );
     }
 
     #[test]

@@ -53,6 +53,16 @@ function sourceRoot(source) {
   // Native realpath expands Windows short names before comparison with Git's root.
   return fs.realpathSync.native(source.path);
 }
+function retireCreateIdentities(root, id) {
+  const dir = path.join(root, 'create-identities');
+  if (!fs.existsSync(dir)) return;
+  const [org, name] = id.split('/');
+  for (const filename of fs.readdirSync(dir)) {
+    if (!filename.endsWith('.json')) continue;
+    const file = path.join(dir, filename), identity = readJson(file);
+    if (identity.org === org && identity.name === name) atomic(file, { ...identity, active: false, retired: true });
+  }
+}
 async function perform(input) {
   const { config, state_dir: root } = input;
   const operation = input.operation; operation._root = root;
@@ -66,15 +76,18 @@ async function perform(input) {
   if (action === 'cancel') throw fail('cancel_unsupported', 'An already running provider operation cannot be canceled safely; its durable state remains available for recovery.');
   if (action === 'list') {
     if (params.refresh !== true) return result('inventory', readRecords(root));
+    const inventoryStarted = now();
+    const inventory = provider.inventory();
     return withLock(root, 'catalog', () => {
-      const inventory = provider.inventory();
       const existing = readRecords(root);
       for (const item of inventory) {
         const id = resourceId(config.org, item.name);
         try {
           withLock(root, id, () => {
-            const record = readRecords(root).find(r => r.id === id)
+            const existingRecord = readRecords(root).find(r => r.id === id);
+            const record = existingRecord
               ?? { ...recordBase({ org: config.org, name: item.name, managed: false }), provider_state: item.state, phase: item.state || 'available' };
+            if (existingRecord && record.updated_unix_ms >= inventoryStarted) return;
             if (record.phase === 'destroyed') {
               record.managed = false; record.workspace_id = null; record.source = null; record.agent = null;
               record.phase = item.state || 'available';
@@ -88,7 +101,7 @@ async function perform(input) {
         try {
           withLock(root, saved.id, () => {
             const latest = readRecords(root).find(r => r.id === saved.id);
-            if (!latest || latest.phase === 'destroyed') return;
+            if (!latest || latest.phase === 'destroyed' || latest.updated_unix_ms >= inventoryStarted) return;
             latest.provider_state = 'missing'; latest.phase = 'missing'; latest.observed_unix_ms = now(); latest.updated_unix_ms = now();
             saveRecord(root, latest);
           });
@@ -111,23 +124,71 @@ async function perform(input) {
       provider.inventory();
       return result('transfer', { files: baseline.files.length, bytes: baseline.bytes, excluded: baseline.excluded, changed_paths: [], conflicts: [] });
     }
-    const prefix = config.name_prefix || 'gardn-';
-    const name = paramsCreate.name || `${prefix}${createHash('sha256').update(operation.id).digest('hex').slice(0, 18)}`;
-    if (!/^[a-z][a-z0-9-]{0,62}$/.test(name)) throw fail('invalid_name', 'Sprite name must be a lowercase provider-safe name.');
     if (!paramsCreate.workspace_id || !paramsCreate.agent || !Array.isArray(paramsCreate.agent.command) || !paramsCreate.agent.command.length || paramsCreate.agent.command.some(v => typeof v !== 'string' || !v || v.includes('\0'))) throw fail('invalid_create', 'Create requires a workspace ID and non-empty agent command argv.');
-    return withLock(root, 'catalog', () => {
-      const inventory = provider.inventory();
-      const id = resourceId(config.org, name);
-      return withLock(root, id, () => {
-        const allRecords = readRecords(root);
-        const managed = allRecords.filter(r => r.managed && r.phase !== 'destroyed');
-        const dir = resourceDir(root, id);
+    const identityDir = path.join(root, 'create-identities');
+    const identityFile = path.join(identityDir, `${hashId(operation.id)}.json`);
+    const identity = withLock(root, 'catalog', () => {
+      fs.mkdirSync(identityDir, { recursive: true, mode: 0o700 });
+      let saved, newIdentity = false;
+      try { saved = readJson(identityFile); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      const recordsSnapshot = readRecords(root);
+      if (!saved) {
+        const priorIntents = recordsSnapshot.flatMap(record => {
+          try { const intent = readJson(path.join(resourceDir(root, record.id), 'intent.json')); return intent.operation_id === operation.id ? [{ record, intent }] : []; }
+          catch (error) { if (error.code !== 'ENOENT') throw error; return []; }
+        });
+        if (priorIntents.length > 1) throw fail('recovery_ambiguous', 'Creation operation matches multiple durable resources; refusing to choose an identity.');
+        const prefix = config.name_prefix || 'gardn-';
+        saved = priorIntents.length
+          ? { operation_id: operation.id, org: priorIntents[0].record.org, name: priorIntents[0].record.name }
+          : { operation_id: operation.id, org: config.org, name: paramsCreate.name || `${prefix}${createHash('sha256').update(operation.id).digest('hex').slice(0, 18)}` };
+        newIdentity = true;
+        if (!saved.org || !/^[a-z][a-z0-9-]{0,62}$/.test(saved.name)) throw fail('invalid_name', 'Sprite name must be a lowercase provider-safe name.');
+      }
+      if (saved.operation_id !== operation.id || typeof saved.org !== 'string' || !/^[a-z][a-z0-9-]{0,62}$/.test(saved.name)) throw fail('recovery_unavailable', 'Durable creation identity is invalid; refusing implicit recreation.');
+      if (saved.retired === true) throw fail('resource_destroyed', 'This Create identity was permanently retired; choose a new operation and Sprite name.');
+      if (paramsCreate.name && paramsCreate.name !== saved.name) throw fail('name_conflict', 'This operation is already bound to a different Sprite name.');
+      const id = resourceId(saved.org, saved.name);
+      if (recordsSnapshot.some(record => record.id === id && record.phase === 'destroyed')) throw fail('resource_destroyed', 'This resource was explicitly destroyed; choose a new Sprite name rather than recreating it implicitly.');
+      const reservations = new Set();
+      const recordsById = new Map(recordsSnapshot.map(record => [record.id, record]));
+      for (const record of recordsSnapshot) if (record.managed && record.phase !== 'destroyed') reservations.add(record.id);
+      for (const filename of fs.readdirSync(identityDir)) {
+        if (!filename.endsWith('.json')) continue;
+        try {
+          const reservation = readJson(path.join(identityDir, filename));
+          if (typeof reservation.operation_id !== 'string' || typeof reservation.org !== 'string' || !/^[a-z][a-z0-9-]{0,62}$/.test(reservation.name)) throw new Error('invalid reservation');
+          const record = recordsById.get(resourceId(reservation.org, reservation.name));
+          if (reservation.active !== false && (!record || record.phase !== 'destroyed')) reservations.add(resourceId(reservation.org, reservation.name));
+        } catch (error) { throw fail('recovery_unavailable', 'A durable creation reservation is unreadable; refusing to exceed the resource limit.'); }
+      }
+      if (!reservations.has(id) && reservations.size >= config.max_sprites) throw fail('resource_limit', `Installation-wide maximum of ${config.max_sprites} managed Sprites has been reached.`);
+      if (newIdentity || saved.active === false) {
+        saved = { ...saved, active: true };
+        atomic(identityFile, saved);
+      }
+      return saved;
+    });
+    const { org, name } = identity;
+    const id = resourceId(org, name);
+    provider.org = org;
+    return withLock(root, id, () => {
+      let inventory;
+      try { inventory = provider.inventory(); }
+      catch (error) { atomic(identityFile, { ...identity, active: false }); throw error; }
+      const allRecords = readRecords(root);
+      const dir = resourceDir(root, id);
       const intentFile = path.join(dir, 'intent.json');
       const requestedIntent = { operation_id: operation.id, workspace_id: paramsCreate.workspace_id, source: managedSource, agent: paramsCreate.agent };
       let record = allRecords.find(r => r.id === id);
-      if (record && !record.managed) throw fail('name_conflict', 'The requested Sprite name is already catalogued as a foreign resource.');
-      if (!record && inventory.some(r => r.name === name)) throw fail('name_conflict', 'A Sprite with the requested name exists but is not managed by this installation.');
-      if (!record && managed.length >= config.max_sprites) throw fail('resource_limit', `Installation-wide maximum of ${config.max_sprites} managed Sprites has been reached.`);
+      if (record && !record.managed) {
+        atomic(identityFile, { ...identity, active: false });
+        throw fail('name_conflict', 'The requested Sprite name is already catalogued as a foreign resource.');
+      }
+      if (!record && inventory.some(r => r.name === name)) {
+        atomic(identityFile, { ...identity, active: false });
+        throw fail('name_conflict', 'A Sprite with the requested name exists but is not managed by this installation.');
+      }
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       if (fs.existsSync(intentFile)) {
         const savedIntent = readJson(intentFile);
@@ -137,8 +198,8 @@ async function perform(input) {
         atomic(intentFile, requestedIntent);
       }
       if (!record) {
-        record = { ...recordBase({ org: config.org, name, managed: true }), workspace_id: paramsCreate.workspace_id, source: managedSource, agent: paramsCreate.agent, phase: 'creating' };
-        saveRecord(root, record); // intended resource and request are durable before provider create
+        record = { ...recordBase({ org, name, managed: true }), workspace_id: paramsCreate.workspace_id, source: managedSource, agent: paramsCreate.agent, phase: 'creating' };
+        saveRecord(root, record);
       }
       if (record.phase === 'destroyed') throw fail('resource_destroyed', 'This resource was explicitly destroyed; choose a new Sprite name rather than recreating it implicitly.');
       if (record.phase === 'missing') throw fail('resource_missing', 'This Sprite was authoritatively absent. It will not be recreated by retry; choose a new name for a new resource.');
@@ -175,27 +236,20 @@ async function perform(input) {
         if (!['claude', 'codex'].includes(paramsCreate.agent.kind)) throw fail('credential_handoff_unsupported', `Credential handoff is not supported for agent kind ${paramsCreate.agent.kind}; sign in manually.`);
         const credentials = localCredentials(paramsCreate.agent.kind);
         if (credentials) {
-          try {
-            provider.exec(name, ['node', '-e', INSTALL_AUTH, `/home/sprite/gardn/${hashId(record.id)}`], { input: JSON.stringify({ ...credentials, agent: paramsCreate.agent.kind }), maxBuffer: 64 * 1024, timeout: 30_000 });
-          } catch { throw fail('credential_handoff_failed', 'Opt-in credential handoff failed; credential data was not included in operation state or logs. Sign in manually in the Sprite.'); }
+          try { provider.exec(name, ['node', '-e', INSTALL_AUTH, `/home/sprite/gardn/${hashId(record.id)}`], { input: JSON.stringify({ ...credentials, agent: paramsCreate.agent.kind }), maxBuffer: 64 * 1024, timeout: 30_000 }); }
+          catch { throw fail('credential_handoff_failed', 'Opt-in credential handoff failed; credential data was not included in operation state or logs. Sign in manually in the Sprite.'); }
         }
       }
       record.phase = 'preparing'; record.last_error = null; record.updated_unix_ms = now(); saveRecord(root, record);
       opStage(operation, 'uploading');
       const remoteRoot = `/home/sprite/gardn/${hashId(record.id)}/workspace`;
-      try {
-        provider.exec(name, ['node', '-e', INSTALL_WORKSPACE, remoteRoot], { input: JSON.stringify(originalBaseline), maxBuffer: 1024 * 1024, timeout: 120_000 });
-      } catch (error) {
-        record.phase = 'partial'; record.last_error = makeError(error).message; record.updated_unix_ms = now(); saveRecord(root, record); throw error;
-      }
+      try { provider.exec(name, ['node', '-e', INSTALL_WORKSPACE, remoteRoot], { input: JSON.stringify(originalBaseline), maxBuffer: 1024 * 1024, timeout: 120_000 }); }
+      catch (error) { record.phase = 'partial'; record.last_error = makeError(error).message; record.updated_unix_ms = now(); saveRecord(root, record); throw error; }
       const toolPath = `/home/sprite/gardn/${hashId(record.id)}/tools/node_modules/.bin`;
       const availabilityScript = `export PATH=${shellQuote(toolPath)}:$PATH; if command -v ${shellQuote(record.agent.command[0])} >/dev/null 2>&1; then printf available; else printf missing; fi`;
       let available;
       try { available = provider.exec(name, ['sh', '-lc', availabilityScript], { maxBuffer: 64 * 1024, timeout: 30_000 }); }
-      catch (error) {
-        record.phase = 'partial'; record.last_error = makeError(error).message; record.updated_unix_ms = now(); saveRecord(root, record);
-        throw fail('agent_preflight_failed', 'Could not verify the selected agent executable in the prepared Sprite; retry after checking provider and image availability.', true);
-      }
+      catch (error) { record.phase = 'partial'; record.last_error = makeError(error).message; record.updated_unix_ms = now(); saveRecord(root, record); throw fail('agent_preflight_failed', 'Could not verify the selected agent executable in the prepared Sprite; retry after checking provider and image availability.', true); }
       if (available.trim() !== 'available') {
         record.phase = 'partial'; record.last_error = `Agent command ${JSON.stringify(record.agent.command[0])} is unavailable in the Sprite.`;
         record.updated_unix_ms = now(); saveRecord(root, record);
@@ -204,11 +258,10 @@ async function perform(input) {
       record.phase = 'ready'; record.last_error = null; record.updated_unix_ms = now(); record.revision++; saveRecord(root, record);
       return result('resource', record);
     });
-    });
   }
   const target = params.target ?? params;
   const record = requestTarget(records, target);
-  return withLock(root, record.id, () => {
+  const withResourceLock = () => withLock(root, record.id, () => {
     const currentRecord = requestTarget(readRecords(root), target);
     provider.org = currentRecord.org; // Existing records retain their original organization across config changes.
     const record = currentRecord;
@@ -236,7 +289,7 @@ async function perform(input) {
       const activeConnection = hasActiveConnection(root, record.id);
       if (activeConnection && mode !== 'connect') throw fail('connection_exists', 'This Sprite already has an active Gardn terminal connection.');
       const attemptId = randomUUID();
-      const args = [path.join(path.dirname(fileURLToPath(import.meta.url)), 'connect.mjs'), root, record.id, mode, session?.id ?? '', conversationRef ?? '', operation.id, String(input.owner_pid), attemptId];
+      const args = [path.join(path.dirname(fileURLToPath(import.meta.url)), 'connect.mjs'), root, record.id, mode, session?.id ?? '', conversationRef ?? '', operation.id, String(input.owner_pid), String(record.revision), attemptId];
       return result('connection', { sprite_id: record.id, session_id: session?.id ?? null, program: config.node_bin, args, agent_kind: mode === 'shell' ? null : record.agent?.kind ?? null, starts_session: mode !== 'connect', remote_cwd: record.managed ? `/home/sprite/gardn/${hashId(record.id)}/workspace` : '/home/sprite', attempt_id: attemptId });
     }
     if (action === 'stop') {
@@ -312,6 +365,7 @@ async function perform(input) {
         const token = saveApproval(root, { sprite_id: record.id, action, revision: record.revision, summary: 'Remove only this local Gardn record. The remote Sprite will remain untouched.' }, now() + 5 * 60_000);
         return result('approval_required', token);
       }
+      retireCreateIdentities(root, record.id);
       fs.rmSync(resourceDir(root, record.id), { recursive: true, force: true });
       return result('completed', { message: `Forgot local record for ${record.id}; remote resource untouched.` });
     }
@@ -325,6 +379,7 @@ async function perform(input) {
     }
     throw fail('invalid_action', `Unsupported Sprite action: ${String(action)}`);
   });
+  return action === 'forget' ? withLock(root, 'catalog', withResourceLock) : withResourceLock();
 }
 async function main() {
   let operation;
