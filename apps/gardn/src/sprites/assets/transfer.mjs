@@ -46,7 +46,16 @@ export function snapshot(root, limit = LIMIT) {
     const rel = path.relative(root, file);
     if (rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) { excluded.push(name); continue; }
     let stat;
-    try { stat = fs.lstatSync(file); } catch { excluded.push(name); continue; }
+    try {
+      let parent = root, safe = true;
+      for (const part of name.split('/').slice(0, -1)) {
+        parent = path.join(parent, part);
+        const directory = fs.lstatSync(parent);
+        if (!directory.isDirectory() || directory.isSymbolicLink()) { safe = false; break; }
+      }
+      if (!safe) { excluded.push(name); continue; }
+      stat = fs.lstatSync(file);
+    } catch { excluded.push(name); continue; }
     if (!stat.isFile() || stat.isSymbolicLink()) { excluded.push(name); continue; }
     bytes += stat.size;
     if (bytes > limit) throw Object.assign(new Error(`Eligible workspace files exceed the configured ${Math.floor(limit / 1024 / 1024)} MiB limit.`), { code: 'transfer_limit' });

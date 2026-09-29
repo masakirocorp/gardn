@@ -50,7 +50,8 @@ function sessionOwned(record, session) {
 function sourceRoot(source) {
   if (!source || source.execution_host_id !== 'local') throw fail('unsupported_host', `Workspace source host ${source?.execution_host_id ?? '(missing)'} is not available to the local Sprite backend; no local fallback was attempted.`);
   if (!path.isAbsolute(source.path)) throw fail('invalid_source', 'Workspace source path must be absolute.');
-  return fs.realpathSync(source.path);
+  // Native realpath expands Windows short names before comparison with Git's root.
+  return fs.realpathSync.native(source.path);
 }
 async function perform(input) {
   const { config, state_dir: root } = input;
@@ -101,7 +102,7 @@ async function perform(input) {
     const localRoot = sourceRoot(paramsCreate.source);
     const git = spawnSync('git', ['-C', localRoot, '-c', 'core.hooksPath=/dev/null', 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 10_000, env: { ...process.env, LC_ALL: 'C' } });
     if (git.error || git.status !== 0) throw fail('source_not_git', `${JSON.stringify(localRoot)} is not a Git repository. No files were transferred.`);
-    const gitRoot = fs.realpathSync(git.stdout.trim());
+    const gitRoot = fs.realpathSync.native(git.stdout.trim());
     const rel = path.relative(gitRoot, localRoot);
     if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) throw fail('invalid_source', 'Selected source is outside its Git worktree.');
     const baseline = snapshot(gitRoot, limit);
@@ -320,7 +321,7 @@ async function perform(input) {
       const git = spawnSync('git', ['-C', selectedRoot, '-c', 'core.hooksPath=/dev/null', 'rev-parse', '--show-toplevel'], { encoding: 'utf8', timeout: 10_000, env: { ...process.env, LC_ALL: 'C' } });
       if (git.error || git.status !== 0) throw fail('source_not_git', 'Reassociation requires an accessible Git worktree.');
       if (!params.workspace_id) throw fail('invalid_source', 'A stable workspace ID is required.');
-      record.workspace_id = params.workspace_id; record.source = { ...params.source, path: fs.realpathSync(git.stdout.trim()) }; record.revision++; record.updated_unix_ms = now(); saveRecord(root, record); return result('resource', record);
+      record.workspace_id = params.workspace_id; record.source = { ...params.source, path: fs.realpathSync.native(git.stdout.trim()) }; record.revision++; record.updated_unix_ms = now(); saveRecord(root, record); return result('resource', record);
     }
     throw fail('invalid_action', `Unsupported Sprite action: ${String(action)}`);
   });

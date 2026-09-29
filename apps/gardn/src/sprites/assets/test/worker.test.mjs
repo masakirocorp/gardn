@@ -80,7 +80,7 @@ test('creation persists an intended managed resource and repeated request does n
   try {
     const params = { workspace_id: 'workspace-1', source: { execution_host_id: 'local', path: f.gitRoot }, agent: { profile_id: 'claude', kind: 'claude', command: ['claude'], share_credentials: false } };
     const first = invoke(f, 'create', params);
-    assert.equal(first.status, 0, first.stderr);
+    assert.equal(first.status, 0, first.stdout + first.stderr);
     const firstOperation = first.frames.findLast(frame => frame.type === 'operation').operation;
     assert.equal(firstOperation.status, 'succeeded');
     assert.equal(firstOperation.result.kind, 'resource');
@@ -90,7 +90,7 @@ test('creation persists an intended managed resource and repeated request does n
     assert.equal(saved.workspace_id, 'workspace-1');
     assert.equal(saved.phase, 'ready');
     const retry = invoke(f, 'create', params);
-    assert.equal(retry.status, 0, retry.stderr);
+    assert.equal(retry.status, 0, retry.stdout + retry.stderr);
     assert.equal(JSON.parse(fs.readFileSync(f.db, 'utf8')).creates, 1);
   } finally { fs.rmSync(f.root, { recursive: true, force: true }); }
 });
@@ -100,7 +100,7 @@ test('pull previews and applies remote edits without changing the local Git inde
   try {
     const params = { workspace_id: 'workspace-1', source: { execution_host_id: 'local', path: f.gitRoot }, agent: { profile_id: 'claude', kind: 'claude', command: ['claude'], share_credentials: false } };
     const created = invoke(f, 'create', params).frames.findLast(frame => frame.type === 'operation').operation;
-    assert.equal(created.status, 'succeeded');
+    assert.equal(created.status, 'succeeded', JSON.stringify(created.error));
     const target = { sprite_id: created.result.data.id };
     const staged = spawnSync('git', ['-C', f.gitRoot, 'add', 'README.txt']);
     assert.equal(staged.status, 0);
@@ -265,13 +265,17 @@ test('workspace transfer excludes secrets and symlinks, prevents unsafe pulls, a
     fs.writeFileSync(path.join(f.gitRoot, '.env'), 'TOKEN=not-for-transfer');
     fs.mkdirSync(path.join(f.gitRoot, '.ssh')); fs.writeFileSync(path.join(f.gitRoot, '.ssh', 'key'), 'private');
     const outside = path.join(f.root, 'outside'); fs.mkdirSync(outside); fs.writeFileSync(path.join(outside, 'secret'), 'outside');
+    const linked = path.join(f.gitRoot, 'linked');
+    fs.mkdirSync(linked); fs.writeFileSync(path.join(linked, 'secret'), 'tracked before replacement');
+    assert.equal(spawnSync('git', ['-C', f.gitRoot, 'add', 'linked/secret'], { encoding: 'utf8' }).status, 0);
+    fs.rmSync(linked, { recursive: true });
     fs.symlinkSync(outside, path.join(f.gitRoot, 'linked'), 'junction');
     assert.equal(spawnSync('git', ['-C', f.gitRoot, 'add', 'README.txt'], { encoding: 'utf8' }).status, 0);
     const index = path.join(f.gitRoot, '.git', 'index');
     const indexHash = () => createHash('sha256').update(fs.readFileSync(index)).digest('hex');
     const beforeIndex = indexHash();
     const base = snapshot(f.gitRoot);
-    assert.equal(base.files.some(file => file.path === '.env' || file.path === '.ssh/key' || file.path === 'linked'), false);
+    assert.equal(base.files.some(file => file.path === '.env' || file.path === '.ssh/key' || file.path === 'linked' || file.path.startsWith('linked/')), false);
     assert.ok(base.excluded.includes('.env'));
     assert.ok(base.excluded.includes('.ssh/key'));
     const incoming = { version: 1, files: [{ path: 'README.txt', mode: 0o644, data: Buffer.from('remote\n').toString('base64') }] };

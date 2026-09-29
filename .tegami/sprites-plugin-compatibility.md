@@ -17,3 +17,5 @@ Sprite Manager keeps resource inventory separate from local panes and exposes ex
 connect, start, resume, transfer, checkpoint, and cleanup actions. Disabling the integration
 detaches local terminals without stopping remote sessions. Automation uses durable operation
 IDs, bounded waits, creation limits, and scoped destructive approvals.
+Workspace imports exclude files reached through directory symlinks or Windows junctions.
+Source selection resolves native path aliases before checking the Git worktree boundary.
