@@ -68,6 +68,10 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::PluginPaneOpen(_)
             | Method::PluginPaneFocus(_)
             | Method::PluginPaneClose(_)
+    ) || matches!(
+        &request.method,
+        Method::SpritesRequest(request)
+            if !matches!(request.command, schema::SpriteCommand::List { refresh: false } | schema::SpriteCommand::Operation { .. })
     )
 }
 

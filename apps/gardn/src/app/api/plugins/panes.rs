@@ -390,6 +390,9 @@ impl App {
             extra_env,
             self.state.pane_scrollback_limit_bytes,
             self.state.host_terminal_theme,
+            self.event_tx.clone(),
+            self.render_notify.clone(),
+            self.render_dirty.clone(),
         ) {
             Ok(result) => result,
             Err(err) => {

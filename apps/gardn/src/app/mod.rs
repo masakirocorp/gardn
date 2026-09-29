@@ -27,6 +27,8 @@ mod popup;
 mod runtime;
 mod runtime_mutations;
 mod session;
+mod sprites;
+pub(crate) mod sprites_ui;
 pub mod state;
 mod terminal_targets;
 mod theme_sync;
@@ -241,6 +243,10 @@ pub struct App {
     pub(crate) default_client_view: ClientViewState,
     pub(crate) github_runtime: crate::github::runtime::GithubRuntime,
     pub(crate) terminal_runtimes: crate::terminal::TerminalRuntimeRegistry,
+    pub(crate) sprites_runtime: crate::sprites::SpritesRuntime,
+    pub(crate) sprite_connections:
+        std::collections::HashMap<crate::layout::PaneId, crate::api::schema::SpriteConnection>,
+    pub(crate) sprite_request_views: std::collections::HashMap<String, u64>,
     pub(crate) execution_hosts: Option<crate::execution_host::ExecutionHostManager>,
     reconciled_terminal_themes: std::collections::HashMap<
         crate::terminal::TerminalId,
@@ -635,12 +641,12 @@ impl App {
 
         // Try to restore previous session
         let mut restored_terminals = std::collections::HashMap::new();
+        let mut restored_default_view = None;
         let mut restored_terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         let mut session_namespace_id = crate::persist::installation::new_session_namespace_id();
         let mut session_namespace_healed = false;
         let mut restored_remote_termination_tombstones = Vec::new();
         let mut restored_agent_follow_up = Vec::new();
-        let mut restored_default_view = None;
         let (
             groups,
             active_group,
@@ -852,6 +858,9 @@ impl App {
             client_overlay_owners: std::collections::HashMap::new(),
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
+            sprite_panes: std::collections::HashMap::new(),
+            sprites_config: config.sprites.clone(),
+            sprites_snapshot: crate::api::schema::SpriteSnapshot::default(),
             workspaces,
             should_quit: false,
             detach_exits: no_session,
@@ -1152,6 +1161,9 @@ impl App {
             default_client_view,
             reconciled_terminal_themes: std::collections::HashMap::new(),
             terminal_runtimes: restored_terminal_runtimes,
+            sprites_runtime: crate::sprites::SpritesRuntime::new(),
+            sprite_connections: std::collections::HashMap::new(),
+            sprite_request_views: std::collections::HashMap::new(),
             execution_hosts,
             pending_remote_creations: std::collections::HashMap::new(),
             remote_creation_completions: Vec::new(),
@@ -1210,6 +1222,9 @@ impl App {
             host_terminal_theme_query_count: std::cell::Cell::new(0),
             window_title_template: None,
         };
+        if let Err(error) = app.initialize_sprites() {
+            app.state.config_diagnostic = Some(format!("Sprites: {}", error.message));
+        }
         app.reconcile_terminal_themes();
         app.configure_window_title(&config.ui.window_title);
         app
@@ -2129,6 +2144,9 @@ impl App {
                     }
                 }
             }
+            if self.poll_sprites() {
+                needs_render = true;
+            }
             self.loop_stats.finish_frame(
                 drain,
                 schedule,
@@ -2491,6 +2509,24 @@ impl App {
             self.state.agent_profiles =
                 crate::agent_profiles::AgentProfileCatalog::from_config(&config.agent_profiles);
             self.refresh_integration_recommendations();
+        }
+
+        if !invalid_section("sprites") {
+            match crate::config::validate_sprites_config(&config.sprites) {
+                Ok(()) => {
+                    let previous =
+                        std::mem::replace(&mut self.state.sprites_config, config.sprites.clone());
+                    if let Err(error) = self.initialize_sprites() {
+                        if config.sprites.enabled {
+                            self.state.sprites_config = previous;
+                        }
+                        diagnostics.push(format!("Sprites: {}", error.message));
+                    }
+                }
+                Err(error) => diagnostics.push(format!(
+                    "Sprites: {error}; keeping previous integration settings"
+                )),
+            }
         }
 
         if !invalid_section("terminal") {
@@ -3326,6 +3362,9 @@ impl App {
                     }
                 }
             }
+            input::SettingsAction::OpenSpritesSettings => {
+                self.open_sprites_settings_for_view(client_view);
+            }
             action => self.apply_settings_action(action),
         }
     }
@@ -3762,6 +3801,7 @@ impl App {
                     self.apply_settings_action_for_client(client_view, action);
                 }
             }
+            Mode::Sprites => self.handle_sprites_key_for_view(client_view, key),
             Mode::GlobalMenu => {
                 if key.code == crossterm::event::KeyCode::Enter {
                     self.accept_client_view_global_menu_selection(client_view);
@@ -5406,11 +5446,62 @@ impl App {
         self.launch_focused_scrollback_editor_at(client_view);
     }
 
+    fn workspace_focused_pane_is_sprite(
+        &self,
+        client_view: &ClientViewState,
+        ws_idx: usize,
+    ) -> bool {
+        client_view
+            .focused_pane_for_workspace(&self.state, ws_idx)
+            .is_some_and(|(_, pane_id)| self.state.sprite_panes.contains_key(&pane_id))
+    }
+
+    fn client_view_focused_pane_is_sprite(&self, client_view: &ClientViewState) -> bool {
+        client_view
+            .active_workspace
+            .is_some_and(|ws_idx| self.workspace_focused_pane_is_sprite(client_view, ws_idx))
+    }
+
+    fn reject_sprite_local_action(&mut self, action: &str) {
+        let previous_toast = self.state.toast.clone();
+        self.state.toast = Some(state::ToastNotification {
+            kind: state::ToastKind::NeedsAttention,
+            title: "Action Unavailable in Sprite Terminal".to_string(),
+            context: format!("{action} requires a local terminal and cannot use a Sprite pane's remote working directory."),
+            position: None,
+            target: None,
+        });
+        self.sync_toast_deadline(previous_toast);
+    }
+
+    fn command_palette_action_is_unsupported_in_sprite(
+        action: &crate::app::command_palette::CommandPaletteAction,
+    ) -> Option<&'static str> {
+        use crate::app::command_palette::CommandPaletteAction as Action;
+        match action {
+            Action::OpenBrowser => Some("Open browser"),
+            Action::OpenReview => Some("Open review"),
+            Action::OpenEditor => Some("Open editor"),
+            Action::OpenGithub | Action::Github(_) => Some("Git/GitHub"),
+            Action::NewAgent => Some("Start a new agent"),
+            Action::SplitVertical | Action::SplitHorizontal => Some("Split pane"),
+            Action::ProjectCommand(_) => Some("Project command"),
+            _ => None,
+        }
+    }
+
     fn execute_client_view_command_palette_action(
         &mut self,
         client_view: &mut ClientViewState,
         action: crate::app::command_palette::CommandPaletteAction,
     ) {
+        if self.client_view_focused_pane_is_sprite(client_view) {
+            if let Some(action) = Self::command_palette_action_is_unsupported_in_sprite(&action) {
+                self.reject_sprite_local_action(action);
+                Self::leave_client_view_command_mode(client_view);
+                return;
+            }
+        }
         if client_view.github.is_some()
             && !matches!(
                 &action,
@@ -5808,6 +5899,13 @@ impl App {
                 if let Some(ws_idx) = client_view.active_workspace {
                     self.open_new_agent_picker_for_client_view(client_view, ws_idx);
                 }
+            }
+            crate::app::command_palette::CommandPaletteAction::NewSprite => {
+                let workspace = client_view.active_workspace;
+                self.open_sprites_for_view(client_view, workspace);
+            }
+            crate::app::command_palette::CommandPaletteAction::SpriteManager => {
+                self.open_sprites_for_view(client_view, None);
             }
         }
     }
@@ -6465,9 +6563,35 @@ impl App {
             ) => self.workspace_can_create_first_tab_without_control(*ws_idx),
             _ => false,
         };
+        let unsupported_sprite_context_action = matches!(
+            item,
+            Some("agent" | "editor" | "browser" | "review" | "github")
+        )
+        .then(|| match &menu.kind {
+            state::ContextMenuKind::Workspace { ws_idx, .. }
+            | state::ContextMenuKind::NewTabButton { ws_idx, .. } => {
+                self.workspace_focused_pane_is_sprite(client_view, *ws_idx)
+            }
+            _ => false,
+        })
+        .unwrap_or(false);
+        if unsupported_sprite_context_action {
+            self.reject_sprite_local_action(match item {
+                Some("agent") => "Start a new agent",
+                Some("editor") => "Open editor",
+                Some("browser") => "Open browser",
+                Some("review") => "Open review",
+                _ => "Git/GitHub",
+            });
+            Self::leave_client_view_command_mode(client_view);
+            return;
+        }
         if !self.can_mutate_current_tab()
             && !creates_first_tab
-            && !matches!(item, Some("agent" | "settings" | "zoom" | "restore panes"))
+            && !matches!(
+                item,
+                Some("agent" | "settings" | "zoom" | "restore panes" | "sprite")
+            )
         {
             Self::reject_client_view_shared_mutation(client_view);
             return;
@@ -6535,6 +6659,15 @@ impl App {
                 client_view.selected_workspace = ws_idx;
                 client_view.active_workspace = Some(ws_idx);
                 self.open_new_agent_picker_for_client_view(client_view, ws_idx);
+            }
+            (
+                state::ContextMenuKind::Workspace { ws_idx, .. }
+                | state::ContextMenuKind::NewTabButton { ws_idx, .. },
+                Some("sprite"),
+            ) => {
+                client_view.selected_workspace = ws_idx;
+                client_view.active_workspace = Some(ws_idx);
+                self.open_sprites_for_view(client_view, Some(ws_idx));
             }
             (state::ContextMenuKind::Workspace { ws_idx, .. }, Some("tab"))
             | (state::ContextMenuKind::NewTabButton { ws_idx, .. }, Some("tab")) => {
@@ -7126,6 +7259,22 @@ impl App {
         action: input::NavigateAction,
         context: input::ActionContext,
     ) {
+        if self.client_view_focused_pane_is_sprite(client_view)
+            && matches!(
+                action,
+                input::NavigateAction::SplitVertical
+                    | input::NavigateAction::SplitHorizontal
+                    | input::NavigateAction::EditScrollback
+            )
+        {
+            self.reject_sprite_local_action(if action == input::NavigateAction::EditScrollback {
+                "Open file/editor"
+            } else {
+                "Split pane"
+            });
+            Self::leave_client_view_command_mode(client_view);
+            return;
+        }
         let creates_first_tab = action == input::NavigateAction::NewTab
             && client_view
                 .active_workspace
@@ -7961,6 +8110,9 @@ impl App {
         mouse: crossterm::event::MouseEvent,
     ) {
         let mouse = self.state.normalize_host_mouse_event(mouse);
+        if self.handle_sprites_mouse_for_view(client_view, mouse) {
+            return;
+        }
         client_view.sync_github_mode(&self.state);
         if self.handle_github_mouse_for_view(client_view, mouse) {
             return;
@@ -8914,7 +9066,8 @@ impl App {
         };
         let project_commands = self
             .state
-            .project_command_availability_for_workspace(&self.terminal_runtimes, ws_idx);
+            .project_command_availability_for_workspace(&self.terminal_runtimes, ws_idx)
+            .with_sprites(self.state.sprites_config.enabled);
         client_view.context_menu = Some(state::ContextMenuState {
             kind: state::ContextMenuKind::NewTabButton {
                 ws_idx,
@@ -11988,7 +12141,8 @@ impl App {
                     client_view.selected_workspace = idx;
                     let project_commands = self
                         .state
-                        .project_command_availability_for_workspace(&self.terminal_runtimes, idx);
+                        .project_command_availability_for_workspace(&self.terminal_runtimes, idx)
+                        .with_sprites(self.state.sprites_config.enabled);
                     client_view.context_menu = Some(state::ContextMenuState {
                         kind: state::ContextMenuKind::Workspace {
                             ws_idx: idx,
@@ -12861,6 +13015,49 @@ mod tests {
             api_rx,
             crate::api::EventHub::default(),
         )
+    }
+
+    #[test]
+    fn sprite_terminal_rejects_local_editor_agent_and_split_actions() {
+        let mut app = test_app();
+        app.state.workspaces = vec![Workspace::test_new("workspace")];
+        let sprite_pane = app.state.workspaces[0]
+            .terminal_tab(0)
+            .expect("source terminal")
+            .root_pane;
+        app.state
+            .sprite_panes
+            .insert(sprite_pane, "org/work".into());
+        let mut view = ClientViewState::from_default_client_state(&app.state);
+        view.active_workspace = Some(0);
+        view.selected_workspace = 0;
+
+        app.execute_client_view_command_palette_action(
+            &mut view,
+            crate::app::command_palette::CommandPaletteAction::OpenEditor,
+        );
+        assert!(app.state.request_open_project_command.is_none());
+        assert!(app.state.toast.as_ref().is_some_and(|toast| {
+            toast.title == "Action Unavailable in Sprite Terminal"
+                && toast.context.contains("Open editor")
+        }));
+
+        app.execute_client_view_command_palette_action(
+            &mut view,
+            crate::app::command_palette::CommandPaletteAction::NewAgent,
+        );
+        assert!(app.state.request_agent_profile_tab.is_none());
+
+        app.execute_client_view_navigate_action(
+            &mut view,
+            input::NavigateAction::SplitVertical,
+            input::ActionContext::Navigate,
+        );
+        assert!(app
+            .state
+            .toast
+            .as_ref()
+            .is_some_and(|toast| { toast.context.contains("Split pane") }));
     }
 
     #[tokio::test]

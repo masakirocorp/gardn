@@ -9,6 +9,9 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
+pub mod sprites;
+pub use sprites::*;
+
 fn is_false(value: &bool) -> bool {
     !*value
 }
@@ -245,6 +248,10 @@ pub enum Method {
     IntegrationInstall(IntegrationInstallParams),
     #[serde(rename = "integration.uninstall")]
     IntegrationUninstall(IntegrationUninstallParams),
+    #[serde(rename = "sprites.request")]
+    SpritesRequest(SpriteRequest),
+    #[serde(rename = "sprites.capabilities")]
+    SpritesCapabilities(EmptyParams),
     #[serde(rename = "plugin.link")]
     PluginLink(PluginLinkParams),
     #[serde(rename = "plugin.list")]
@@ -1913,6 +1920,13 @@ pub struct ServerCapabilities {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseResult {
+    Sprites {
+        reply: SpriteReply,
+    },
+    SpritesCapabilities {
+        enabled: bool,
+        actions: Vec<String>,
+    },
     Pong {
         version: String,
         protocol: u32,

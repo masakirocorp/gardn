@@ -107,6 +107,11 @@
       "inputs": ["src/integration/assets/**"],
       "outputs": []
     },
+    "gardn#sprites:test": {
+      "command": ["node", "--test", "src/sprites/assets/test/*.test.mjs"],
+      "inputs": ["src/sprites/assets/**"],
+      "outputs": []
+    },
     "gardn#ci:test": {
       "command": ["cargo", "nextest", "run", "-P", "ci", "--locked"],
       "inputs": [
@@ -198,7 +203,7 @@
     },
     "gardn-rust#test:all": {
       "inputs": ["$TURBO_ROOT$/turbo.json"],
-      "dependsOn": ["gardn#test", "gardn#integration:test", "gardn-rust#maintenance:test"]
+      "dependsOn": ["gardn#test", "gardn#integration:test", "gardn#sprites:test", "gardn-rust#maintenance:test"]
     },
     "gardn-rust#release-scope:check": {
       "command": ["node", "scripts/check-tegami-release-scope.mts", "gardn"],
@@ -218,6 +223,7 @@
       "dependsOn": [
         "gardn#ci:test",
         "gardn#integration:test",
+        "gardn#sprites:test",
         "gardn-rust#ast:check",
         "gardn-rust#maintenance:test",
         "gardn-rust#release-scope:check"

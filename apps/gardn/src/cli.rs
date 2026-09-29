@@ -1,4 +1,4 @@
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
@@ -21,6 +21,7 @@ mod pane;
 mod plugin;
 mod protocol_guard;
 mod server_not_running;
+mod sprites;
 
 mod tab;
 mod workspace;
@@ -82,6 +83,7 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
         "terminal" => run_terminal_command(&args[2..])?,
         "pane" => pane::run_pane_command(&args[2..])?,
         "plugin" => plugin::run_plugin_command(&args[2..])?,
+        "sprites" => sprites::run_sprites_command(&args[2..])?,
         "wait" => run_wait_command(&args[2..])?,
         "integration" => run_integration_command(&args[2..])?,
         "session" => run_session_command(&args[2..])?,
@@ -2257,7 +2259,7 @@ pub(super) fn wait_for_agent_change(
 ) -> std::io::Result<i32> {
     let read_timeout = timeout_ms.map(Duration::from_millis);
     let client = ApiClient::local();
-    ensure_server_protocol_compatible(&client, &request.id)?;
+    ensure_server_protocol_compatible(&client, &request.id, None)?;
     let (ack, stream) = client
         .subscribe_value(&request, read_timeout)
         .map_err(api_client_error_to_io)?;
@@ -2345,9 +2347,33 @@ pub(super) fn send_ok_request(method: Method) -> std::io::Result<i32> {
 
 pub(super) fn send_request(request: &Request) -> std::io::Result<serde_json::Value> {
     let client = ApiClient::local();
-    ensure_server_protocol_compatible(&client, &request.id)?;
+    ensure_server_protocol_compatible(&client, &request.id, None)?;
     client
         .request_value(request)
+        .map_err(|err| map_server_not_running_or_io(err, &request.id, &client))
+}
+
+pub(super) fn send_request_until(
+    request: &Request,
+    deadline: Instant,
+) -> std::io::Result<serde_json::Value> {
+    let client = ApiClient::local();
+    ensure_server_protocol_compatible(
+        &client,
+        &request.id,
+        Some(
+            deadline
+                .saturating_duration_since(Instant::now())
+                .max(Duration::from_millis(1)),
+        ),
+    )?;
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::TimedOut, "Sprite request wait expired")
+        })?;
+    client
+        .request_value_with_timeout(request, remaining)
         .map_err(|err| map_server_not_running_or_io(err, &request.id, &client))
 }
 
@@ -2358,13 +2384,20 @@ fn send_request_unchecked(request: &Request) -> std::io::Result<serde_json::Valu
         .map_err(|err| map_server_not_running_or_io(err, &request.id, &client))
 }
 
-fn ensure_server_protocol_compatible(client: &ApiClient, request_id: &str) -> std::io::Result<()> {
+fn ensure_server_protocol_compatible(
+    client: &ApiClient,
+    request_id: &str,
+    timeout: Option<Duration>,
+) -> std::io::Result<()> {
     let ping = Request {
         id: "cli:protocol-check".into(),
         method: Method::Ping(PingParams::default()),
     };
-    let response = client
-        .request_value(&ping)
+    let ping_result = match timeout {
+        Some(timeout) => client.request_value_with_timeout(&ping, timeout),
+        None => client.request_value(&ping),
+    };
+    let response = ping_result
         .map_err(|err| map_server_not_running_or_io(err, request_id, client))
         .and_then(|value| {
             crate::api::client::parse_response_value(value).map_err(api_client_error_to_io)

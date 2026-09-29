@@ -74,6 +74,21 @@ impl App {
                 return encode_error(id, "invalid_target", "layout target is not a terminal tab");
             };
         }
+        if replace_target.is_some_and(|(ws, tab)| {
+            self.state.workspaces[ws]
+                .terminal_tab(tab)
+                .is_ok_and(|tab| {
+                    tab.panes
+                        .keys()
+                        .any(|pane| self.state.sprite_panes.contains_key(pane))
+                })
+        }) {
+            return encode_error(
+                id,
+                "sprite_operation_unavailable",
+                "A local layout cannot replace Sprite transport panes. Disconnect them first.",
+            );
+        }
         if replace_target.is_some() && params.workspace_id.is_some() {
             return encode_error(
                 id,
@@ -148,6 +163,9 @@ impl App {
                     extra_env,
                     scrollback_limit_bytes,
                     host_terminal_theme,
+                    event_tx,
+                    render_notify,
+                    render_dirty,
                 )
             } else {
                 ws.create_tab_with_handles_and_env(

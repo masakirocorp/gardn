@@ -532,6 +532,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::PaneWaitForOutput(_) => "pane.wait_for_output",
         Method::IntegrationInstall(_) => "integration.install",
         Method::IntegrationUninstall(_) => "integration.uninstall",
+        Method::SpritesRequest(_) => "sprites.request",
+        Method::SpritesCapabilities(_) => "sprites.capabilities",
         Method::PluginLink(_) => "plugin.link",
         Method::PluginList(_) => "plugin.list",
         Method::PluginUnlink(_) => "plugin.unlink",

@@ -153,6 +153,7 @@ pub(crate) enum SettingsAction {
     ConfirmForgetRemoteTermination {
         terminal_id: crate::terminal::TerminalId,
     },
+    OpenSpritesSettings,
 }
 
 impl App {
@@ -436,6 +437,9 @@ impl App {
                         });
                     }
                 }
+            }
+            SettingsAction::OpenSpritesSettings => {
+                self.with_default_client_view(|app, view| app.open_sprites_settings_for_view(view));
             }
         }
     }
@@ -2887,8 +2891,18 @@ fn selected_integration_action(state: &SettingsInput<'_>) -> Option<SettingsActi
     if let Some(host_id) =
         crate::app::integration_host::resolve(state, &state.client.settings).host_id()
     {
-        let crate::integration::host::HostIntegrationObservation::Ready(snapshot) =
-            state.host_integration_observations.get(host_id)?
+        let observation = state.host_integration_observations.get(host_id);
+        let entry_count = match observation {
+            Some(crate::integration::host::HostIntegrationObservation::Ready(snapshot)) => {
+                snapshot.entries.len()
+            }
+            _ => 0,
+        };
+        if entry_index == entry_count {
+            return Some(SettingsAction::OpenSpritesSettings);
+        }
+        let Some(crate::integration::host::HostIntegrationObservation::Ready(snapshot)) =
+            observation
         else {
             return None;
         };
@@ -2901,6 +2915,9 @@ fn selected_integration_action(state: &SettingsInput<'_>) -> Option<SettingsActi
         );
     }
 
+    if entry_index == state.integration_recommendations.len() {
+        return Some(SettingsAction::OpenSpritesSettings);
+    }
     let recommendation = state.integration_recommendations.get(entry_index)?;
     let missing_profile_hooks = crate::integration::missing_profile_hook_count_for_target(
         recommendation.target,

@@ -247,6 +247,32 @@ impl AgentProfile {
         self.enabled && self.parse_error.is_none() && !self.argv.is_empty()
     }
 
+    pub(crate) fn sprite_unavailable_reason(&self) -> Option<&'static str> {
+        if !self.available() {
+            return Some("This agent profile is disabled or has an invalid command.");
+        }
+        if !self.env.is_empty() {
+            return Some("This profile requires local environment values. Sprites never copy profile environment.");
+        }
+        let program = self.argv.first()?;
+        if program.contains('/') || program.contains('\\') {
+            return Some(
+                "This profile uses a local executable path. Use a command installed on the Sprite.",
+            );
+        }
+        if (self.kind != AgentKind::Custom && program != self.kind.system_command())
+            || matches!(
+                program.as_str(),
+                "env" | "sh" | "bash" | "zsh" | "fish" | "ssh" | "mise" | "nix"
+            )
+        {
+            return Some(
+                "This profile uses a local wrapper. Supply an explicit remote command instead.",
+            );
+        }
+        None
+    }
+
     pub fn is_system(&self) -> bool {
         self.source == AgentProfileSource::System
     }

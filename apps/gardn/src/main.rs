@@ -74,6 +74,7 @@ mod server;
 mod session;
 mod settings_rows;
 mod sound;
+mod sprites;
 mod terminal;
 mod terminal_effects;
 mod terminal_modes;
@@ -658,6 +659,12 @@ fn main() -> io::Result<()> {
             ),
         ] {
             println!("  {command:<32} {description}");
+        }
+        if config::Config::load().config.sprites.enabled {
+            println!(
+                "  {:<32} manage remote Sprite workspaces",
+                "gardn sprites <subcommand>"
+            );
         }
         println!();
         println!("advanced commands:");

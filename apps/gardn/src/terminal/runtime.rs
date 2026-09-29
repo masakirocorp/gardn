@@ -623,6 +623,11 @@ impl TerminalRuntime {
         self.0.encode_alternate_scroll(kind)
     }
 
+    /// A local transport's process directory is not the remote terminal's directory.
+    pub(crate) fn disable_local_cwd_inspection(&mut self) {
+        self.0.disable_local_cwd_inspection();
+    }
+
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
         self.0.cwd()
     }

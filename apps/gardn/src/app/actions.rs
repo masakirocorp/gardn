@@ -3216,6 +3216,7 @@ impl AppState {
                 Vec::new()
             }
             AppEvent::PluginCommandFinished { .. }
+            | AppEvent::SpritesUpdated
             | AppEvent::ConnectionRetirementPreviewed { .. }
             | AppEvent::ConnectionRetirementStarted { .. }
             | AppEvent::ConnectionRetired { .. } => Vec::new(),

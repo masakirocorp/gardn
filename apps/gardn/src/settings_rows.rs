@@ -2171,6 +2171,12 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
                     }
                 }),
         );
+        rows.push(SettingsListRow::Action {
+            index: first_integration_index + app.integration_recommendations.len(),
+            icon: "◇".into(),
+            label: "Configure Sprites…".into(),
+            tone: SettingsMarkerTone::Accent,
+        });
         return rows;
     };
 
@@ -2204,6 +2210,18 @@ fn integration_rows(app: &AppState, settings: &SettingsState) -> Vec<SettingsLis
             ));
         }
     }
+    let integration_count = match app.host_integration_observations.get(&host_id) {
+        Some(crate::integration::host::HostIntegrationObservation::Ready(snapshot)) => {
+            snapshot.entries.len()
+        }
+        _ => 0,
+    };
+    rows.push(SettingsListRow::Action {
+        index: first_integration_index + integration_count,
+        icon: "◇".into(),
+        label: "Configure Sprites…".into(),
+        tone: SettingsMarkerTone::Accent,
+    });
     rows
 }
 

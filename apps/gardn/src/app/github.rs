@@ -168,6 +168,10 @@ impl App {
     }
 
     pub(crate) fn open_github_for_view(&mut self, view: &mut ClientViewState) {
+        if self.client_view_focused_pane_is_sprite(view) {
+            self.reject_sprite_local_action("GitHub");
+            return;
+        }
         let Some(ws_idx) = view.active_workspace else {
             return;
         };

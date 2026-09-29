@@ -869,6 +869,15 @@ impl HeadlessServer {
         &mut self,
         params: crate::api::schema::ServerLiveHandoffParams,
     ) -> io::Result<()> {
+        self.app.poll_sprites();
+        if !self.app.state.sprite_panes.is_empty()
+            || self.app.sprites_runtime.has_pending_operations()
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "Finish or cancel Sprite operations and disconnect Sprite terminals before a live server handoff. Remote sessions continue and can be reconnected after the update.",
+            ));
+        }
         info!("starting live handoff");
         let import_exe = params.import_exe.as_deref().map(std::path::PathBuf::from);
         let socket_path = crate::server::handoff::handoff_socket_path();
@@ -3671,7 +3680,9 @@ impl HeadlessServer {
                     .unwrap_or_else(|_| "{}".to_string())
                 }),
             )
-        } else if matches!(&msg.request.method, api::schema::Method::AgentFocus(_)) {
+        } else if matches!(&msg.request.method, api::schema::Method::AgentFocus(_))
+            || matches!(&msg.request.method, api::schema::Method::SpritesRequest(params) if params.focus)
+        {
             let target_client = latest_app_client(&self.clients).and_then(|client_id| {
                 self.clients
                     .get_mut(&client_id)

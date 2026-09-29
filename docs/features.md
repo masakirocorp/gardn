@@ -308,6 +308,64 @@ Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAU
 - Amp requires version `0.0.1789716701` or newer. It supports macOS, Linux, and WSL, not native Windows. Its plugin installs to `$XDG_CONFIG_HOME/amp/plugins/gardn-agent-state.ts`, or `~/.config/amp/plugins/gardn-agent-state.ts` when the override is unset. Installation does not change Amp settings or permissions.
 
 
+## Sprites
+
+Sprites is an optional native integration. Enable it in **Settings > Integrations > Sprites**.
+Set the Sprite organization and the local `sprite` and `node` executable paths there.
+Authenticate the Sprite CLI before refreshing inventory or creating a resource.
+The integration is off by default. While it is off, Gardn hides its creation and manager
+actions and does not probe its tools or contact the provider.
+
+- **Creation.** **New Sprite** in the command palette, Space menu, and tab `+` menu opens
+  the same flow. Choose a coordinator-local Git worktree and a compatible agent profile.
+  Creation copies eligible working-tree files and establishes a separate remote Git baseline.
+  Profiles that require local environment values or local wrappers are unavailable.
+  The selected agent executable must exist in the Sprite image. Gardn reports a recoverable
+  preparation error if it does not; it does not install arbitrary agent packages.
+- **Independent inventory.** **Sprite Manager** searches resources in the current Space
+  or all Spaces. Resource identity includes the organization. Records retain their source
+  host, source worktree, agent command, sessions, and operation history after a tab or Space
+  closes. Refresh and Inspect report provider failures instead of treating them as empty inventory.
+  Use `/` or click Search to type a filter without activating lifecycle shortcuts.
+  Use the mouse wheel over details, or Page Up / Page Down, to read long results.
+  **Ops** selects recorded operations for inspection, cancellation, or retry.
+- **Separate lifecycle actions.** Connect attaches to an exact existing session.
+  Start begins a new run. Resume uses an explicit Claude Code or Codex conversation reference.
+  Shell opens a separate remote shell. Disconnect closes only the local transport.
+  A local transport-open result is not proof that the provider accepted attachment.
+- **Safe detach.** Closing a pane, closing Gardn, or disabling the integration does not stop
+  remote sessions or destroy resources. After restarting Gardn, open Sprite Manager and
+  connect explicitly. Gardn does not restore a Sprite transport as a local shell.
+- **Return changes.** Pull Preview lists changed paths and local conflicts. Stop remote
+  sessions before pulling. Pull rejects conflicts, unsafe paths, and symlinks. Transfers
+  exclude common credential paths and do not modify the local Git index.
+- **Explicit cleanup.** Stop targets one known owned session. Checkpoints preserve remote
+  state. Choose an exact version in **Checks** before **Restore**. Restore creates a recovery checkpoint first. Restore and Destroy require an
+  expiring, single-use approval for the exact resource and action. Forget removes only
+  the local record; it does not destroy the cloud resource. Foreign resources have
+  restricted actions.
+- **Authentication.** Agent authentication is manual by default. Credential handoff requires
+  explicit per-create consent and is limited to supported Claude Code and Codex credentials.
+  Gardn does not copy the profile's entire environment or store credentials in operation records.
+- **Boundaries.** SSH source transfer and native editor, Git, or filesystem actions inside a
+  Sprite pane are unavailable. Gardn reports that boundary instead of using a local directory.
+  Agent screen detection and notifications use the attached terminal; a detached cloud
+  session does not provide live agent-state updates.
+- **Limits and recovery.** Creation and operation limits apply across local Gardn sessions.
+  Create requires an idempotency key. Reuse it after a lost response, or retry the recorded
+  failed operation. Retry reconciles the original intent; it does not silently recreate
+  a confirmed missing resource or overwrite a changed remote workspace.
+
+Automation uses `gardn sprites` or the `sprites.request` socket method. Commands use stable
+Space and resource IDs, not whichever pane has focus. Use `--session-id` for a remote
+Sprite session; the global `--session` flag selects a Gardn runtime.
+`--wait SECONDS` is bounded to 1–600 seconds. Exit 3 means approval is required.
+Exit 4 means the wait expired, not that the remote operation failed. Query the returned
+operation ID before retrying.
+
+The legacy Sprites plugin remains separate. Enabling the native integration does not
+modify its registration or adopt its resources automatically.
+
 ## Plugins
 
 Gardn plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Gardn socket API and CLI.
@@ -335,6 +393,7 @@ Gardn is a terminal workspace manager, so some features call user-installed tool
 | `gh` | Authentication, reads, and mutations for the built-in native GitHub screen. | Required for GitHub workflows. Uses existing `gh` authentication. No ghui companion install is required. |
 | Agent CLIs such as `pi`, `omp`, `claude`, `codex`, `grok`, `opencode`, `hermes`, `copilot`, `kimi`, `droid`, `qodercli`, and `cursor-agent` | Launching agent panes and installing/updating matching Gardn integrations. | Required only for the agent/profile the user launches or integrates. |
 | `python3` | Installed hook scripts for agent integrations. | Required for hook-based state/session reports; hooks exit quietly when it is missing. |
+| `sprite` and `node` | Native Sprites provisioning, transfer, and terminal transport. | Required only when the Sprites integration is enabled and used. |
 | `curl` | Update checks, release downloads, manifest refreshes, and remote bootstrap downloads. | Required for those networked update/bootstrap features. |
 | `ssh` | Remote attach, remote install, and remote client bridge. | Required for remote features. |
 | `lsof` | Local TCP listener discovery for the ports panel. | Optional; missing or failing probes produce no port observations. |

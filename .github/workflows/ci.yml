@@ -138,6 +138,9 @@ jobs:
       - name: Run agent plugin tests
         run: pnpm turbo run integration:test --filter=gardn
 
+      - name: Run Sprites backend tests
+        run: pnpm turbo run sprites:test --filter=gardn
+
       - name: Run maintenance tests
         if: runner.os == 'Linux'
         run: pnpm turbo run maintenance:test --filter=gardn-rust

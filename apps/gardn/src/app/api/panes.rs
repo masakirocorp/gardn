@@ -107,6 +107,13 @@ impl App {
                 params.target_pane_id.as_deref().unwrap_or("active pane"),
             ));
         };
+        if self.state.sprite_panes.contains_key(&target_pane_id) {
+            return crate::api::ApiRequestDisposition::Respond(encode_error(
+                id,
+                "sprite_operation_unavailable",
+                "Generic pane splits cannot run inside a Sprite. Use Sprites > Shell.",
+            ));
+        }
         if params.cwd.is_some() && params.location.is_some() {
             return crate::api::ApiRequestDisposition::Respond(encode_error(
                 id,
@@ -2098,7 +2105,7 @@ impl App {
     }
 
     /// Close a pane; `Err` carries the encoded error response.
-    pub(super) fn close_pane(&mut self, id: String, target: &PaneTarget) -> Result<(), String> {
+    pub(crate) fn close_pane(&mut self, id: String, target: &PaneTarget) -> Result<(), String> {
         self.with_default_client_view(|app, view| app.close_pane_for_view(view, id, target))
     }
 

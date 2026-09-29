@@ -152,6 +152,7 @@ pub enum AppEvent {
         cache_updates: Vec<(crate::execution_host::ResourceLocation, GitStatusCacheEntry)>,
         repo_summaries: Vec<(std::path::PathBuf, crate::workspace::GitWorkSummary)>,
     },
+    SpritesUpdated,
     /// A plugin action or event command finished.
     PluginCommandFinished {
         log_id: String,

@@ -719,6 +719,35 @@ mod tests {
     }
 
     #[test]
+    fn client_new_menu_hides_native_sprite_when_disabled_and_renders_it_when_enabled() {
+        let app = AppState::test_new();
+        let mut view = ClientViewState::from_default_client_state(&app);
+        view.computed.terminal_area = Rect::new(0, 0, 40, 24);
+        let menu = |enabled| ContextMenuState {
+            kind: crate::app::state::ContextMenuKind::NewTabButton {
+                ws_idx: 0,
+                project_commands: crate::app::state::ProjectCommandAvailability::NONE
+                    .with_sprites(enabled),
+            },
+            x: 2,
+            y: 2,
+            list: crate::app::state::ModalListState::new(1),
+        };
+        let mut terminal = Terminal::new(TestBackend::new(40, 24)).expect("test backend");
+        view.context_menu = Some(menu(false));
+        terminal
+            .draw(|frame| render_context_menu_for_view(&app, &view, frame))
+            .expect("render disabled menu");
+        assert!(first_cell_with_text(terminal.backend().buffer(), 40, 24, "Sprite").is_none());
+
+        view.context_menu = Some(menu(true));
+        terminal
+            .draw(|frame| render_context_menu_for_view(&app, &view, frame))
+            .expect("render enabled menu");
+        assert!(first_cell_with_text(terminal.backend().buffer(), 40, 24, "Sprite").is_some());
+    }
+
+    #[test]
     fn client_prefix_overlay_uses_active_group_accent() {
         let mut app = AppState::test_new();
         app.palette.accent = Color::Rgb(1, 2, 3);

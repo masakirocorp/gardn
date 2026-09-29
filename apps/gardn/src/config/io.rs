@@ -15,6 +15,7 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "remote",
     "server",
     "session",
+    "sprites",
     "terminal",
     "theme",
     "ui",
@@ -417,6 +418,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut invalid_sections,
         |section| config.agent_profiles = section,
     );
+    load_live_section(
+        &table,
+        "sprites",
+        "Sprites integration config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.sprites = section,
+    );
 
     Ok(LoadedConfig {
         config,
@@ -645,6 +654,77 @@ pub fn upsert_section_bool(content: &str, section: &str, key: &str, value: bool)
     upsert_section_raw(content, section, key, &value.to_string())
 }
 
+pub(crate) fn upsert_sprites_config(
+    content: &str,
+    config: &gardn_local_api::SpritesConfig,
+) -> String {
+    let mut content = upsert_section_bool(content, "sprites", "enabled", config.enabled);
+    for (key, value) in [
+        ("org", toml::Value::String(config.org.clone())),
+        ("sprite_bin", toml::Value::String(config.sprite_bin.clone())),
+        ("node_bin", toml::Value::String(config.node_bin.clone())),
+        (
+            "name_prefix",
+            toml::Value::String(config.name_prefix.clone()),
+        ),
+        (
+            "max_sprites",
+            toml::Value::Integer(config.max_sprites as i64),
+        ),
+        (
+            "max_concurrent_operations",
+            toml::Value::Integer(config.max_concurrent_operations as i64),
+        ),
+        (
+            "max_transfer_mib",
+            toml::Value::Integer(config.max_transfer_mib as i64),
+        ),
+    ] {
+        content = upsert_section_value(&content, "sprites", key, &value.to_string());
+    }
+    content
+}
+
+pub(crate) fn validate_sprites_config(
+    config: &gardn_local_api::SpritesConfig,
+) -> Result<(), String> {
+    if !config.enabled {
+        return Ok(());
+    }
+    if config.org.trim().is_empty() {
+        return Err("Set a Sprite organization before enabling the integration.".into());
+    }
+    if config.org.trim().starts_with('-')
+        || config.org.contains('/')
+        || config.org.contains('\\')
+        || config.org.bytes().any(|byte| byte.is_ascii_control())
+    {
+        return Err("Sprite organization must be a single organization name.".into());
+    }
+    if config.sprite_bin.trim().is_empty() || config.node_bin.trim().is_empty() {
+        return Err("Sprite CLI and Node executable paths must not be empty.".into());
+    }
+    if config.name_prefix.is_empty()
+        || !config
+            .name_prefix
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        || !config.name_prefix.as_bytes()[0].is_ascii_lowercase()
+    {
+        return Err("Sprite name prefix must start with a lowercase ASCII letter and contain only lowercase letters, numbers, and hyphens.".into());
+    }
+    if config.max_sprites == 0
+        || config.max_concurrent_operations == 0
+        || config.max_transfer_mib == 0
+        || config.max_sprites > 10_000
+        || config.max_concurrent_operations > 64
+        || config.max_transfer_mib > 512
+    {
+        return Err("Sprite limits must be positive, with at most 64 concurrent operations and 512 MiB per transfer.".into());
+    }
+    Ok(())
+}
+
 pub fn remove_section_key(content: &str, section: &str, key: &str) -> String {
     let header = format!("[{section}]");
     let lines: Vec<&str> = content.lines().collect();
@@ -826,6 +906,40 @@ mod tests {
     }
 
     #[test]
+    fn sprites_config_validation_is_off_safe_and_matches_backend_limits() {
+        let mut config = gardn_local_api::SpritesConfig::default();
+        config.org.clear();
+        config.sprite_bin.clear();
+        config.node_bin.clear();
+        config.name_prefix = "INVALID_".into();
+        config.max_concurrent_operations = usize::MAX;
+        config.max_transfer_mib = usize::MAX;
+        assert!(validate_sprites_config(&config).is_ok());
+
+        config.enabled = true;
+        config.org = "gardn-org".into();
+        config.sprite_bin = "sprite".into();
+        config.node_bin = "node".into();
+        config.name_prefix = "gardn-".into();
+        config.max_concurrent_operations = 64;
+        config.max_transfer_mib = 512;
+        assert!(validate_sprites_config(&config).is_ok());
+
+        config.max_concurrent_operations = 65;
+        assert!(validate_sprites_config(&config).is_err());
+        config.max_concurrent_operations = 64;
+        config.max_transfer_mib = 513;
+        assert!(validate_sprites_config(&config).is_err());
+
+        config.max_transfer_mib = 512;
+        config.name_prefix = "Gardn-".into();
+        assert!(validate_sprites_config(&config).is_err());
+        config.name_prefix = "gardn-".into();
+        config.org = "bad\\0org".into();
+        assert!(validate_sprites_config(&config).is_err());
+    }
+
+    #[test]
     fn upsert_top_level_bool_replaces_existing_value() {
         let content = "onboarding = true\n[keys]\nprefix = \"ctrl+b\"\n";
         let updated = upsert_top_level_bool(content, "onboarding", false);
@@ -897,6 +1011,29 @@ command = "omp-mk"
         assert_eq!(loaded.config.agent_profiles.custom[0].command, "omp-mk");
         assert!(loaded.diagnostics.is_empty());
         assert!(loaded.invalid_sections.is_empty());
+    }
+
+    #[test]
+    fn sprites_settings_survive_save_and_live_reload() {
+        let config = gardn_local_api::SpritesConfig {
+            enabled: true,
+            org: "chosen-org".into(),
+            ..Default::default()
+        };
+        let saved = upsert_sprites_config("", &config);
+        let loaded = load_live_config_from_str(&saved).expect("saved settings");
+        assert_eq!(loaded.config.sprites, config);
+        assert!(loaded.diagnostics.is_empty(), "{:?}", loaded.diagnostics);
+        let disabled = upsert_sprites_config(
+            &saved,
+            &gardn_local_api::SpritesConfig {
+                enabled: false,
+                ..config
+            },
+        );
+        let loaded = load_live_config_from_str(&disabled).expect("disabled settings");
+        assert!(!loaded.config.sprites.enabled);
+        assert_eq!(loaded.config.sprites.org, "chosen-org");
     }
 
     #[test]

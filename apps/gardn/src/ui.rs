@@ -24,6 +24,7 @@ mod release_notes;
 mod scrollbar;
 mod settings;
 mod sidebar;
+mod sprites;
 mod status;
 mod tabs;
 mod text;
@@ -82,6 +83,7 @@ use self::sidebar::{
     render_collapsed_sidebar_hover_for_view, render_right_sidebar_for_view,
     render_sidebar_collapsed_for_view, render_sidebar_for_view,
 };
+use self::sprites::render_sprites_overlay;
 use self::status::{
     copy_feedback_rect, render_copy_feedback, render_toast_notification, toast_notification_rect,
 };
@@ -1414,6 +1416,7 @@ pub(crate) fn render_with_tab_context(
         Mode::ConfigDiagnostics => {
             render_config_diagnostics_overlay_for_view(app, client_view, frame)
         }
+        Mode::Sprites => render_sprites_overlay(app, client_view, frame, terminal_area),
         Mode::Terminal | Mode::Github => {}
     }
     render_notifications(app, client_view, frame, terminal_area);

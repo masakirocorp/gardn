@@ -717,6 +717,7 @@ pub struct PaneRuntime {
     io: PaneRuntimeIo,
     current_size: Cell<(u16, u16, u32, u32)>,
     child_pid: Arc<AtomicU32>,
+    inspect_local_cwd: bool,
     child_wait_completed: Option<Arc<AtomicBool>>,
     kitty_keyboard_flags: Arc<AtomicU16>,
     content_seq: Arc<AtomicU64>,
@@ -1473,6 +1474,7 @@ impl PaneRuntime {
                 },
                 current_size: Cell::new((rows, cols, 0, 0)),
                 child_pid,
+                inspect_local_cwd: false,
                 child_wait_completed: None,
                 kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
                 content_seq,
@@ -1871,6 +1873,7 @@ impl PaneRuntime {
             io,
             current_size: Cell::new((rows, cols, cell_width_px, cell_height_px)),
             child_pid,
+            inspect_local_cwd: true,
             child_wait_completed: None,
             kitty_keyboard_flags,
             content_seq,
@@ -2385,6 +2388,7 @@ impl PaneRuntime {
             io,
             current_size: Cell::new((rows, cols, 0, 0)),
             child_pid,
+            inspect_local_cwd: true,
             child_wait_completed: Some(child_wait_completed),
             kitty_keyboard_flags,
             content_seq,
@@ -2778,14 +2782,24 @@ impl PaneRuntime {
         )))
     }
 
+    pub(crate) fn disable_local_cwd_inspection(&mut self) {
+        self.inspect_local_cwd = false;
+    }
+
     /// Get the current working directory of the child shell process.
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
+        if !self.inspect_local_cwd {
+            return None;
+        }
         let pid = self.child_pid.load(Ordering::Relaxed);
         crate::platform::process_cwd(pid)
     }
 
     /// Get the current working directory of the process group controlling the pane PTY.
     pub fn foreground_cwd(&self) -> Option<std::path::PathBuf> {
+        if !self.inspect_local_cwd {
+            return None;
+        }
         #[cfg(unix)]
         {
             let pid = self.child_pid.load(Ordering::Acquire);
@@ -2875,6 +2889,7 @@ impl PaneRuntime {
                 },
                 current_size: Cell::new((rows, cols, 0, 0)),
                 child_pid: Arc::new(AtomicU32::new(0)),
+                inspect_local_cwd: true,
                 child_wait_completed: None,
                 kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
                 content_seq: Arc::new(AtomicU64::new(0)),
@@ -3539,6 +3554,7 @@ mod tests {
             },
             current_size: Cell::new((80, 24, 0, 0)),
             child_pid: Arc::new(AtomicU32::new(0)),
+            inspect_local_cwd: true,
             child_wait_completed: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             content_seq: Arc::new(AtomicU64::new(0)),
@@ -3569,6 +3585,7 @@ mod tests {
             },
             current_size: Cell::new((80, 24, 0, 0)),
             child_pid: Arc::new(AtomicU32::new(0)),
+            inspect_local_cwd: true,
             child_wait_completed: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             content_seq: Arc::new(AtomicU64::new(0)),

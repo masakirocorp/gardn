@@ -658,6 +658,8 @@ impl Workspace {
         )
     }
 
+    // A first argv tab needs the same runtime handles as a first shell tab.
+    #[allow(clippy::too_many_arguments)]
     pub fn create_tab_argv_command(
         &mut self,
         rows: u16,
@@ -667,6 +669,9 @@ impl Workspace {
         extra_env: Vec<(String, String)>,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
+        events: mpsc::Sender<AppEvent>,
+        render_notify: Arc<Notify>,
+        render_dirty: Arc<crate::render_signal::RenderSignal>,
     ) -> std::io::Result<(usize, TerminalState, TerminalRuntime)> {
         self.create_tab_with_runtime(
             rows,
@@ -678,9 +683,9 @@ impl Workspace {
             None,
             Some(argv),
             extra_env,
-            None,
-            None,
-            None,
+            Some(events),
+            Some(render_notify),
+            Some(render_dirty),
         )
     }
 

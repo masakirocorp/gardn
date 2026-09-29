@@ -85,6 +85,14 @@ pub(crate) enum ClientViewEffect {
         client_view_id: u64,
         marker: crate::api::PendingFocusMarker,
     },
+    /// Focus a Sprite connection only in the client that explicitly requested it.
+    FocusSpritePane {
+        client_view_id: u64,
+        workspace_id: String,
+        tab_number: usize,
+        pane_id: PaneId,
+        group_index: usize,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -368,6 +376,7 @@ pub(crate) struct ClientViewState {
     pub(crate) terminal_offsets_from_bottom: HashMap<TerminalId, TerminalViewportOffset>,
     pub(crate) input_leases: crate::app::input::InputLeaseTable,
     pub(crate) settings: SettingsState,
+    pub(crate) sprite_ui: crate::app::sprites_ui::SpriteUiState,
     pub(crate) command_palette: CommandPaletteState,
     pub(crate) navigator: NavigatorState,
     pub(crate) agent_profile_picker: AgentProfilePickerState,
@@ -500,6 +509,7 @@ impl ClientViewState {
             terminal_offsets_from_bottom: HashMap::new(),
             input_leases: crate::app::input::InputLeaseTable::default(),
             settings: SettingsState::default(),
+            sprite_ui: crate::app::sprites_ui::SpriteUiState::default(),
             command_palette: CommandPaletteState::default(),
             navigator: NavigatorState::default(),
             agent_profile_picker: AgentProfilePickerState::default(),
@@ -795,6 +805,18 @@ impl ClientViewState {
                     };
                 }
             }
+        }
+        self.sprite_ui.reconcile(state);
+        if self.mode == Mode::Sprites
+            && !state.sprites_config.enabled
+            && !matches!(
+                self.sprite_ui.screen,
+                crate::app::sprites_ui::SpriteUiScreen::Settings
+                    | crate::app::sprites_ui::SpriteUiScreen::DisableConfirm
+            )
+        {
+            self.mode = Mode::Navigate;
+            self.sprite_ui = crate::app::sprites_ui::SpriteUiState::default();
         }
         // Connection editor drafts (including install/forget substate) remain owned by
         // this client view. Shared host status is reconciled separately.
@@ -1489,6 +1511,27 @@ impl ClientViewState {
                 }
                 self.clear_pending_focus_marker_if_matches(marker)
             }
+            ClientViewEffect::FocusSpritePane {
+                client_view_id,
+                workspace_id,
+                group_index,
+                tab_number,
+                pane_id,
+            } => {
+                if self.id != *client_view_id {
+                    return false;
+                }
+                let key = ClientTabViewKey::new(workspace_id, *tab_number);
+                self.active_workspace_id = Some(workspace_id.clone());
+                self.active_group = *group_index;
+                self.selected_workspace_id = Some(workspace_id.clone());
+                self.active_tabs.insert(workspace_id.clone(), *tab_number);
+                self.focused_panes.insert(key, *pane_id);
+                self.mode = Mode::Terminal;
+                self.selection = None;
+                self.selection_autoscroll = None;
+                true
+            }
         }
     }
 
@@ -1894,6 +1937,47 @@ mod tests {
         assert_eq!(view.mode, Mode::Navigate);
         assert!(view.active_tabs.is_empty());
         assert!(view.focused_panes.is_empty());
+    }
+
+    #[test]
+    fn sprite_focus_switches_only_requesting_client_to_target_group_and_pane() {
+        let mut state = AppState::test_new();
+        let mut target_group = crate::app::state::Group::default_group();
+        target_group.id = "target-group".to_string();
+        state.groups.push(target_group);
+        state.workspaces = vec![Workspace::test_new("other"), Workspace::test_new("target")];
+        state.workspaces[1].group_id = "target-group".to_string();
+        let workspace_id = state.workspaces[1].id.clone();
+        let pane_id = state.workspaces[1].terminal_tab(0).unwrap().root_pane;
+        let mut requester = ClientViewState::from_default_client_state(&state);
+        let mut other = ClientViewState::from_default_client_state(&state);
+        requester.group_filter_enabled = true;
+        requester.active_group = 0;
+        let effect = ClientViewEffect::FocusSpritePane {
+            client_view_id: requester.id(),
+            workspace_id: workspace_id.clone(),
+            group_index: 1,
+            tab_number: 1,
+            pane_id,
+        };
+
+        assert!(requester.apply_client_view_effect(&effect));
+        assert!(!other.apply_client_view_effect(&effect));
+        assert_eq!(requester.active_group, 1);
+        assert!(requester.group_filter_enabled);
+        assert_eq!(
+            requester.active_workspace_id.as_deref(),
+            Some(workspace_id.as_str())
+        );
+        assert_eq!(
+            requester.focused_pane_for_tab(&workspace_id, 1),
+            Some(pane_id)
+        );
+        assert_ne!(
+            other.active_workspace_id.as_deref(),
+            Some(workspace_id.as_str())
+        );
+        assert_ne!(other.active_group, 1);
     }
 
     #[test]

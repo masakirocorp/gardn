@@ -1625,6 +1625,7 @@ pub enum Mode {
     GitRepoPicker,
     Github,
     ConfigDiagnostics,
+    Sprites,
 }
 
 impl Mode {
@@ -2802,6 +2803,101 @@ const NEW_TAB_CONTEXT_MENU_ITEMS: [&[&str]; 16] = [
     ],
 ];
 
+const WORKSPACE_CONTEXT_MENU_ITEMS_WITH_SPRITES: [&[&str]; 16] = [
+    &[
+        "new", "tab", "agent", "sprite", "---", "manage", "rename", "settings", "---", "danger",
+        "close",
+    ],
+    &[
+        "new", "tab", "agent", "review", "sprite", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "browser", "sprite", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "review", "browser", "sprite", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "sprite", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "review", "sprite", "---", "manage", "rename", "settings",
+        "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "browser", "sprite", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "review", "browser", "sprite", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "github", "sprite", "---", "manage", "rename", "settings", "---",
+        "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "review", "github", "sprite", "---", "manage", "rename", "settings",
+        "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "github", "browser", "sprite", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "review", "github", "browser", "sprite", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "github", "sprite", "---", "manage", "rename", "settings",
+        "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "review", "github", "sprite", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "github", "browser", "sprite", "---", "manage", "rename",
+        "settings", "---", "danger", "close",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "review", "github", "browser", "sprite", "---", "manage",
+        "rename", "settings", "---", "danger", "close",
+    ],
+];
+
+const NEW_TAB_CONTEXT_MENU_ITEMS_WITH_SPRITES: [&[&str]; 16] = [
+    &["new", "tab", "agent", "sprite"],
+    &["new", "tab", "agent", "review", "sprite"],
+    &["new", "tab", "agent", "browser", "sprite"],
+    &["new", "tab", "agent", "review", "browser", "sprite"],
+    &["new", "tab", "agent", "editor", "sprite"],
+    &["new", "tab", "agent", "editor", "review", "sprite"],
+    &["new", "tab", "agent", "editor", "browser", "sprite"],
+    &[
+        "new", "tab", "agent", "editor", "review", "browser", "sprite",
+    ],
+    &["new", "tab", "agent", "github", "sprite"],
+    &["new", "tab", "agent", "review", "github", "sprite"],
+    &["new", "tab", "agent", "github", "browser", "sprite"],
+    &[
+        "new", "tab", "agent", "review", "github", "browser", "sprite",
+    ],
+    &["new", "tab", "agent", "editor", "github", "sprite"],
+    &[
+        "new", "tab", "agent", "editor", "review", "github", "sprite",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "github", "browser", "sprite",
+    ],
+    &[
+        "new", "tab", "agent", "editor", "review", "github", "browser", "sprite",
+    ],
+];
 #[derive(Clone, Copy)]
 struct PaneMenuItems {
     rows: [&'static str; 10],
@@ -2903,7 +2999,13 @@ impl ContextMenuState {
             } => &["new", "space", "group", "---", "manage", "settings"],
             ContextMenuKind::Workspace {
                 project_commands, ..
-            } => WORKSPACE_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
+            } => {
+                if project_commands.sprites_enabled() {
+                    WORKSPACE_CONTEXT_MENU_ITEMS_WITH_SPRITES[project_commands.menu_index()]
+                } else {
+                    WORKSPACE_CONTEXT_MENU_ITEMS[project_commands.menu_index()]
+                }
+            }
             ContextMenuKind::Tab { .. } => &["rename", "close", "close other tabs"],
             ContextMenuKind::Agent {
                 in_follow_up: false,
@@ -2927,7 +3029,13 @@ impl ContextMenuState {
             } => REMOVE_FROM_FOLLOW_UP_AND_REVIEW_CONTEXT_ITEMS,
             ContextMenuKind::NewTabButton {
                 project_commands, ..
-            } => NEW_TAB_CONTEXT_MENU_ITEMS[project_commands.menu_index()],
+            } => {
+                if project_commands.sprites_enabled() {
+                    NEW_TAB_CONTEXT_MENU_ITEMS_WITH_SPRITES[project_commands.menu_index()]
+                } else {
+                    NEW_TAB_CONTEXT_MENU_ITEMS[project_commands.menu_index()]
+                }
+            }
             ContextMenuKind::Pane {
                 zoom,
                 can_mutate: false,
@@ -2989,6 +3097,7 @@ impl ContextMenuState {
             "group" => "Group",
             "tab" => "Terminal",
             "agent" => "Agent",
+            "sprite" => "Sprite",
             "browser" => "Browser",
             "review" => "Review",
             "editor" => "Editor",
@@ -3276,6 +3385,44 @@ mod context_menu_tests {
         assert_eq!(
             menu(ProjectCommandAvailability::GITHUB).items(),
             &["new", "tab", "agent", "github"]
+        );
+    }
+
+    #[test]
+    fn native_sprite_menu_action_is_absent_when_disabled_and_present_when_enabled() {
+        let menu = |availability| ContextMenuState {
+            kind: ContextMenuKind::NewTabButton {
+                ws_idx: 0,
+                project_commands: availability,
+            },
+            x: 0,
+            y: 0,
+            list: ModalListState::new(1),
+        };
+        let disabled = menu(ProjectCommandAvailability::NONE.with_sprites(false));
+        let enabled = menu(ProjectCommandAvailability::NONE.with_sprites(true));
+
+        assert!(!disabled.items().contains(&"sprite"));
+        assert!(enabled.items().contains(&"sprite"));
+        assert_eq!(ContextMenuState::item_display_label("sprite"), "Sprite");
+        let space_menu = |availability| ContextMenuState {
+            kind: ContextMenuKind::Workspace {
+                ws_idx: 0,
+                project_commands: availability,
+            },
+            x: 0,
+            y: 0,
+            list: ModalListState::new(1),
+        };
+        assert!(
+            !space_menu(ProjectCommandAvailability::NONE.with_sprites(false))
+                .items()
+                .contains(&"sprite")
+        );
+        assert!(
+            space_menu(ProjectCommandAvailability::NONE.with_sprites(true))
+                .items()
+                .contains(&"sprite")
         );
     }
 
@@ -3583,6 +3730,7 @@ impl ProjectCommandAvailability {
     pub const REVIEW: Self = Self(1 << 0);
     pub const EDITOR: Self = Self(1 << 2);
     pub const GITHUB: Self = Self(1 << 3);
+    const SPRITES: u8 = 1 << 4;
     #[cfg(test)]
     pub const ALL: Self = Self(Self::BROWSER.0 | Self::REVIEW.0 | Self::EDITOR.0 | Self::GITHUB.0);
 
@@ -3608,6 +3756,17 @@ impl ProjectCommandAvailability {
         }
         Self(bits)
     }
+    pub(crate) const fn with_sprites(self, enabled: bool) -> Self {
+        if enabled {
+            Self(self.0 | Self::SPRITES)
+        } else {
+            Self(self.0 & !Self::SPRITES)
+        }
+    }
+
+    const fn sprites_enabled(self) -> bool {
+        self.0 & Self::SPRITES != 0
+    }
 
     #[cfg(test)]
     pub const fn union(self, other: Self) -> Self {
@@ -3615,7 +3774,7 @@ impl ProjectCommandAvailability {
     }
 
     const fn menu_index(self) -> usize {
-        self.0 as usize
+        (self.0 & 0x0f) as usize
     }
 }
 
@@ -3690,6 +3849,9 @@ pub struct AppState {
     pub(crate) client_overlay_owners: std::collections::HashMap<PaneId, u64>,
     pub(crate) pane_id_aliases: std::collections::HashMap<u32, PaneId>,
     pub(crate) public_pane_id_aliases: std::collections::HashMap<String, PaneId>,
+    pub(crate) sprite_panes: std::collections::HashMap<PaneId, String>,
+    pub(crate) sprites_config: crate::api::schema::SpritesConfig,
+    pub(crate) sprites_snapshot: crate::api::schema::SpriteSnapshot,
     pub workspaces: Vec<Workspace>,
     pub should_quit: bool,
     /// In monolithic --no-session mode, detach exits the app because there is no server to detach from.
@@ -4637,6 +4799,9 @@ impl AppState {
             blocked_review_generations: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
             client_overlay_owners: std::collections::HashMap::new(),
+            sprite_panes: std::collections::HashMap::new(),
+            sprites_config: crate::api::schema::SpritesConfig::default(),
+            sprites_snapshot: crate::api::schema::SpriteSnapshot::default(),
             pane_id_aliases: std::collections::HashMap::new(),
             public_pane_id_aliases: std::collections::HashMap::new(),
             workspaces: Vec::new(),

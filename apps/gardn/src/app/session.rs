@@ -49,19 +49,22 @@ impl App {
         {
             SessionSaveJob::Clear
         } else {
+            // Sprite attachments are disposable transports, not coordinator shells.
+            // Their resources and remote sessions are restored from the Sprite catalog.
+            let workspaces = self.workspaces_without_sprite_transports();
             let snapshot = crate::persist::capture(
                 &self.state.groups,
                 &self.state.session_namespace_id,
                 &self.state.remote_termination_tombstones,
-                &self.state.workspaces,
+                &workspaces,
                 &self.state.terminals,
                 &self.terminal_runtimes,
                 &default_view,
                 &default_view.agent_follow_up,
             );
-            let history = self.persist_pane_history.then(|| {
-                crate::persist::capture_history(&self.state.workspaces, &self.terminal_runtimes)
-            });
+            let history = self
+                .persist_pane_history
+                .then(|| crate::persist::capture_history(&workspaces, &self.terminal_runtimes));
             SessionSaveJob::Save {
                 snapshot: Box::new(snapshot),
                 history,

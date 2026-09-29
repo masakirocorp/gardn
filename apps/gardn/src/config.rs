@@ -37,7 +37,8 @@ pub use self::{
 };
 
 pub(crate) use self::io::{
-    mutate_config_file, plan_native_notification_default, upsert_top_level_bool,
+    mutate_config_file, plan_native_notification_default, upsert_sprites_config,
+    upsert_top_level_bool, validate_sprites_config,
 };
 pub(crate) use self::keybinds::parse_key_combo;
 pub(crate) use self::window_title::{sanitize_window_title_text, window_title_diagnostics};

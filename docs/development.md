@@ -131,6 +131,11 @@ Use focused checks while editing. Keep the complete quality graph at the deliver
 
    Agent plugin tests require Bun 1.4 or newer. Run `pnpm turbo run integration:test --filter=gardn` for the socket and lifecycle checks. The same task runs in `pnpm test`, `pnpm check`, and Unix CI.
 
+   Native Sprites backend checks use Node's test runner:
+   `pnpm turbo run sprites:test --filter=gardn`. They exercise an isolated provider
+   fixture and do not contact Sprites. Real-provider smoke checks must use a disposable,
+   explicitly named resource and isolated Gardn state.
+
 2. Build and run the checkout for local behavior:
 
    ```bash

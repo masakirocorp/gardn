@@ -49,6 +49,10 @@ impl App {
         ev: AppEvent,
         notification_is_active_tab: Option<bool>,
     ) {
+        if matches!(ev, AppEvent::SpritesUpdated) {
+            self.poll_sprites();
+            return;
+        }
         if let AppEvent::ConnectionRetirementPreviewed {
             authentication_owner,
             profile_id,
@@ -1082,6 +1086,13 @@ impl App {
     ) -> crate::api::ApiRequestDisposition {
         let method_for_cleanup = request.method.clone();
         match request.method {
+            crate::api::schema::Method::SpritesRequest(params) => {
+                self.poll_sprites();
+                let response =
+                    self.handle_sprites_request_for_view(client_view, request.id, params);
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(response)
+            }
             crate::api::schema::Method::AgentViewSet(params) => {
                 self.drain_internal_events();
                 let response = self.handle_agent_view_set_for_view(client_view, request.id, params);
@@ -1896,6 +1907,16 @@ impl App {
             Method::IntegrationUninstall(params) => {
                 return crate::api::ApiRequestDisposition::Respond(
                     self.handle_integration_uninstall(request.id, params),
+                );
+            }
+            Method::SpritesRequest(params) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_sprites_request(request.id, params),
+                );
+            }
+            Method::SpritesCapabilities(_) => {
+                return crate::api::ApiRequestDisposition::Respond(
+                    self.handle_sprites_capabilities(request.id),
                 );
             }
             Method::PluginLink(params) => {

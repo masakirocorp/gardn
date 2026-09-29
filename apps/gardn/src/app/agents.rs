@@ -324,6 +324,10 @@ impl App {
         err: AgentStartError,
     ) -> crate::api::schema::ErrorBody {
         match err {
+            AgentStartError::SpriteTarget => crate::api::schema::ErrorBody {
+                code: "sprite_operation_unavailable".into(),
+                message: "Use sprites.request start or resume to launch an agent on a Sprite.".into(),
+            },
             AgentStartError::InvalidName => crate::api::schema::ErrorBody {
                 code: "invalid_agent_name".into(),
                 message: "agent name must not be empty".into(),
@@ -523,6 +527,9 @@ impl App {
         requested_location: Option<crate::execution_host::ResourceLocation>,
         cwd_was_explicit: bool,
     ) -> Result<AgentStartPlacement, AgentStartError> {
+        if self.state.sprite_panes.contains_key(&target_pane) {
+            return Err(AgentStartError::SpriteTarget);
+        }
         let (rows, cols) = self.state.estimate_pane_size();
         let direction = match split {
             SplitDirection::Right => ratatui::layout::Direction::Horizontal,
@@ -734,6 +741,7 @@ enum AgentStartPlacement {
 
 #[derive(Debug)]
 pub(super) enum AgentStartError {
+    SpriteTarget,
     InvalidName,
     EmptyArgv,
     TargetNotFound {

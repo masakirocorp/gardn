@@ -63,6 +63,8 @@ pub(crate) enum CommandPaletteAction {
     CustomCommand(usize),
     ProjectCommand(String),
     NewAgent,
+    NewSprite,
+    SpriteManager,
 }
 impl CommandPaletteAction {
     pub(crate) fn project_command_kind(&self) -> Option<super::state::ProjectCommandKind> {
@@ -293,6 +295,18 @@ pub(crate) fn command_palette_commands(state: &AppState) -> Vec<CommandPaletteCo
         ),
         CommandPaletteCommand::new("Detach / Quit", "app", CommandPaletteAction::DetachOrQuit),
     ];
+    if state.sprites_config.enabled {
+        commands.push(CommandPaletteCommand::new(
+            "New Sprite",
+            "sprites",
+            CommandPaletteAction::NewSprite,
+        ));
+        commands.push(CommandPaletteCommand::new(
+            "Sprite Manager",
+            "sprites",
+            CommandPaletteAction::SpriteManager,
+        ));
+    }
 
     commands.extend(state.groups.iter().enumerate().map(|(idx, group)| {
         CommandPaletteCommand::new(
@@ -412,6 +426,8 @@ fn command_palette_key_label(state: &AppState, action: &CommandPaletteAction) ->
         | CommandPaletteAction::ShowAllGroups
         | CommandPaletteAction::SwitchGroup(_)
         | CommandPaletteAction::NewAgent
+        | CommandPaletteAction::NewSprite
+        | CommandPaletteAction::SpriteManager
         | CommandPaletteAction::SetAgentScope(_)
         | CommandPaletteAction::OpenGlobalMenu => None,
     }
@@ -552,5 +568,19 @@ mod tests {
 
         assert_eq!(command.action, CommandPaletteAction::OpenNavigator);
         assert_eq!(command.key_label, state.keybinds.workspace_picker.label());
+    }
+
+    #[test]
+    fn sprite_creation_is_hidden_until_enabled() {
+        let mut state = AppState::test_new();
+        let view = ClientViewState::from_default_client_state(&state);
+        assert!(!command_palette_commands_for_view(&state, &view)
+            .iter()
+            .any(|command| command.action == CommandPaletteAction::NewSprite));
+
+        state.sprites_config.enabled = true;
+        assert!(command_palette_commands_for_view(&state, &view)
+            .iter()
+            .any(|command| command.action == CommandPaletteAction::NewSprite));
     }
 }

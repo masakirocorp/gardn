@@ -538,9 +538,9 @@ pub struct Config {
     pub update: UpdateConfig,
     pub experimental: ExperimentalConfig,
     pub remote: RemoteConfig,
+    pub sprites: crate::api::schema::SpritesConfig,
     pub agent_profiles: crate::agent_profiles::AgentProfilesConfig,
 }
-
 #[derive(Debug)]
 pub struct LoadedConfig {
     pub config: Config,
