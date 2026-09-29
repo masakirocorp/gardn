@@ -90,3 +90,25 @@ impl OutputLog {
         (expected_base == log.revision).then_some(deltas)
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::OutputLog;
+
+    #[test]
+    fn replay_requires_a_contiguous_retained_revision() {
+        let output = OutputLog::new(6);
+        let observe = output.observer();
+        observe(b"ab");
+        observe(b"cd");
+        observe(b"efgh");
+
+        assert_eq!(output.deltas_after(0), None);
+        assert_eq!(
+            output.deltas_after(1),
+            Some(vec![(1, 2, b"cd".to_vec()), (2, 3, b"efgh".to_vec())])
+        );
+        assert_eq!(output.deltas_after(3), Some(Vec::new()));
+        assert_eq!(output.deltas_after(4), None);
+    }
+}

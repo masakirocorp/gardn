@@ -416,6 +416,7 @@ impl WorkerState {
             .map_err(|error| worker_error(WorkerErrorCode::Failed, error.to_string()))?;
         let launch_env = PaneLaunchEnv::from_extra(env)
             .with_worker_hook_endpoint(self.hook_ingress.socket_path(), hook_token)
+            .with_graphics_capture()
             .with_output_observer(output.observer());
         // PaneId is still required by TerminalRuntime's PTY adapter; it is not
         // stored on worker records or exposed through worker events.

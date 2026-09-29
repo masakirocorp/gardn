@@ -5,7 +5,7 @@
 //! it. Screen contents, cursors, and history are encoded by `screen.zig` and
 //! `history.zig`.
 //!
-//! Snapshot version 1 supports the primary screen and an optional alternate
+//! Snapshot version 2 supports the primary screen and an optional alternate
 //! screen. `screen_count` is therefore one or two. SCREEN records identify
 //! their destination by key and may appear in either order. Canonical encoders
 //! write primary first, then alternate when present. `active_screen_key` must
@@ -224,23 +224,27 @@
 //!
 //! SCREEN and HISTORY sequences encode each Screen's pages, cursor, saved
 //! cursor, charset, protected mode, Kitty keyboard stack, semantic-click state,
-//! and complete history. The semantic-prompt `seen` bit is derived from
-//! restored resident content.
+//! complete history, and Kitty graphics state. The `seen` semantic-prompt bit
+//! is derived from restored resident content.
 //!
-//! Native allocators, I/O implementations, pools, pointers, page IDs, byte
-//! accounting, tracked pins, and ScreenSet generations are reconstructed.
+//! Kitty graphics records direct decoded pixel data, animation state, placement
+//! metadata, and unfinished chunked uploads. Pin-backed placements are encoded
+//! by canonical active-screen coordinates and rebuilt as native tracked pins.
+//! Runtime-local image-medium permissions, temporary-directory paths,
+//! callbacks, allocators, I/O implementations, pools, pointers, page IDs, byte
+//! accounting, tracked pins, and ScreenSet generations are reconstructed or
+//! supplied by the destination. Native image generations are freshly assigned.
+//!
 //! PageList row totals and the active viewport are derived from decoded pages.
 //! The destination surface supplies its own focus state. Selections, scrolled
 //! viewports, selection-scroll activity, dirty flags, search flags, hyperlink
 //! hover state, and incremental compression state are presentation or cache
 //! state and reset during restore.
 //!
-//! Kitty image state and glyph glossary registrations are unsupported by this
-//! snapshot version and are ignored during capture. Unicode virtual placeholder
-//! cells are preserved as grid content, but their image and placement state is
-//! not restored. Build-time terminal behavior, Unicode width policy, parser
-//! continuation, and external callbacks are version-level or caller-local
-//! requirements.
+//! Unicode virtual placeholder cells are preserved as grid content alongside
+//! their image and placement state. Build-time terminal behavior, Unicode width
+//! policy, parser continuation, and external callbacks are version-level or
+//! caller-local requirements.
 //!
 //! Native enum declaration indices and mode bit positions used by this format
 //! are snapshot-version registries. Changing any of them requires a snapshot

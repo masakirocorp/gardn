@@ -637,7 +637,7 @@ pub fn decodeExact(
 
 const test_encode_options: EncodeOptions = .{ .continuation = .ground };
 const test_decode_options: DecodeOptions = .{ .max_continuation_bytes = 1024 };
-const test_complete_fixture = test_fixture.parse(@embedFile("testdata/complete-v1.hex"));
+const test_complete_fixture = test_fixture.parse(@embedFile("testdata/complete-v2.hex"));
 
 /// Build a 2x3 test terminal whose primary screen carries `history_pages`
 /// complete two-row pages above a three-row active page. The top-left cell
@@ -797,8 +797,8 @@ test "complete snapshot round trip with history and alternate screen" {
     try testing.expectEqualDeep(source_memory, primary.pages.memoryStats());
     try test_fixture.expectEqual(
         .snapshot,
-        "src/terminal/snapshot/testdata/complete-v1.hex",
-        "snapshot_fixture-complete-v1.hex",
+        "src/terminal/snapshot/testdata/complete-v2.hex",
+        "snapshot_fixture-complete-v2.hex",
         &test_complete_fixture,
         encoded.written(),
     );
@@ -913,6 +913,87 @@ test "complete snapshot round trip with history and alternate screen" {
     try testing.expectEqual(
         @as(usize, 0),
         reversed_terminal.screens.generation(.alternate),
+    );
+}
+
+test "complete snapshot restores a pinned Kitty image from history" {
+    const testing = std.testing;
+    var source_terminal = try testHistoryTerminal(2);
+    defer source_terminal.deinit(testing.allocator);
+
+    const source_screen = source_terminal.screens.get(.primary).?;
+    const pin = source_screen.pages.pin(.{ .screen = .{} }).?;
+    try source_screen.kitty_images.addImage(
+        testing.io,
+        testing.allocator,
+        source_screen,
+        .{
+            .id = 9,
+            .number = 4,
+            .width = 1,
+            .height = 1,
+            .data = .{ .complete = try testing.allocator.dupe(
+                u8,
+                &.{ 0x12, 0x34, 0x56, 0xff },
+            ) },
+        },
+    );
+    try source_screen.kitty_images.addPlacement(
+        testing.io,
+        testing.allocator,
+        source_screen,
+        9,
+        3,
+        .{
+            .location = .{ .pin = try source_screen.pages.trackPin(pin) },
+            .columns = 1,
+            .rows = 1,
+        },
+    );
+
+    var encoded: std.Io.Writer.Allocating = .init(testing.allocator);
+    defer encoded.deinit();
+    try encode(testing.allocator, &encoded.writer, &source_terminal, .{
+        .continuation = .ground,
+    });
+
+    var reader: std.Io.Reader = .fixed(encoded.written());
+    var decoded = try decode(
+        testing.allocator,
+        testing.io,
+        &reader,
+        test_decode_options,
+    );
+    defer decoded.deinit(testing.allocator);
+    const restored = decoded.terminal.?.screens.get(.primary).?;
+    const image = restored.kitty_images.images.get(9).?;
+    try testing.expectEqualSlices(
+        u8,
+        &.{ 0x12, 0x34, 0x56, 0xff },
+        image.data.bytes().?,
+    );
+
+    var placements = restored.kitty_images.placements.iterator();
+    const placement = placements.next().?;
+    try testing.expectEqual(@as(u32, 3), placement.key_ptr.placement_id.id);
+    const restored_pin = placement.value_ptr.location.pin.*;
+    const restored_point = restored.pages.pointFromPin(.screen, restored_pin).?;
+    try testing.expectEqual(@as(@TypeOf(restored_point.screen.x), 0), restored_point.screen.x);
+    try testing.expectEqual(@as(@TypeOf(restored_point.screen.y), 0), restored_point.screen.y);
+    try testing.expectEqual(
+        @as(u21, 'A'),
+        restored_pin.node.page().getRowAndCell(
+            restored_pin.y,
+            restored_pin.x,
+        ).cell.codepoint(),
+    );
+
+    // The restored native pin remains a valid viewport target for scrolling
+    // back to the image's history row.
+    restored.pages.scroll(.{ .pin = restored_pin });
+    try testing.expectEqual(
+        restored_pin.node,
+        restored.pages.getTopLeft(.viewport).node,
     );
 }
 
@@ -1204,10 +1285,8 @@ test "complete snapshot preserves Kitty virtual placeholders" {
     });
     defer t.deinit(testing.allocator);
 
-    // Register a real virtual placement, then write its grid representation:
-    // U+10EEEE followed by row and column diacritics. The image and placement
-    // registry is intentionally omitted, but the grid content must remain
-    // decodable.
+    // Register a virtual placement, then preserve its grid representation:
+    // U+10EEEE followed by row and column diacritics.
     try t.screens.active.kitty_images.addImage(
         testing.io,
         testing.allocator,
@@ -1260,14 +1339,6 @@ test "complete snapshot preserves Kitty virtual placeholders" {
     );
     try testing.expect(restored_cell.cell.hasGrapheme());
     try testing.expect(restored_cell.row.kitty_virtual_placeholder);
-    try testing.expectEqual(
-        @as(usize, 0),
-        restored_terminal.screens.active.kitty_images.images.count(),
-    );
-    try testing.expectEqual(
-        @as(usize, 0),
-        restored_terminal.screens.active.kitty_images.placements.count(),
-    );
 }
 
 test "complete snapshot encoding streams from the current writer position" {

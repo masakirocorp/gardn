@@ -26,8 +26,11 @@ pub(super) fn capture_output(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    crate::platform::configure_cancellable_command(command);
+    let mut terminal = crate::platform::configure_cancellable_command_with_tty(command);
     let mut child = command.spawn()?;
+    if let Some(terminal) = &mut terminal {
+        terminal.child_started(&child);
+    }
     let (Some(mut stdin), Some(stdout), Some(stderr)) =
         (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
@@ -223,7 +226,7 @@ pub(super) fn await_stream_preamble(
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
-    use std::io::Cursor;
+    use std::io::{Cursor, Write as _};
 
     #[test]
     fn framed_script_ignores_banners_and_preserves_binary_output_and_exit_status() {
@@ -302,6 +305,122 @@ mod tests {
         let _ = std::fs::remove_file(ready);
         assert!(started, "command did not report readiness");
         assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
+    }
+    #[test]
+    fn ssh_authentication_can_read_an_answer_from_the_controlling_tty() {
+        const FIXTURE_ENV: &str = "GARDN_SSH_TTY_TEST_FIXTURE";
+        if std::env::var_os(FIXTURE_ENV).is_some() {
+            let output = capture_output(
+                Command::new("/bin/sh").args([
+                    "-c",
+                    "printf 'Password: ' > /dev/tty; IFS= read -r answer < /dev/tty; printf '%s' \"$answer\"",
+                ]),
+                io::empty(),
+                None,
+                Duration::from_secs(3),
+            )
+            .expect("SSH authentication command should read its tty answer");
+            assert!(output.status.success(), "{output:?}");
+            assert_eq!(output.stdout, b"provided-password");
+            return;
+        }
+
+        let pair = portable_pty::native_pty_system()
+            .openpty(portable_pty::PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut fixture = portable_pty::CommandBuilder::new(std::env::current_exe().unwrap());
+        fixture.args([
+            "--exact",
+            "remote::command::tests::ssh_authentication_can_read_an_answer_from_the_controlling_tty",
+            "--nocapture",
+        ]);
+        fixture.env(FIXTURE_ENV, "1");
+        let mut child = pair.slave.spawn_command(fixture).unwrap();
+        drop(pair.slave);
+        let mut reader = pair.master.try_clone_reader().unwrap();
+        let mut writer = pair.master.take_writer().unwrap();
+        let (send, receive) = std::sync::mpsc::channel();
+        let reader = thread::spawn(move || {
+            let mut bytes = [0; 1024];
+            while let Ok(count) = reader.read(&mut bytes) {
+                if count == 0 || send.send(bytes[..count].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let mut transcript = Vec::new();
+        let mut answered = false;
+        let status = loop {
+            if let Ok(bytes) = receive.recv_timeout(Duration::from_millis(10)) {
+                transcript.extend_from_slice(&bytes);
+            }
+            if !answered && transcript.windows(10).any(|bytes| bytes == b"Password: ") {
+                writer.write_all(b"provided-password\n").unwrap();
+                answered = true;
+            }
+            if let Some(status) = child.try_wait().unwrap() {
+                break Some(status);
+            }
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                break None;
+            }
+        };
+        drop(writer);
+        drop(pair.master);
+        reader.join().unwrap();
+        for bytes in receive.try_iter() {
+            transcript.extend_from_slice(&bytes);
+        }
+        assert!(
+            answered && status.is_some_and(|status| status.success()),
+            "TTY authentication fixture failed: {}",
+            String::from_utf8_lossy(&transcript)
+        );
+    }
+    #[test]
+    fn cancellation_unblocks_stdin_writer_and_drains_active_output() {
+        let ready = std::env::temp_dir().join(marker());
+        let child_ready = ready.clone();
+        let cancel = ConnectCancel::new();
+        let child_cancel = cancel.clone();
+        let started = Instant::now();
+        let command = thread::spawn(move || {
+            capture_output(
+                Command::new("/bin/sh")
+                    .args([
+                        "-c",
+                        "printf ready > \"$1\"; while :; do printf o; printf e >&2; sleep 0.01; done",
+                        "ssh-test",
+                    ])
+                    .arg(child_ready),
+                Cursor::new(vec![b'x'; 32 * 1024 * 1024]),
+                Some(&child_cancel),
+                Duration::from_secs(5),
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !ready.exists() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        let child_started = ready.exists();
+        cancel.cancel();
+        let result = command.join().unwrap();
+        let _ = std::fs::remove_file(ready);
+
+        assert!(child_started, "command did not report readiness");
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::Interrupted);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "cancellation did not unblock pipe I/O promptly"
+        );
     }
 
     #[test]

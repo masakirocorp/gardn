@@ -440,20 +440,15 @@ pub const RenderState = struct {
         // forces a redraw, so checking redraw is sufficient.
         if (redraw) self.colors.palette = t.colors.palette.current;
 
-        bg_fg: {
-            // Background/foreground can be unset initially which would
-            // depend on "default" background/foreground. The expected use
-            // case of Terminal is that the caller set their own configured
-            // defaults on load so this doesn't happen.
-            const bg = t.colors.background.get() orelse break :bg_fg;
-            const fg = t.colors.foreground.get() orelse break :bg_fg;
-            if (t.modes.get(.reverse_colors)) {
-                self.colors.background = fg;
-                self.colors.foreground = bg;
-            } else {
-                self.colors.background = bg;
-                self.colors.foreground = fg;
-            }
+        // Embedders can configure either default color independently.
+        const bg = t.colors.background.get() orelse empty.colors.background;
+        const fg = t.colors.foreground.get() orelse empty.colors.foreground;
+        if (t.modes.get(.reverse_colors)) {
+            self.colors.background = fg;
+            self.colors.foreground = bg;
+        } else {
+            self.colors.background = bg;
+            self.colors.foreground = fg;
         }
 
         // Ensure our row length is exactly our height, freeing or allocating

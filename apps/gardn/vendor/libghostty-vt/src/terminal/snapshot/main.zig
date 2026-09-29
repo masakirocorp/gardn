@@ -18,9 +18,8 @@
 //!
 //! ## Snapshot Format
 //!
-//! This documents snapshot format 1. Version 1 is the work-in-progress
-//! format that we intended to continue to break until we can promise
-//! binary compatibility.
+//! This documents snapshot format 2. The format is still work-in-progress
+//! and may change before binary compatibility is promised.
 //!
 //! A snapshot is one envelope followed by a sequence of records. The envelope
 //! occurs once at byte zero. Every record is independently framed as a fixed

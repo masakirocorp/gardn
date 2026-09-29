@@ -2,17 +2,18 @@
 //!
 //! One SCREEN record represents the live state for one terminal screen. The
 //! record is followed immediately by the number of complete PAGE records
-//! declared by `page_count`. They are the minimal suffix of native pages needed
-//! to cover the active area and are ordered from oldest to newest. A decoder
-//! uses the declared count, rather than another record tag, to find the end of
-//! the screen's page sequence.
+//! declared by `page_count`. They include the minimum suffix of native pages
+//! needed to cover the active area, extended backward through any older page
+//! that contains a pinned Kitty placement. Pages are ordered oldest-to-newest.
+//! A decoder uses the declared count, rather than another record tag, to find
+//! the end of the screen's page sequence.
 //!
-//! The final screen-height rows are the active area. When its boundary falls
-//! inside the first encoded page, that page also contains an incidental history
-//! prefix. `history_rows` declares the complete logical history extent so a
-//! client can size its scrollbar at READY without waiting for HISTORY. A client
-//! may expose or ignore the resident overlap carried by SCREEN. The extent is
-//! advisory; native row totals remain derived from decoded PAGE records.
+//! The final screen-height rows are the active area. `history_rows` declares
+//! the complete logical history extent so a client can size its scrollbar at
+//! READY without waiting for HISTORY. Pages between the oldest pinned image
+//! placement and the active area are resident in SCREEN; all earlier pages
+//! remain in HISTORY. The extent is advisory; native row totals remain derived
+//! from decoded PAGE records.
 //!
 //! Screen dimensions are terminal-wide state and are not repeated here. Page
 //! capacities, native page IDs and pointers, history availability, selection,
@@ -38,34 +39,31 @@
 //!  n = page_count
 //! ```
 //!
-//! The HISTORY record for this screen declares and sends the older complete
-//! pages after the terminal becomes ready. The incidental prefix is already
-//! present in SCREEN and is not sent again.
+//! HISTORY declares and sends the complete pages older than the oldest page
+//! included in SCREEN. Any history prefix needed to keep pinned image
+//! placements resident is already present in SCREEN and is not sent again.
 //!
 //! The SCREEN payload begins with a fixed header. When the header says there is
 //! no saved cursor, the payload is:
 //!
 //! ```text
-//!   0 +----------------------+
-//!     | Header               |
-//!  53 +----------------------+
-//!     | Cursor hyperlink     |
-//!     | variable             |
-//! end +----------------------+
+//!   0 +-----------------------------+
+//!     | Header                      |
+//!  53 +-----------------------------+
+//!     | Kitty graphics length (u32) |
+//!  57 +-----------------------------+
+//!     | Kitty graphics state        |
+//!     | variable                    |
+//!     +-----------------------------+
+//!     | Cursor hyperlink            |
+//!     | variable                    |
+//! end +-----------------------------+
 //! ```
 //!
-//! When a saved cursor is present, it is inserted before the cursor hyperlink:
-//!
-//! ```text
-//!   0 +----------------------+
-//!     | Header               |
-//!  53 +----------------------+
-//!     | Saved cursor         |
-//!  76 +----------------------+
-//!     | Cursor hyperlink     |
-//!     | variable             |
-//! end +----------------------+
-//! ```
+//! When a saved cursor is present, it is inserted between the fixed header and
+//! Kitty graphics section. The graphics section length excludes its four-byte
+//! length field and bounds all image, placement, animation, and pending-upload
+//! values.
 //!
 //! The cursor hyperlink begins with a one-byte kind. Zero means no hyperlink
 //! and has no following bytes. Kinds one and two use the implicit and explicit
@@ -215,6 +213,7 @@ const terminal_hyperlink = @import("../hyperlink.zig");
 const terminal_kitty = @import("../kitty.zig");
 const terminal_osc = @import("../osc.zig");
 const terminal_page = @import("../page.zig");
+const kitty_snapshot = @import("kitty.zig");
 const TerminalPageList = @import("../PageList.zig");
 const TerminalScreen = @import("../Screen.zig");
 const TerminalScreenKey = @import("../ScreenSet.zig").Key;
@@ -224,33 +223,54 @@ const TerminalHyperlink = terminal_hyperlink.Hyperlink;
 const TerminalStyle = terminal_style.Style;
 
 /// Errors possible while encoding fixed SCREEN payload fields.
-const PayloadEncodeError = hyperlink.EncodeError || error{
-    InvalidCursorFlags,
-    InvalidCharsetState,
-    InvalidKittyKeyboardIndex,
-    InvalidKittyKeyboardFlags,
-    InvalidSavedCursorFlags,
-};
+const PayloadEncodeError = Allocator.Error ||
+    hyperlink.EncodeError ||
+    kitty_snapshot.EncodeError ||
+    error{
+        InvalidCursorFlags,
+        InvalidCharsetState,
+        InvalidKittyKeyboardIndex,
+        InvalidKittyKeyboardFlags,
+        InvalidSavedCursorFlags,
+        GraphicsPayloadTooLarge,
+    };
 
 /// Errors possible while encoding a SCREEN and its complete PAGE sequence.
 pub const EncodeError = Allocator.Error || PayloadEncodeError || page.EncodeError || error{
-    /// The active area spans more pages than the SCREEN header can declare.
+    /// The encoded SCREEN suffix and pinned-placement prefix exceed the header.
     PageCountOverflow,
 };
 
-/// Encode one SCREEN and its minimal suffix of complete native pages.
-///
-/// The suffix begins with the page containing the active area's first row and
-/// ends with the newest page. Completed records may already be emitted if a
-/// later record fails; the missing READY marker makes that prefix invalid.
+/// Select the oldest page needed by SCREEN: the active suffix and every page
+/// containing a retained pinned Kitty placement.
+pub fn firstSerializedPage(
+    screen_value: *const TerminalScreen,
+) @TypeOf(screen_value.pages.getTopLeft(.active).node) {
+    var first = screen_value.pages.getTopLeft(.active).node;
+    if (comptime build_options.kitty_graphics) {
+        var placements = screen_value.kitty_images.placements.iterator();
+        while (placements.next()) |entry| {
+            const pin = switch (entry.value_ptr.location) {
+                .pin => |value| value.*,
+                else => continue,
+            };
+            if (pin.before(.{ .node = first })) first = pin.node;
+        }
+    }
+    return first;
+}
+
+/// Encode one SCREEN and its active suffix, extended to contain pinned Kitty
+/// placements. Completed records may already be emitted if a later record
+/// fails; the missing READY marker makes that prefix invalid.
 pub fn encode(
     screen: *const TerminalScreen,
     key: TerminalScreenKey,
     destination: *record.Writer,
 ) EncodeError!void {
-    // The active top may fall inside this page, leaving an incidental history
-    // prefix. Every earlier complete page is history and is omitted.
-    const first = screen.pages.getTopLeft(.active).node;
+    // This page may contain an incidental history prefix for either the
+    // active area or an older image placement.
+    const first = firstSerializedPage(screen);
     var page_count: usize = 0;
     var node: ?@TypeOf(first) = first;
     while (node) |current| : (node = current.next) page_count += 1;
@@ -267,15 +287,16 @@ pub fn encode(
         try encodePayload(
             screen,
             key,
+            first,
             encoded_page_count,
             payload,
         );
         try destination.finish();
     }
 
-    // Active pages are resident today, but use the representation-safe access
-    // path so a future PageList compression-policy change cannot turn this
-    // wire encoder's optimization invariant into undefined behavior.
+    // Use the representation-safe access path so a future PageList
+    // compression-policy change cannot turn an optimization invariant into
+    // undefined behavior.
     node = first;
     while (node) |current| : (node = current.next) {
         var preserved = try current.pagePreservingState(screen.alloc);
@@ -286,17 +307,16 @@ pub fn encode(
 
 /// Errors possible while restoring a SCREEN and its declared PAGE sequence.
 pub const DecodeError = PayloadDecodeError ||
+    kitty_snapshot.DecodeError ||
     page.DecodeError ||
     record.Reader.InitError ||
     record.Reader.FinishError ||
     TerminalPageList.Builder.FinishError ||
     TerminalPageList.IncreaseCapacityError ||
     error{
-        /// The next record is valid but is not a SCREEN.
         UnexpectedRecordTag,
-
-        /// A SCREEN must declare at least one PAGE.
         InvalidPageCount,
+        InvalidGraphicsPayload,
     };
 
 /// One decoded SCREEN sequence and the native screen identified by its header.
@@ -342,6 +362,13 @@ pub fn decode(
         try SavedCursor.decode(payload_reader)
     else
         null;
+    const graphics_len = try io.readInt(payload_reader, u32);
+    if (graphics_len > record_reader.header.payload_len) {
+        return error.InvalidGraphicsPayload;
+    }
+    const graphics_bytes = try alloc.alloc(u8, graphics_len);
+    defer if (graphics_bytes.len > 0) alloc.free(graphics_bytes);
+    try payload_reader.readSliceAll(graphics_bytes);
     var cursor_hyperlink = try decodeCursorHyperlink(
         payload_reader,
         alloc,
@@ -508,6 +535,18 @@ pub fn decode(
         );
         result.kitty_images.image_limits = options.kitty_image_loading_limits;
     }
+    if (comptime build_options.kitty_graphics) {
+        var graphics_reader: std.Io.Reader = .fixed(graphics_bytes);
+        try kitty_snapshot.decode(&result, &graphics_reader);
+        if (graphics_reader.takeByte()) |_| {
+            return error.InvalidGraphicsPayload;
+        } else |err| switch (err) {
+            error.EndOfStream => {},
+            else => return err,
+        }
+    } else if (graphics_bytes.len != 0) {
+        return error.InvalidGraphicsPayload;
+    }
 
     // All fallible reconstruction is complete; verify the native invariants
     // before transferring ownership to the caller.
@@ -521,7 +560,10 @@ pub fn decode(
 }
 
 /// Errors possible while decoding fixed SCREEN payload fields.
-const PayloadDecodeError = std.Io.Reader.Error || error{InvalidKey};
+const PayloadDecodeError = std.Io.Reader.Error || Allocator.Error || error{
+    InvalidKey,
+    InvalidGraphicsPayload,
+};
 
 /// Flags encoded after the cursor's visual shape.
 pub const CursorFlags = packed struct(u8) {
@@ -1085,6 +1127,7 @@ pub const Header = struct {
 fn encodePayload(
     screen: *const TerminalScreen,
     key: TerminalScreenKey,
+    first: @TypeOf(screen.pages.getTopLeft(.active).node),
     page_count: u16,
     writer: *std.Io.Writer,
 ) PayloadEncodeError!void {
@@ -1096,6 +1139,15 @@ fn encodePayload(
 
     const cursor_hyperlink: ?TerminalHyperlink =
         if (screen.cursor.hyperlink) |entry| entry.* else null;
+    var graphics: std.Io.Writer.Allocating = .init(screen.alloc);
+    defer graphics.deinit();
+    if (comptime build_options.kitty_graphics) {
+        try kitty_snapshot.encode(screen, first, &graphics.writer);
+    }
+    const graphics_len = std.math.cast(u32, graphics.written().len) orelse
+        return error.GraphicsPayloadTooLarge;
+    try io.writeInt(writer, u32, graphics_len);
+    try writer.writeAll(graphics.written());
     try encodeCursorHyperlink(cursor_hyperlink, writer);
 }
 
@@ -1559,9 +1611,16 @@ test "native SCREEN payload omits absent optional state" {
     );
     defer screen.deinit();
 
-    var encoded: [Header.len + 1]u8 = undefined;
+    const graphics_extra = if (comptime build_options.kitty_graphics) 21 else 0;
+    var encoded: [Header.len + graphics_extra + 1]u8 = undefined;
     var writer: std.Io.Writer = .fixed(&encoded);
-    try encodePayload(&screen, .primary, 1, &writer);
+    try encodePayload(
+        &screen,
+        .primary,
+        firstSerializedPage(&screen),
+        1,
+        &writer,
+    );
     try std.testing.expectEqual(encoded.len, writer.end);
 
     var reader: std.Io.Reader = .fixed(writer.buffered());
@@ -2085,6 +2144,8 @@ test "SCREEN restoration normalizes invalid cursor positions" {
         const screen_payload = stream.begin(.screen);
         errdefer stream.cancel();
         try header.encode(screen_payload);
+        try io.writeInt(screen_payload, u32, 17);
+        try screen_payload.splatByteAll(0, 17);
         try screen_payload.writeByte(0);
         try stream.finish();
 
@@ -2144,6 +2205,8 @@ test "SCREEN validates pending wrap against a mixed-width cursor page" {
     const screen_payload = stream.begin(.screen);
     errdefer stream.cancel();
     try header.encode(screen_payload);
+    try io.writeInt(screen_payload, u32, 17);
+    try screen_payload.splatByteAll(0, 17);
     try screen_payload.writeByte(0);
     try stream.finish();
     try page.encode(&narrow_page, &stream);
@@ -2192,6 +2255,8 @@ test "SCREEN clamps a decoded saved cursor to terminal dimensions" {
         .flags = .{ .pending_wrap = true },
         .charset = .{},
     }).encode(screen_payload);
+    try io.writeInt(screen_payload, u32, 17);
+    try screen_payload.splatByteAll(0, 17);
     try screen_payload.writeByte(0);
     try stream.finish();
     try page.encode(
@@ -2283,6 +2348,8 @@ test "SCREEN restoration rejects invalid and incomplete sequences" {
         try Header.init(&screen, .primary, 0).encode(
             payload,
         );
+        try io.writeInt(payload, u32, 17);
+        try payload.splatByteAll(0, 17);
         try payload.writeByte(0);
         try empty_stream.finish();
     }
@@ -2358,6 +2425,8 @@ test "SCREEN decode ignores an invalid cursor hyperlink" {
     const screen_payload = stream.begin(.screen);
     errdefer stream.cancel();
     try header.encode(screen_payload);
+    try io.writeInt(screen_payload, u32, 17);
+    try screen_payload.splatByteAll(0, 17);
     try screen_payload.writeByte(1); // Implicit hyperlink.
     try io.writeInt(screen_payload, u32, 1);
     try io.writeInt(screen_payload, u32, 0); // Empty URI.
@@ -2401,6 +2470,8 @@ test "SCREEN decode ignores a PAGE with an empty hyperlink URI" {
     const screen_payload = stream.begin(.screen);
     errdefer stream.cancel();
     try header.encode(screen_payload);
+    try io.writeInt(screen_payload, u32, 17);
+    try screen_payload.splatByteAll(0, 17);
     try screen_payload.writeByte(0);
     try stream.finish();
 
@@ -2457,4 +2528,139 @@ test "SCREEN decode ignores a PAGE with an empty hyperlink URI" {
     // hyperlink must not leave a zero-length PageEntry to duplicate later.
     try decoded.screen.resize(.{ .cols = 2, .rows = 1 });
     try std.testing.expect(!decoded.screen.cursor.page_cell.hyperlink);
+}
+test "SCREEN snapshot restores Kitty pixels, placements, animation, and partial upload on alternate screen" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+    var screen = try TerminalScreen.init(
+        testing.io,
+        alloc,
+        .{ .cols = 8, .rows = 8, .max_scrollback_bytes = 0 },
+    );
+    defer screen.deinit();
+
+    const animation = try alloc.create(terminal_kitty.graphics.Animation);
+    animation.* = .{
+        .current_index = 1,
+        .state = .running,
+        .frame_shown_at_ms = 100,
+    };
+    errdefer {
+        animation.deinit(alloc);
+        alloc.destroy(animation);
+    }
+    try animation.frames.append(alloc, .{
+        .data = try alloc.dupe(u8, &.{ 0x90, 0x80, 0x70, 0xff }),
+        .gap_ms = 250,
+    });
+    try screen.kitty_images.addImage(testing.io, alloc, &screen, .{
+        .id = 31,
+        .number = 9,
+        .width = 1,
+        .height = 1,
+        .data = .{ .complete = try alloc.dupe(u8, &.{ 0x12, 0x34, 0x56 }) },
+        .animation = animation,
+    });
+    const pin = screen.pages.pin(.{ .active = .{ .x = 3, .y = 2 } }).?;
+    try screen.kitty_images.addPlacement(testing.io, alloc, &screen, 31, 7, .{
+        .location = .{ .pin = try screen.pages.trackPin(.{
+            .node = pin.node,
+            .x = pin.x,
+            .y = pin.y,
+        }) },
+        .columns = 1,
+        .rows = 1,
+        .z = -2,
+    });
+
+    var upload_cmd = try terminal_kitty.graphics.CommandParser.parseString(
+        alloc,
+        "a=t,f=24,s=1,v=1,i=32,m=1;AQ==",
+    );
+    defer upload_cmd.deinit(alloc);
+    var loading = try terminal_kitty.graphics.LoadingImage.init(
+        testing.io,
+        alloc,
+        &upload_cmd,
+        .direct,
+    );
+    const loading_ptr = alloc.create(terminal_kitty.graphics.LoadingImage) catch |err| {
+        loading.deinit(alloc);
+        return err;
+    };
+    loading_ptr.* = loading;
+    screen.kitty_images.loading = loading_ptr;
+
+    const next_image_id = screen.kitty_images.next_image_id;
+    const next_internal_placement_id =
+        screen.kitty_images.next_internal_placement_id;
+
+    var destination: std.Io.Writer.Allocating = .init(alloc);
+    defer destination.deinit();
+    var stream: record.Writer = .init(alloc, &destination.writer);
+    defer stream.deinit();
+    try encode(&screen, .alternate, &stream);
+    const graphics_length_offset = record.Header.len + Header.len;
+    const graphics_length = std.mem.readInt(
+        u32,
+        destination.written()[graphics_length_offset..][0..4],
+        .little,
+    );
+    const graphics_payload_end = graphics_length_offset + 4 +
+        @as(usize, graphics_length);
+    var truncated_graphics: std.Io.Reader = .fixed(
+        destination.written()[0 .. graphics_payload_end - 1],
+    );
+    try testing.expectError(
+        error.EndOfStream,
+        decode(
+            &truncated_graphics,
+            testing.io,
+            alloc,
+            .{ .cols = 8, .rows = 8, .max_scrollback_bytes = 0 },
+        ),
+    );
+
+    var source: std.Io.Reader = .fixed(destination.written());
+    var decoded = try decode(
+        &source,
+        testing.io,
+        alloc,
+        .{ .cols = 8, .rows = 8, .max_scrollback_bytes = 0 },
+    );
+    defer decoded.deinit();
+    try testing.expectEqual(TerminalScreenKey.alternate, decoded.key);
+    const restored = &decoded.screen;
+    const image = restored.kitty_images.images.get(31).?;
+    try testing.expectEqual(@as(u32, 9), image.number);
+    try testing.expectEqualSlices(u8, &.{ 0x12, 0x34, 0x56 }, image.data.bytes().?);
+    try testing.expectEqualSlices(
+        u8,
+        &.{ 0x90, 0x80, 0x70, 0xff },
+        image.renderData().bytes().?,
+    );
+    try testing.expectEqual(@as(u32, 1), image.animation.?.current_index);
+    try testing.expectEqual(@as(u32, 250), image.animation.?.frames.items[0].gap_ms);
+    try testing.expectEqual(@as(usize, 1), restored.kitty_images.placements.count());
+    try testing.expectEqual(next_image_id, restored.kitty_images.next_image_id);
+    try testing.expectEqual(
+        next_internal_placement_id,
+        restored.kitty_images.next_internal_placement_id,
+    );
+    var placements = restored.kitty_images.placements.iterator();
+    const entry = placements.next().?;
+    try testing.expectEqual(@as(u32, 31), entry.key_ptr.image_id);
+    try testing.expectEqual(@as(u32, 7), entry.key_ptr.placement_id.id);
+    try testing.expectEqual(.external, entry.key_ptr.placement_id.tag);
+    try testing.expectEqual(@as(i32, -2), entry.value_ptr.z);
+    const restored_point = restored.pages.pointFromPin(.active, entry.value_ptr.location.pin.*).?;
+    try testing.expectEqual(@as(u16, 3), restored_point.coord().x);
+    try testing.expectEqual(@as(u16, 2), restored_point.coord().y);
+    try testing.expectEqualSlices(u8, &.{0x01}, restored.kitty_images.loading.?.data.items);
+    try restored.kitty_images.loading.?.addData(alloc, &.{0x02});
+    try testing.expectEqualSlices(
+        u8,
+        &.{ 0x01, 0x02 },
+        restored.kitty_images.loading.?.data.items,
+    );
 }

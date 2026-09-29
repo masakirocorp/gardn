@@ -61,6 +61,8 @@ pub(crate) enum ExecutionHostEvent {
     },
     TerminalSnapshot {
         terminal_id: TerminalId,
+        identity: RuntimeIdentity,
+        revision: super::protocol::OutputRevision,
         data: Vec<u8>,
     },
     TerminalStateChanged {
@@ -771,11 +773,11 @@ impl ExecutionHostManager {
         let terminal_ids = self
             .terminals
             .iter()
-            .filter(|(_, record)| {
+            .filter(|(terminal_id, record)| {
                 record.attach_pending()
                     && !record.adopt_pending()
                     && !record.termination_pending()
-                    && !self.retiring_hosts.contains(record.host_id())
+                    && !self.terminals.checkpoint_retry_blocked(terminal_id)
             })
             .map(|(terminal_id, _)| terminal_id.clone())
             .collect::<Vec<_>>();
@@ -789,11 +791,17 @@ impl ExecutionHostManager {
             let host_id = record.host_id().clone();
             let location = record.location().clone();
             let revision = record.output_revision();
-            let resume = if record.force_checkpoint_pending() || revision.get() == 0 {
+            let requires_checkpoint = record.force_checkpoint_pending() || revision.get() == 0;
+            let resume = if requires_checkpoint {
                 AttachResume::Checkpoint
             } else {
                 AttachResume::AfterRevision(revision)
             };
+            if requires_checkpoint {
+                if let Some(record) = self.terminals.get_mut(&terminal_id) {
+                    record.request_checkpoint();
+                }
+            }
             match self
                 .connections
                 .allocate_and_send(&host_id, true, |request_id| {
@@ -806,7 +814,7 @@ impl ExecutionHostManager {
                 }) {
                 Ok(_) => {
                     if let Some(record) = self.terminals.get_mut(&terminal_id) {
-                        record.set_attach_pending(false);
+                        record.mark_attach_sent();
                     }
                 }
                 Err(HostOperationError::Unavailable { .. }) => {}
@@ -862,9 +870,56 @@ impl ExecutionHostManager {
         self.terminals.forget_terminal(terminal_id)
     }
     pub(crate) fn request_terminal_checkpoint(&mut self, terminal_id: &TerminalId) {
+        let pending = self.terminals.get(terminal_id).and_then(|record| {
+            record
+                .identity()
+                .cloned()
+                .map(|identity| (record.host_id().clone(), identity))
+        });
+        if let Some((host_id, identity)) = pending {
+            self.terminals
+                .discard_snapshot_application(terminal_id, &host_id, &identity);
+        }
         if let Some(record) = self.terminals.get_mut(terminal_id) {
             record.request_checkpoint();
         }
+    }
+
+    pub(crate) fn terminal_snapshot_pending(
+        &self,
+        terminal_id: &TerminalId,
+        identity: &RuntimeIdentity,
+        revision: super::protocol::OutputRevision,
+    ) -> bool {
+        let Some(record) = self.terminals.get(terminal_id) else {
+            return false;
+        };
+        record.identity() == Some(identity)
+            && self
+                .terminals
+                .snapshot_pending(terminal_id, record.host_id(), identity, revision)
+    }
+
+    pub(crate) fn acknowledge_terminal_snapshot(
+        &mut self,
+        terminal_id: &TerminalId,
+        identity: &RuntimeIdentity,
+        revision: super::protocol::OutputRevision,
+    ) -> bool {
+        let Some(record) = self.terminals.get(terminal_id) else {
+            return false;
+        };
+        let host_id = record.host_id().clone();
+        let Some(effects) =
+            self.terminals
+                .acknowledge_snapshot_applied(terminal_id, &host_id, identity, revision)
+        else {
+            return false;
+        };
+        let mut events = Vec::new();
+        self.apply_terminal_effects(effects, &mut events);
+        self.lifecycle_events.extend(events);
+        true
     }
 
     pub(crate) fn has_host_references(&self, host_id: &ExecutionHostId) -> bool {
@@ -1263,12 +1318,20 @@ impl ExecutionHostManager {
                     identity,
                     location,
                 }),
-                RemoteTerminalEffect::Output { terminal_id, data } => {
-                    events.push(ExecutionHostEvent::TerminalOutput { terminal_id, data })
-                }
-                RemoteTerminalEffect::Snapshot { terminal_id, data } => {
-                    events.push(ExecutionHostEvent::TerminalSnapshot { terminal_id, data })
-                }
+                RemoteTerminalEffect::Output {
+                    terminal_id, data, ..
+                } => events.push(ExecutionHostEvent::TerminalOutput { terminal_id, data }),
+                RemoteTerminalEffect::Snapshot {
+                    terminal_id,
+                    identity,
+                    revision,
+                    data,
+                } => events.push(ExecutionHostEvent::TerminalSnapshot {
+                    terminal_id,
+                    identity,
+                    revision,
+                    data,
+                }),
                 RemoteTerminalEffect::StateChanged {
                     terminal_id,
                     agent,
@@ -1339,9 +1402,7 @@ impl ExecutionHostManager {
                         }) {
                         Ok(_) => {
                             if let Some(record) = self.terminals.get_mut(&terminal_id) {
-                                if record.attach_pending() {
-                                    record.set_attach_pending(false);
-                                }
+                                record.mark_attach_sent();
                             }
                         }
                         Err(HostOperationError::Unavailable { .. }) => {}
@@ -1662,7 +1723,7 @@ impl ExecutionHostManager {
                 {
                     record.set_adopt_pending(true);
                     record.set_op_seq_ready(false);
-                    record.set_attach_pending(false);
+                    record.reconnect_attach();
                 }
             }
         }

@@ -152,24 +152,6 @@ pub fn parse_cursor_color_response(sequence: &str) -> Option<RgbColor> {
     (command == "12").then(|| parse_rgb_color(value)).flatten()
 }
 
-pub fn osc_set_default_color_sequence(kind: DefaultColorKind, color: RgbColor) -> String {
-    let command = match kind {
-        DefaultColorKind::Foreground => 10,
-        DefaultColorKind::Background => 11,
-    };
-    format!(
-        "\x1b]{command};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
-        color.r, color.g, color.b
-    )
-}
-
-pub fn osc_reset_default_color_sequence(kind: DefaultColorKind) -> &'static str {
-    match kind {
-        DefaultColorKind::Foreground => "\x1b]110\x1b\\",
-        DefaultColorKind::Background => "\x1b]111\x1b\\",
-    }
-}
-
 fn osc_body(sequence: &str) -> Option<&str> {
     let body = sequence.strip_prefix("\x1b]")?;
     body.strip_suffix("\x1b\\")

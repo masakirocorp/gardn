@@ -1650,11 +1650,29 @@ impl App {
                 }
                 crate::execution_host::ExecutionHostEvent::TerminalSnapshot {
                     terminal_id,
+                    identity,
+                    revision,
                     data,
                 } => {
+                    let pending = self.execution_hosts.as_ref().is_some_and(|hosts| {
+                        hosts.terminal_snapshot_pending(&terminal_id, &identity, revision)
+                    });
+                    if !pending {
+                        continue;
+                    }
                     if let Some(runtime) = self.terminal_runtimes.get(&terminal_id) {
                         match runtime.restore_snapshot(&data) {
-                            Ok(()) => changed = true,
+                            Ok(()) => {
+                                if self.execution_hosts.as_mut().is_some_and(|hosts| {
+                                    hosts.acknowledge_terminal_snapshot(
+                                        &terminal_id,
+                                        &identity,
+                                        revision,
+                                    )
+                                }) {
+                                    changed = true;
+                                }
+                            }
                             Err(error) => {
                                 tracing::warn!(terminal_id = %terminal_id, %error, "failed to restore remote terminal snapshot; requesting a fresh checkpoint");
                                 if let Some(hosts) = self.execution_hosts.as_mut() {

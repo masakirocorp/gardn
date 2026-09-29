@@ -1,4 +1,4 @@
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct KittyKeyboardTracker {
     pending: Vec<u8>,
     stack: Vec<u16>,
@@ -145,6 +145,10 @@ impl KittyKeyboardTracker {
             ansi.push_str(&format!("\x1b[>{flags}u"));
         }
         (!ansi.is_empty()).then_some(ansi)
+    }
+
+    pub(crate) fn checkpoint_supported(&self) -> bool {
+        self.stack.len() <= 65_536
     }
 }
 

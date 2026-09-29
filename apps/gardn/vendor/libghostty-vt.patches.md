@@ -69,3 +69,58 @@ verification:
 python3 -m unittest scripts.test_vendor_libghostty_vt
 (cd apps/gardn/vendor/libghostty-vt && ZIG_GLOBAL_CACHE_DIR=$(mktemp -d) zig build -Demit-lib-vt -Doptimize=ReleaseFast -Dsimd=true)
 ```
+
+## 0003 preserve Kitty graphics in snapshots
+
+status: active
+
+patch: `apps/gardn/vendor/patches/libghostty-vt/0003-preserve-kitty-graphics-in-snapshots.patch`
+
+upstream discussion: not opened
+
+vendored base: `5834a0e3df621802e9578e4562d88b0c2ad4ada8`
+
+local files:
+
+- `apps/gardn/vendor/libghostty-vt/include/ghostty/vt/snapshot.h`
+- `apps/gardn/vendor/libghostty-vt/include/ghostty/vt/terminal.h`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/c/render.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/c/terminal.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/render.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/envelope.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/history.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/kitty.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/main.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/screen.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/snapshot.ksy`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/snapshot.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/terminal.zig`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/testdata/complete-v2.hex`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/testdata/envelope-v2.hex`
+- `apps/gardn/vendor/libghostty-vt/src/terminal/snapshot/verify-kaitai.py`
+
+reason: Remote checkpoint recovery must retain image pixels, placements,
+animation state, and unfinished uploads. SCREEN includes older pages when
+retained image pins require them. Decode reconstructs pins and rejects
+aggregate image data that exceeds the destination storage limit. It does not
+restore source filesystem permissions or temporary-directory paths.
+Native color override options let Gardn clear abandoned child overrides without
+injecting escape sequences into an unfinished terminal parser.
+Render state resolves foreground and background independently. An unset color
+must not hide an override on the other color.
+
+The native format is version 2. Decoders reject version 1. Gardn includes this
+change in unreleased Execution Worker Protocol version 3.
+
+remove when: Upstream snapshots preserve the same graphics state and
+destination-owned policy, and the recovery regressions pass without this patch.
+
+verification:
+
+```sh
+python3 -m unittest scripts.test_vendor_libghostty_vt
+(cd apps/gardn/vendor/libghostty-vt && zig build test-lib-vt -Dtest-filter=snapshot)
+(cd apps/gardn/vendor/libghostty-vt && zig build test-lib-vt -Dtest-filter='clearing color overrides preserves defaults and pending OSC input')
+(cd apps/gardn/vendor/libghostty-vt && zig build test-lib-vt -Dtest-filter='render: independent default colors and reverse mode')
+(cd apps/gardn/vendor/libghostty-vt && src/terminal/snapshot/verify-kaitai.py)
+```

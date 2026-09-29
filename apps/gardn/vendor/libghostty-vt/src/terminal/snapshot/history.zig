@@ -145,10 +145,9 @@ pub fn encode(
     key: TerminalScreenKey,
     destination: *record.Writer,
 ) EncodeError!void {
-    // SCREEN begins at the page containing the active area's first row. Its
-    // leading rows are already resident; every previous complete page belongs
-    // to this HISTORY sequence.
-    const first = terminal_screen.pages.getTopLeft(.active).node.prev;
+    // SCREEN contains the active suffix plus any older pages needed by pinned
+    // Kitty placements. HISTORY starts immediately before that serialized run.
+    const first = screen.firstSerializedPage(terminal_screen).prev;
     const page_count: usize = count: {
         var page_count: usize = 0;
         var node = first;

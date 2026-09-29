@@ -1440,6 +1440,20 @@ typedef enum GHOSTTY_ENUM_TYPED {
    * Input type: GhosttyTerminalClipboardReadFn
    */
   GHOSTTY_TERMINAL_OPT_CLIPBOARD_READ = 38,
+
+  /**
+   * Set the foreground override without consuming terminal input.
+   * NULL clears the override and exposes the configured default foreground.
+   * Input type: GhosttyColorRgb*
+   */
+  GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND_OVERRIDE = 39,
+
+  /**
+   * Set the background override without consuming terminal input.
+   * NULL clears the override and exposes the configured default background.
+   * Input type: GhosttyColorRgb*
+   */
+  GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND_OVERRIDE = 40,
   GHOSTTY_TERMINAL_OPT_MAX_VALUE = GHOSTTY_ENUM_MAX_VALUE,
 } GhosttyTerminalOption;
 

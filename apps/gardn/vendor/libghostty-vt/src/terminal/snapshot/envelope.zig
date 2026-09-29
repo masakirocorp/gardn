@@ -25,8 +25,8 @@ const io = @import("io.zig");
 pub const magic = "GHOSTSNP";
 
 /// The complete compatibility boundary for snapshot layout and behavior.
-/// Version 1 readers require this value to match exactly.
-pub const version: u16 = 1;
+/// Version 2 readers require this value to match exactly.
+pub const version: u16 = 2;
 
 /// Number of bytes in the fixed envelope: magic followed by version.
 pub const encoded_len = computeLen();
@@ -66,7 +66,7 @@ fn computeLen() usize {
     }
 }
 
-const test_golden_fixture = test_fixture.parse(@embedFile("testdata/envelope-v1.hex"));
+const test_golden_fixture = test_fixture.parse(@embedFile("testdata/envelope-v2.hex"));
 
 test "golden encoding" {
     var buf: [encoded_len]u8 = undefined;
@@ -75,8 +75,8 @@ test "golden encoding" {
 
     try test_fixture.expectEqual(
         .bytes,
-        "src/terminal/snapshot/testdata/envelope-v1.hex",
-        "snapshot_fixture-envelope-v1.hex",
+        "src/terminal/snapshot/testdata/envelope-v2.hex",
+        "snapshot_fixture-envelope-v2.hex",
         &test_golden_fixture,
         writer.buffered(),
     );
@@ -89,7 +89,7 @@ test "reject invalid magic and version" {
     var invalid_magic: std.Io.Reader = .fixed("GHOSTSNX\x01\x00");
     try std.testing.expectError(error.InvalidMagic, decode(&invalid_magic));
 
-    var invalid_version: std.Io.Reader = .fixed("GHOSTSNP\x00\x00");
+    var invalid_version: std.Io.Reader = .fixed("GHOSTSNP\x01\x00");
     try std.testing.expectError(
         error.UnsupportedVersion,
         decode(&invalid_version),

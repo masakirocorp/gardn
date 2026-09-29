@@ -4,7 +4,7 @@ use super::command::{
     unframe_remote_output, SSH_COMMAND_TIMEOUT, SSH_TRANSFER_TIMEOUT,
 };
 use super::{ConnectCancel, WorkerInstallKind, WorkerInstallPreview, WorkerInstallReport};
-use crate::platform::{configure_cancellable_command, terminate_cancellable_child};
+use crate::platform::terminate_cancellable_child;
 
 use std::fmt;
 use std::fs::{self, File};
@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 
 const BRIDGE_ACCEPT_POLL: Duration = Duration::from_millis(50);
 const BRIDGE_SOCKET_PERMISSION_MODE: u32 = 0o600;
+const SSH_CLEANUP_TIMEOUT: Duration = Duration::from_secs(10);
 const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -472,7 +473,6 @@ struct RemoteSsh {
     target: String,
     managed_config: Option<ManagedSshConfig>,
     askpass: Option<crate::execution_host::auth::AskpassCommandConfig>,
-    connect_cancel: Option<ConnectCancel>,
 }
 
 impl RemoteSsh {
@@ -491,7 +491,6 @@ impl RemoteSsh {
             target,
             managed_config,
             askpass: None,
-            connect_cancel: None,
         }
     }
 
@@ -504,10 +503,6 @@ impl RemoteSsh {
         ssh.askpass = Some(askpass);
         ssh
     }
-    fn set_connect_cancel(&mut self, cancel: Option<&ConnectCancel>) {
-        self.connect_cancel = cancel.cloned();
-    }
-
     fn target(&self) -> &str {
         &self.target
     }
@@ -559,23 +554,40 @@ impl RemoteSsh {
         script: &str,
         cancel: Option<&ConnectCancel>,
     ) -> io::Result<Output> {
+        self.sh_output_with_timeout(script, cancel, SSH_COMMAND_TIMEOUT)
+    }
+
+    fn sh_output_with_timeout(
+        &self,
+        script: &str,
+        cancel: Option<&ConnectCancel>,
+        timeout: Duration,
+    ) -> io::Result<Output> {
         let (script, begin, end) = frame_remote_script(script);
         let mut output = capture_output(
             self.command().arg("/bin/sh -s"),
             io::Cursor::new(script.into_bytes()),
-            cancel.or(self.connect_cancel.as_ref()),
-            SSH_COMMAND_TIMEOUT,
+            cancel,
+            timeout,
         )?;
         unframe_remote_output(&mut output, &begin, Some(&end))?;
         Ok(output)
     }
 
     fn user_shell_output(&self, command: &str) -> io::Result<Output> {
+        self.user_shell_output_cancellable(command, None)
+    }
+
+    fn user_shell_output_cancellable(
+        &self,
+        command: &str,
+        cancel: Option<&ConnectCancel>,
+    ) -> io::Result<Output> {
         let (command, marker) = frame_remote_stream_command(command);
         let mut output = capture_output(
             self.command().arg(command),
             io::empty(),
-            self.connect_cancel.as_ref(),
+            cancel,
             SSH_COMMAND_TIMEOUT,
         )?;
         unframe_remote_output(&mut output, &marker, None)?;
@@ -601,7 +613,7 @@ impl RemoteSsh {
             let output = capture_output(
                 self.command().arg(remote_install_stream_command(&tmp_path)),
                 File::open(source_path)?,
-                cancel.or(self.connect_cancel.as_ref()),
+                cancel,
                 SSH_TRANSFER_TIMEOUT,
             )?;
             if !output.status.success() {
@@ -630,8 +642,8 @@ impl RemoteSsh {
             }
         })();
         if result.is_err() {
-            let _ = self
-                .sh_output_cancellable(&format!("rm -f -- {}\n", shell_quote(&tmp_path)), cancel);
+            let cleanup = format!("rm -f -- {}\n", shell_quote(&tmp_path));
+            let _ = self.sh_output_with_timeout(&cleanup, None, SSH_CLEANUP_TIMEOUT);
         }
         result
     }
@@ -804,13 +816,21 @@ fn remote_binary_candidates(
     ssh: &RemoteSsh,
     remote_gardn: &RemoteGardn,
 ) -> io::Result<Vec<RemoteGardn>> {
-    let mut candidates = Vec::new();
+    remote_binary_candidates_cancellable(ssh, remote_gardn, None)
+}
 
-    if let Some(path_candidate) = remote_binary_on_path_any(ssh, remote_gardn)? {
+fn remote_binary_candidates_cancellable(
+    ssh: &RemoteSsh,
+    remote_gardn: &RemoteGardn,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<Vec<RemoteGardn>> {
+    let mut candidates = Vec::new();
+    if let Some(path_candidate) = remote_binary_on_path_any_cancellable(ssh, remote_gardn, cancel)?
+    {
         candidates.push(path_candidate);
     }
 
-    let output = ssh.sh_output(&known_remote_binary_candidate_script())?;
+    let output = ssh.sh_output_cancellable(&known_remote_binary_candidate_script(), cancel)?;
     if !output.status.success() {
         return Err(command_failed("remote binary discovery failed", &output));
     }
@@ -824,10 +844,8 @@ fn remote_binary_candidates(
             candidates.push(candidate);
         }
     }
-
     Ok(candidates)
 }
-
 fn known_remote_binary_candidate_script() -> String {
     let mut script = String::from(
         r#"home=${HOME:-}
@@ -851,11 +869,12 @@ fi
     script
 }
 
-fn remote_binary_on_path_any(
+fn remote_binary_on_path_any_cancellable(
     ssh: &RemoteSsh,
     remote_gardn: &RemoteGardn,
+    cancel: Option<&ConnectCancel>,
 ) -> io::Result<Option<RemoteGardn>> {
-    let primary_output = ssh.user_shell_output("command -v gardn")?;
+    let primary_output = ssh.user_shell_output_cancellable("command -v gardn", cancel)?;
     if primary_output.status.success() {
         let stdout = String::from_utf8_lossy(&primary_output.stdout);
         if let Some(candidate) = remote_gardn_from_path_discovery(remote_gardn, &stdout) {
@@ -863,9 +882,7 @@ fn remote_binary_on_path_any(
         }
     }
 
-    // Non-POSIX login shells such as xonsh reject `command -v`; retry through
-    // /bin/sh while retaining the login-shell probe for shell-initialized PATHs.
-    let fallback_output = ssh.sh_output("command -v gardn\n")?;
+    let fallback_output = ssh.sh_output_cancellable("command -v gardn\n", cancel)?;
     if fallback_output.status.success() {
         let stdout = String::from_utf8_lossy(&fallback_output.stdout);
         return Ok(remote_gardn_from_path_discovery(remote_gardn, &stdout));
@@ -1008,7 +1025,16 @@ fn validate_worker_build_identity(
 }
 
 fn remote_binary_matches(ssh: &RemoteSsh, remote_gardn: &RemoteGardn) -> io::Result<bool> {
-    let output = ssh.sh_output(&worker_build_info_command(&remote_gardn.shell_path))?;
+    remote_binary_matches_cancellable(ssh, remote_gardn, None)
+}
+
+fn remote_binary_matches_cancellable(
+    ssh: &RemoteSsh,
+    remote_gardn: &RemoteGardn,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<bool> {
+    let output =
+        ssh.sh_output_cancellable(&worker_build_info_command(&remote_gardn.shell_path), cancel)?;
     let Ok(identity) = parse_worker_build_identity(&output) else {
         return Ok(false);
     };
@@ -1016,8 +1042,19 @@ fn remote_binary_matches(ssh: &RemoteSsh, remote_gardn: &RemoteGardn) -> io::Res
 }
 
 fn remote_binary_exists(ssh: &RemoteSsh, remote_gardn: &RemoteGardn) -> io::Result<bool> {
+    remote_binary_exists_cancellable(ssh, remote_gardn, None)
+}
+
+fn remote_binary_exists_cancellable(
+    ssh: &RemoteSsh,
+    remote_gardn: &RemoteGardn,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<bool> {
     let command = format!("test -x {}", remote_gardn.shell_path);
-    Ok(ssh.sh_output(&command)?.status.success())
+    Ok(ssh
+        .sh_output_cancellable(&command, cancel)?
+        .status
+        .success())
 }
 
 fn remote_binary_override_path() -> io::Result<Option<PathBuf>> {
@@ -2046,10 +2083,13 @@ fn bridge_connection(
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit());
 
-    configure_cancellable_command(&mut command);
+    let mut terminal = crate::platform::configure_cancellable_command_with_tty(&mut command);
     let mut child = command
         .spawn()
         .map_err(|err| io::Error::new(err.kind(), format!("failed to start ssh bridge: {err}")))?;
+    if let Some(terminal) = &mut terminal {
+        terminal.child_started(&child);
+    }
     let mut child_stdin = child
         .stdin
         .take()
@@ -2061,6 +2101,7 @@ fn bridge_connection(
     let mut child_stdout = await_stream_preamble(&mut child, child_stdout, stream_marker, || {
         bridge_stop.load(Ordering::Acquire)
     })?;
+    drop(terminal);
     let mut stream_to_child = stream.try_clone()?;
     let mut child_to_stream = stream;
 
@@ -2233,6 +2274,7 @@ pub(crate) struct ExecutionWorkerTransport {
     stderr: Option<ChildStderr>,
     stream_marker: Option<String>,
     _ssh: RemoteSsh,
+    terminal: Option<crate::platform::CancellableTerminal>,
 }
 
 impl ExecutionWorkerTransport {
@@ -2256,12 +2298,14 @@ impl ExecutionWorkerTransport {
             .stdout
             .take()
             .ok_or_else(|| io::Error::other("execution worker stdout is unavailable"))?;
-        match self.stream_marker.take() {
+        let result = match self.stream_marker.take() {
             Some(marker) => await_stream_preamble(&mut self.child, stdout, marker, || {
                 cancel.is_some_and(ConnectCancel::is_cancelled)
             }),
             None => Ok(stdout),
-        }
+        };
+        drop(self.terminal.take());
+        result
     }
 
     pub(crate) fn take_stderr(&mut self) -> io::Result<ChildStderr> {
@@ -2283,7 +2327,7 @@ impl ExecutionWorkerTransport {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        configure_cancellable_command(&mut command);
+        crate::platform::configure_cancellable_command(&mut command);
         let mut child = command.spawn()?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take();
@@ -2295,6 +2339,7 @@ impl ExecutionWorkerTransport {
             stderr,
             stream_marker: None,
             _ssh: RemoteSsh::new("blocked-test".to_string(), false),
+            terminal: None,
         })
     }
 }
@@ -2324,8 +2369,7 @@ pub(crate) fn preview_execution_worker_install(
     askpass: crate::execution_host::auth::AskpassCommandConfig,
     cancel: Option<&ConnectCancel>,
 ) -> io::Result<WorkerInstallPreview> {
-    let mut ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
-    ssh.set_connect_cancel(cancel);
+    let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
     preview_execution_worker_install_with_ssh(&ssh, cancel)
 }
 
@@ -2337,8 +2381,9 @@ fn preview_execution_worker_install_with_ssh(
     let (source, checksum) = worker_install_source_metadata(&platform, cancel)?;
     let remote_gardn = execution_worker_remote_gardn(platform.clone(), &checksum)?;
     let already_current = remote_worker_binary_matches_cancellable(ssh, &remote_gardn, cancel)?;
-    let target_exists = remote_binary_exists(ssh, &remote_gardn)?;
-    let has_previous = !remote_binary_candidates(ssh, &remote_gardn)?.is_empty();
+    let target_exists = remote_binary_exists_cancellable(ssh, &remote_gardn, cancel)?;
+    let has_previous =
+        !remote_binary_candidates_cancellable(ssh, &remote_gardn, cancel)?.is_empty();
     Ok(WorkerInstallPreview {
         kind: if target_exists || has_previous {
             WorkerInstallKind::Update
@@ -2436,8 +2481,7 @@ pub(crate) fn ensure_execution_worker(
     askpass: crate::execution_host::auth::AskpassCommandConfig,
     cancel: Option<&ConnectCancel>,
 ) -> io::Result<WorkerInstallReport> {
-    let mut ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
-    ssh.set_connect_cancel(cancel);
+    let ssh = RemoteSsh::with_askpass(target.to_string(), true, askpass);
     ensure_execution_worker_with_ssh(&ssh, cancel)
 }
 fn ensure_execution_worker_with_ssh(
@@ -2538,7 +2582,11 @@ fn worker_artifacts_to_prune(
         .collect()
 }
 
-fn prune_execution_worker_artifacts(ssh: &RemoteSsh, current: &RemoteGardn) -> io::Result<()> {
+fn prune_execution_worker_artifacts_cancellable(
+    ssh: &RemoteSsh,
+    current: &RemoteGardn,
+    cancel: Option<&ConnectCancel>,
+) -> io::Result<()> {
     let artifact_root = Path::new(&current.install_suffix)
         .ancestors()
         .nth(4)
@@ -2558,7 +2606,7 @@ done
 "#,
         artifact_root.display()
     );
-    let output = ssh.sh_output(&inventory_command)?;
+    let output = ssh.sh_output_cancellable(&inventory_command, cancel)?;
     if !output.status.success() {
         return Err(command_failed(
             "execution worker artifact inventory failed",
@@ -2593,7 +2641,7 @@ done
              if [ \"$last\" -le \"$cutoff\" ]; then rm -f -- \"$artifact\" \"${{artifact}}.sha256\" \"${{artifact}}.manifest.json\" \"${{artifact}}.last-used\" && rmdir \"$(dirname \"$artifact\")\" 2>/dev/null || true; fi\n"
         ));
     }
-    let output = ssh.sh_output(&command)?;
+    let output = ssh.sh_output_cancellable(&command, cancel)?;
     if output.status.success() {
         Ok(())
     } else {
@@ -2618,7 +2666,8 @@ fn install_execution_worker_with_ssh(
         ));
     }
     if current.already_current {
-        if let Err(error) = prune_execution_worker_artifacts(ssh, &remote_gardn) {
+        if let Err(error) = prune_execution_worker_artifacts_cancellable(ssh, &remote_gardn, cancel)
+        {
             tracing::debug!(%error, "could not prune stale execution worker artifacts");
         }
         return Ok(WorkerInstallReport::AlreadyCurrent(current));
@@ -2645,7 +2694,7 @@ fn install_execution_worker_with_ssh(
             "staged execution worker failed version/protocol/lifecycle verification",
         ));
     }
-    if let Err(error) = prune_execution_worker_artifacts(ssh, &remote_gardn) {
+    if let Err(error) = prune_execution_worker_artifacts_cancellable(ssh, &remote_gardn, cancel) {
         tracing::debug!(%error, "could not prune stale execution worker artifacts");
     }
     Ok(WorkerInstallReport::Installed(current))
@@ -2701,13 +2750,16 @@ pub(crate) fn spawn_execution_worker_cancellable(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    configure_cancellable_command(&mut command);
+    let mut terminal = crate::platform::configure_cancellable_command_with_tty(&mut command);
     let mut child = command.spawn().map_err(|err| {
         io::Error::new(
             err.kind(),
             format!("failed to start remote execution worker: {err}"),
         )
     })?;
+    if let Some(terminal) = &mut terminal {
+        terminal.child_started(&child);
+    }
 
     if let Some(cancel) = cancel {
         if cancel.is_cancelled() {
@@ -2733,6 +2785,7 @@ pub(crate) fn spawn_execution_worker_cancellable(
         stdout,
         stderr,
         stream_marker: Some(stream_marker),
+        terminal,
         _ssh: ssh,
     })
 }
@@ -3033,7 +3086,6 @@ mod tests {
             target: "example".to_string(),
             managed_config: Some(managed_config),
             askpass: None,
-            connect_cancel: None,
         };
 
         let command = ssh.command();
@@ -3067,7 +3119,6 @@ mod tests {
             target: "example".to_string(),
             managed_config: Some(managed_config),
             askpass: None,
-            connect_cancel: None,
         };
 
         let command = ssh.dedicated_command();
@@ -3099,7 +3150,6 @@ mod tests {
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
-            connect_cancel: None,
         };
 
         let command = ssh.command();
@@ -3614,13 +3664,12 @@ exit 99
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
-            connect_cancel: None,
         };
         let remote_gardn = RemoteGardn::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let result = remote_binary_on_path_any(&ssh, &remote_gardn);
+        let result = remote_binary_on_path_any_cancellable(&ssh, &remote_gardn, None);
         let invocations = fs::read_to_string(&log).expect("fake ssh should record invocations");
         drop(_path);
         let _ = fs::remove_dir_all(dir);
@@ -3706,7 +3755,6 @@ exit 99
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
-            connect_cancel: None,
         };
         let remote_gardn = RemoteGardn::for_platform(RemotePlatform {
             os: "linux",
@@ -4333,7 +4381,6 @@ exit 99
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
-            connect_cancel: None,
         };
         let remote_gardn = test_execution_worker_remote_gardn(RemotePlatform {
             os: "linux",
@@ -4508,7 +4555,6 @@ exit 99
             target: "example".to_string(),
             managed_config: None,
             askpass: None,
-            connect_cancel: None,
         };
         let result = preview_execution_worker_install_with_ssh(&ssh, None);
         let invocations = fs::read_to_string(&log).expect("fake ssh should record invocations");
@@ -4826,6 +4872,99 @@ esac
 
         drop(_override);
         drop(_path);
+        let _ = fs::remove_dir_all(dir);
+    }
+    #[test]
+    fn cancelled_install_removes_staging_file_after_cancelled_transfer() {
+        use std::ffi::OsString;
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = remote_env_lock().lock().unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "gardn-cancelled-install-{}-{unique}",
+            std::process::id()
+        ));
+        let bin_dir = dir.join("bin");
+        let remote_home = dir.join("remote-home");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&remote_home).unwrap();
+        let marker_path = dir.join("upload-started");
+        let stage_path = dir.join("stage-path");
+        let fake_ssh = bin_dir.join("ssh");
+        fs::write(
+            &fake_ssh,
+            format!(
+                r#"#!/bin/sh
+set -eu
+last=''
+for arg in "$@"; do last="$arg"; done
+export HOME={}
+if [ "$last" = "/bin/sh -s" ]; then exec /bin/sh -s; fi
+case "$last" in
+  tee\ *)
+    path=${{last#tee }}
+    path=${{path% > /dev/null}}
+    eval "set -- $path"
+    touch "$1"
+    printf '%s' "$1" > {}
+    touch {}
+    sleep 30
+    ;;
+  *) exec /bin/sh -c "$last" ;;
+esac
+"#,
+                shell_quote(&remote_home.to_string_lossy()),
+                shell_quote(&stage_path.to_string_lossy()),
+                shell_quote(&marker_path.to_string_lossy()),
+            ),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_ssh).unwrap().permissions();
+        permissions.set_mode(0o700);
+        fs::set_permissions(&fake_ssh, permissions).unwrap();
+        let mut path = OsString::from(bin_dir.as_os_str());
+        if let Some(existing) = std::env::var_os("PATH") {
+            path.push(":");
+            path.push(existing);
+        }
+        let _path = crate::config::TestEnvVar::set("PATH", path);
+
+        let source = dir.join("worker");
+        fs::write(&source, b"worker payload").unwrap();
+        let remote_gardn = RemoteGardn::for_platform(RemotePlatform {
+            os: "linux",
+            arch: "x86_64",
+        });
+        let cancel = ConnectCancel::new();
+        let thread_cancel = cancel.clone();
+        let cancel_marker = marker_path.clone();
+        let canceller = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while !cancel_marker.exists() && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
+            }
+            thread_cancel.cancel();
+        });
+        let ssh = RemoteSsh::new("example".to_string(), false);
+        ssh.install_gardn(
+            &remote_gardn,
+            &source,
+            &crate::checksum::file_sha256(&source).unwrap(),
+            "test",
+            Some(&cancel),
+        )
+        .unwrap_err();
+        canceller.join().unwrap();
+
+        let staged = fs::read_to_string(&stage_path).unwrap();
+        assert!(
+            !Path::new(&staged).exists(),
+            "cancelled upload left staging file {staged}"
+        );
         let _ = fs::remove_dir_all(dir);
     }
 }

@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use tracing::info;
+use tracing::{error, info};
 
 use crate::layout::PaneId;
 
@@ -31,13 +31,13 @@ pub(super) enum DefaultColorEvent {
     PaletteQuery(u8),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct DefaultColorOscTracker {
     state: DefaultColorOscTrackerState,
     body: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 enum DefaultColorOscTrackerState {
     #[default]
     Ground,
@@ -299,7 +299,7 @@ fn parse_default_color_set_events(body: &[u8]) -> Vec<DefaultColorEvent> {
 /// while still bounding memory against stream garbage.
 const OSC52_MAX_PAYLOAD_BYTES: usize = 256 * 1024;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 enum Osc52ForwarderState {
     #[default]
     Ground,
@@ -312,10 +312,11 @@ enum Osc52ForwarderState {
 /// main loop can re-emit them. `libghostty-vt` drops `.clipboard_contents`,
 /// so child clipboard writes never reach the host terminal unless we forward
 /// them ourselves.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct Osc52Forwarder {
     state: Osc52ForwarderState,
     body: Vec<u8>,
+    #[serde(skip)]
     pending: Vec<Vec<u8>>,
 }
 
@@ -384,7 +385,7 @@ pub(super) struct OscColorSnapshot {
     pub initial_background: Option<crate::terminal_theme::RgbColor>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 enum OscColorQueryState {
     #[default]
     Ground,
@@ -393,7 +394,7 @@ enum OscColorQueryState {
     OscEscape,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct OscColorQueryResponder {
     state: OscColorQueryState,
     body: Vec<u8>,
@@ -457,7 +458,7 @@ impl OscColorQueryResponder {
 const AGENT_OSC_MAX_CHARS: usize = 256;
 
 /// Passive capture of OSC 0/2 title and OSC 9 progress payloads for agent detection.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(super) struct AgentOscStateTracker {
     state: Osc52ForwarderState,
     body: Vec<u8>,
@@ -465,6 +466,7 @@ pub(super) struct AgentOscStateTracker {
     latest_progress: Option<String>,
     /// Set when an OSC 0/2 changes the retained title; consumed by the event
     /// loop to re-sync the outer window title without polling every pane.
+    #[serde(skip)]
     title_dirty: bool,
 }
 
@@ -836,63 +838,26 @@ pub(super) fn should_restore_host_terminal_theme(
         && foreground_job_is_shell(foreground_job, shell_pid)
 }
 
-pub(super) fn write_host_terminal_theme(
+pub(super) fn set_host_terminal_theme(
     terminal: &mut crate::ghostty::Terminal,
     theme: crate::terminal_theme::TerminalTheme,
 ) {
-    write_host_terminal_theme_selective(terminal, theme, true, true);
-}
-
-pub(super) fn write_host_terminal_theme_selective(
-    terminal: &mut crate::ghostty::Terminal,
-    theme: crate::terminal_theme::TerminalTheme,
-    foreground: bool,
-    background: bool,
-) {
-    if foreground {
-        write_host_default_color(
-            terminal,
-            crate::terminal_theme::DefaultColorKind::Foreground,
-            theme.foreground,
-        );
+    if let Err(error) = terminal.set_default_foreground(theme.foreground.map(host_color_to_ghostty))
+    {
+        error!(%error, "failed to set host terminal foreground");
     }
-    if background {
-        write_host_default_color(
-            terminal,
-            crate::terminal_theme::DefaultColorKind::Background,
-            theme.background,
-        );
+    if let Err(error) = terminal.set_default_background(theme.background.map(host_color_to_ghostty))
+    {
+        error!(%error, "failed to set host terminal background");
     }
 }
 
-pub(super) fn write_ansi_palette(
-    terminal: &mut crate::ghostty::Terminal,
-    palette: crate::terminal_theme::AnsiPalette,
-) {
-    use std::fmt::Write;
-
-    let mut sequence = String::with_capacity(palette.len() * 28);
-    for (index, color) in palette.into_iter().enumerate() {
-        let _ = write!(
-            sequence,
-            "\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
-            color.r, color.g, color.b
-        );
+fn host_color_to_ghostty(color: crate::terminal_theme::RgbColor) -> crate::ghostty::RgbColor {
+    crate::ghostty::RgbColor {
+        r: color.r,
+        g: color.g,
+        b: color.b,
     }
-    terminal.write(sequence.as_bytes());
-}
-
-fn write_host_default_color(
-    terminal: &mut crate::ghostty::Terminal,
-    kind: crate::terminal_theme::DefaultColorKind,
-    color: Option<crate::terminal_theme::RgbColor>,
-) {
-    let sequence = if let Some(color) = color {
-        crate::terminal_theme::osc_set_default_color_sequence(kind, color)
-    } else {
-        crate::terminal_theme::osc_reset_default_color_sequence(kind).to_string()
-    };
-    terminal.write(sequence.as_bytes());
 }
 
 pub(super) fn restore_host_terminal_theme_if_needed(
@@ -913,10 +878,14 @@ pub(super) fn restore_host_terminal_theme_if_needed(
         return false;
     }
 
+    if let Err(error) = core.terminal.clear_default_color_overrides() {
+        error!(%error, "failed to clear transient terminal color overrides");
+        return false;
+    }
     core.transient_default_color_owner_pgid = None;
     core.child_default_foreground_changed = false;
     core.child_default_background_changed = false;
-    write_host_terminal_theme(&mut core.terminal, core.host_terminal_theme);
+    set_host_terminal_theme(&mut core.terminal, core.host_terminal_theme);
     info!(
         pane = pane_id.raw(),
         owner_pgid, "restored host terminal default colors after transient override"

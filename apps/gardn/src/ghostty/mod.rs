@@ -700,6 +700,8 @@ pub struct Terminal {
     max_scrollback: usize,
     #[cfg(windows)]
     tracked_row: ffi::GhosttyTrackedGridRef,
+    kitty_graphics_enabled: bool,
+    kitty_graphics_file_media_enabled: bool,
     callback_state: Box<TerminalCallbackState>,
     kitty_fingerprints: Mutex<HashMap<u32, KittyImageFingerprintEntry>>,
 }
@@ -789,6 +791,8 @@ impl Terminal {
         let mut terminal = Self {
             raw,
             max_scrollback,
+            kitty_graphics_enabled: false,
+            kitty_graphics_file_media_enabled: false,
             #[cfg(windows)]
             tracked_row: ptr::null_mut(),
             callback_state: Box::new(TerminalCallbackState {
@@ -936,6 +940,70 @@ impl Terminal {
             .into_result()
         }
     }
+
+    pub(crate) fn set_default_ansi_palette(
+        &mut self,
+        palette: [RgbColor; 256],
+    ) -> Result<(), Error> {
+        let palette = palette.map(|color| ffi::GhosttyColorRgb {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+        });
+        // SAFETY: the stack array contains exactly 256 RGB entries and remains
+        // live for the synchronous terminal option update.
+        unsafe {
+            ffi::ghostty_terminal_set(
+                self.raw,
+                ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_COLOR_PALETTE,
+                palette.as_ptr().cast(),
+            )
+            .into_result()
+        }
+    }
+
+    pub(crate) fn set_default_foreground(&mut self, color: Option<RgbColor>) -> Result<(), Error> {
+        self.set_color_option(
+            ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND,
+            color,
+        )
+    }
+
+    pub(crate) fn set_default_background(&mut self, color: Option<RgbColor>) -> Result<(), Error> {
+        self.set_color_option(
+            ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND,
+            color,
+        )
+    }
+
+    pub(crate) fn clear_default_color_overrides(&mut self) -> Result<(), Error> {
+        self.set_color_option(
+            ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_COLOR_FOREGROUND_OVERRIDE,
+            None,
+        )?;
+        self.set_color_option(
+            ffi::GhosttyTerminalOption_GHOSTTY_TERMINAL_OPT_COLOR_BACKGROUND_OVERRIDE,
+            None,
+        )
+    }
+
+    fn set_color_option(
+        &mut self,
+        option: ffi::GhosttyTerminalOption,
+        color: Option<RgbColor>,
+    ) -> Result<(), Error> {
+        let color = color.map(|color| ffi::GhosttyColorRgb {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+        });
+        let value = color.as_ref().map_or(ptr::null(), |color| {
+            (color as *const ffi::GhosttyColorRgb).cast()
+        });
+        // SAFETY: an unset color is represented by NULL; a present color borrows
+        // a live RGB value for the synchronous set call.
+        unsafe { ffi::ghostty_terminal_set(self.raw, option, value).into_result() }
+    }
     pub fn default_palette(&self) -> Result<[RgbColor; 256], Error> {
         let mut out = [ffi::GhosttyColorRgb::default(); 256];
         // SAFETY: self.raw is a live terminal handle, and out is exactly the
@@ -1032,7 +1100,14 @@ impl Terminal {
             )
             .into_result()?;
         }
+        self.kitty_graphics_enabled = true;
+        self.kitty_graphics_file_media_enabled = allow_host_file_media;
         Ok(())
+    }
+
+    pub(crate) fn kitty_graphics_policy(&self) -> Option<bool> {
+        self.kitty_graphics_enabled
+            .then_some(self.kitty_graphics_file_media_enabled)
     }
 
     pub fn set_write_pty_callback<F>(&mut self, callback: F) -> Result<(), Error>

@@ -721,4 +721,47 @@ impl TerminalRuntime {
     pub(crate) fn test_process_pty_bytes(&self, pane_id: crate::layout::PaneId, bytes: &[u8]) {
         self.0.test_process_pty_bytes(pane_id, bytes);
     }
+    pub(crate) fn test_resize_receiver(
+        &self,
+    ) -> tokio::sync::watch::Receiver<(u16, u16, u32, u32)> {
+        self.0.test_resize_receiver()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TerminalRuntime;
+
+    #[test]
+    fn restoring_older_geometry_resizes_to_the_current_layout() {
+        let source = TerminalRuntime::test_with_screen_bytes(5, 3, b"ABCDE");
+        let (_, checkpoint) = source.snapshot_bytes(1024 * 1024, || ()).unwrap();
+        let restored = TerminalRuntime::test_with_screen_bytes(10, 3, b"");
+        restored.resize(3, 10, 8, 16);
+        restored.restore_snapshot(&checkpoint).unwrap();
+        restored.resize(3, 10, 8, 16);
+
+        assert_eq!(restored.screen_text_snapshot().unwrap().1.cols, 10);
+    }
+
+    #[test]
+    fn restoring_same_grid_invalidates_stale_cell_pixel_size() {
+        let source = TerminalRuntime::test_with_screen_bytes(10, 3, b"ABCDE");
+        let mut source_resizes = source.test_resize_receiver();
+        source.resize(3, 10, 8, 16);
+        assert!(source_resizes.has_changed().unwrap());
+        let _ = source_resizes.borrow_and_update();
+        let (_, checkpoint) = source.snapshot_bytes(1024 * 1024, || ()).unwrap();
+
+        let restored = TerminalRuntime::test_with_screen_bytes(10, 3, b"");
+        let mut resize_events = restored.test_resize_receiver();
+        restored.resize(3, 10, 12, 24);
+        assert!(resize_events.has_changed().unwrap());
+        let _ = resize_events.borrow_and_update();
+        restored.restore_snapshot(&checkpoint).unwrap();
+        restored.resize(3, 10, 12, 24);
+
+        assert!(resize_events.has_changed().unwrap());
+        assert_eq!(*resize_events.borrow_and_update(), (3, 10, 12, 24));
+    }
 }

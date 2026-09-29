@@ -2568,3 +2568,33 @@ test "render: row_cells_get_multi null returns invalid_value" {
     var values = [_]?*anyopaque{@ptrCast(&raw)};
     try testing.expectEqual(Result.invalid_value, row_cells_get_multi(null, 1, null, &values, null));
 }
+
+test "render: independent default colors and reverse mode" {
+    var terminal: terminal_c.Terminal = null;
+    try testing.expectEqual(Result.success, terminal_c.new(&lib.alloc.test_allocator, &terminal, 20, 5));
+    defer terminal_c.free(terminal);
+    const background: colorpkg.RGB.C = .{ .r = 0x44, .g = 0x55, .b = 0x66 };
+    try testing.expectEqual(Result.success, terminal_c.set(terminal, .color_background, &background));
+
+    var state: RenderState = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &state));
+    defer free(state);
+    try testing.expectEqual(Result.success, update(state, terminal));
+    var actual: colorpkg.RGB.C = undefined;
+    try testing.expectEqual(Result.success, get(state, .color_background, &actual));
+    try testing.expectEqual(background, actual);
+
+    const reverse = "\x1b[?5h";
+    terminal_c.vt_write(terminal, reverse, reverse.len);
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Result.success, get(state, .color_background, &actual));
+    try testing.expectEqual(colorpkg.RGB.C{ .r = 0xFF, .g = 0xFF, .b = 0xFF }, actual);
+    try testing.expectEqual(Result.success, get(state, .color_foreground, &actual));
+    try testing.expectEqual(background, actual);
+
+    const normal = "\x1b[?5l";
+    terminal_c.vt_write(terminal, normal, normal.len);
+    try testing.expectEqual(Result.success, update(state, terminal));
+    try testing.expectEqual(Result.success, get(state, .color_background, &actual));
+    try testing.expectEqual(background, actual);
+}

@@ -357,6 +357,97 @@ pub(crate) fn terminate_cancellable_child(child: &mut std::process::Child) {
     let _ = child.kill();
     let _ = child.wait();
 }
+#[cfg(unix)]
+pub(crate) struct CancellableTerminal {
+    fd: libc::c_int,
+    foreground_group: libc::pid_t,
+    child_group: libc::pid_t,
+}
+
+#[cfg(not(unix))]
+pub(crate) struct CancellableTerminal;
+
+impl CancellableTerminal {
+    pub(crate) fn child_started(&mut self, child: &std::process::Child) {
+        #[cfg(unix)]
+        {
+            self.child_group = libc::pid_t::try_from(child.id()).unwrap_or(0);
+        }
+        #[cfg(not(unix))]
+        let _ = child;
+    }
+}
+
+pub(crate) fn configure_cancellable_command_with_tty(
+    command: &mut std::process::Command,
+) -> Option<CancellableTerminal> {
+    configure_cancellable_command(command);
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+
+        let fd = unsafe { libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
+        if fd < 0 {
+            return None;
+        }
+        let foreground_group = unsafe { libc::tcgetpgrp(fd) };
+        if foreground_group < 0 || unsafe { libc::getpgrp() } != foreground_group {
+            unsafe { libc::close(fd) };
+            return None;
+        }
+        unsafe {
+            command.pre_exec(move || {
+                let mut blocked = std::mem::zeroed();
+                let mut previous = std::mem::zeroed();
+                libc::sigemptyset(&mut blocked);
+                libc::sigaddset(&mut blocked, libc::SIGTTOU);
+                let mask_result = libc::sigprocmask(libc::SIG_BLOCK, &blocked, &mut previous);
+                if mask_result != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                let foreground_result = libc::tcsetpgrp(fd, libc::getpgrp());
+                let foreground_error = (foreground_result != 0).then(std::io::Error::last_os_error);
+                libc::sigprocmask(libc::SIG_SETMASK, &previous, std::ptr::null_mut());
+                if let Some(error) = foreground_error {
+                    return Err(error);
+                }
+                Ok(())
+            });
+        }
+        Some(CancellableTerminal {
+            fd,
+            foreground_group,
+            child_group: 0,
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = command;
+        None
+    }
+}
+
+#[cfg(unix)]
+impl Drop for CancellableTerminal {
+    fn drop(&mut self) {
+        let active_group = unsafe { libc::tcgetpgrp(self.fd) };
+        if self.foreground_group != 0
+            && active_group != self.foreground_group
+            && (self.child_group == 0 || active_group == self.child_group)
+        {
+            unsafe {
+                let mut blocked = std::mem::zeroed();
+                let mut previous = std::mem::zeroed();
+                libc::sigemptyset(&mut blocked);
+                libc::sigaddset(&mut blocked, libc::SIGTTOU);
+                libc::sigprocmask(libc::SIG_BLOCK, &blocked, &mut previous);
+                libc::tcsetpgrp(self.fd, self.foreground_group);
+                libc::sigprocmask(libc::SIG_SETMASK, &previous, std::ptr::null_mut());
+            }
+        }
+        unsafe { libc::close(self.fd) };
+    }
+}
 
 #[cfg(not(target_os = "windows"))]
 fn configure_background_command_platform(_command: &mut std::process::Command) {}

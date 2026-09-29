@@ -9,8 +9,8 @@ To turn an annotated fixture into a binary suitable for the Kaitai Web IDE:
 
     src/terminal/snapshot/verify-kaitai.py \
         --write-binary \
-        src/terminal/snapshot/testdata/complete-v1.hex \
-        /tmp/complete-v1.bin
+        src/terminal/snapshot/testdata/complete-v2.hex \
+        /tmp/complete-v2.bin
 
 Then load `snapshot.ksy` and the generated binary into
 https://ide.kaitai.io/.

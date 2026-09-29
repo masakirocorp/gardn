@@ -1167,6 +1167,8 @@ pub const Option = enum(c_int) {
     unknown_max_bytes = 36,
     terminfo_name = 37,
     clipboard_read = 38,
+    color_foreground_override = 39,
+    color_background_override = 40,
 
     /// Input type expected for setting the option.
     pub fn InType(comptime self: Option) type {
@@ -1187,7 +1189,12 @@ pub const Option = enum(c_int) {
             .clipboard_read => ?Effects.ClipboardReadFn,
             .unknown_sequence => ?Effects.UnknownSequenceFn,
             .title, .pwd, .terminfo_name => ?*const lib.String,
-            .color_foreground, .color_background, .color_cursor => ?*const color.RGB.C,
+            .color_foreground,
+            .color_background,
+            .color_cursor,
+            .color_foreground_override,
+            .color_background_override,
+            => ?*const color.RGB.C,
             .color_palette => ?*const color.PaletteC,
             .kitty_image_storage_limit => ?*const u64,
             .kitty_image_medium_file,
@@ -1300,6 +1307,14 @@ fn setTyped(
         },
         .color_background => {
             wrapper.terminal.colors.background.default = if (value) |v| .fromC(v.*) else null;
+            wrapper.terminal.flags.dirty.palette = true;
+        },
+        .color_foreground_override => {
+            wrapper.terminal.colors.foreground.override = if (value) |v| .fromC(v.*) else null;
+            wrapper.terminal.flags.dirty.palette = true;
+        },
+        .color_background_override => {
+            wrapper.terminal.colors.background.override = if (value) |v| .fromC(v.*) else null;
             wrapper.terminal.flags.dirty.palette = true;
         },
         .color_cursor => {
@@ -5899,6 +5914,32 @@ test "get color default vs effective with override" {
     try testing.expectEqual(bg, rgb);
     try testing.expectEqual(Result.success, get(t, .color_cursor_default, @ptrCast(&rgb)));
     try testing.expectEqual(cur, rgb);
+}
+
+test "clearing color overrides preserves defaults and pending OSC input" {
+    var t: Terminal = null;
+    try testing.expectEqual(Result.success, new(&lib.alloc.test_allocator, &t, 20, 5));
+    defer free(t);
+
+    const fg: color.RGB.C = .{ .r = 0xAA, .g = 0xBB, .b = 0xCC };
+    const bg: color.RGB.C = .{ .r = 0x11, .g = 0x22, .b = 0x33 };
+    try testing.expectEqual(Result.success, set(t, .color_foreground, &fg));
+    try testing.expectEqual(Result.success, set(t, .color_background, &bg));
+    const input = "\x1b]10;rgb:01/02/03\x07\x1b]11;rgb:04/05/06\x07\x1b]11;rgb:44/55";
+    vt_write(t, input, input.len);
+
+    try testing.expectEqual(Result.success, set(t, .color_foreground_override, null));
+    try testing.expectEqual(Result.success, set(t, .color_background_override, null));
+    var actual: color.RGB.C = undefined;
+    try testing.expectEqual(Result.success, get(t, .color_foreground, &actual));
+    try testing.expectEqual(fg, actual);
+    try testing.expectEqual(Result.success, get(t, .color_background, &actual));
+    try testing.expectEqual(bg, actual);
+
+    const suffix = "/66\x1b\\";
+    vt_write(t, suffix, suffix.len);
+    try testing.expectEqual(Result.success, get(t, .color_background, &actual));
+    try testing.expectEqual(color.RGB.C{ .r = 0x44, .g = 0x55, .b = 0x66 }, actual);
 }
 
 test "get color default returns no_value when unset" {

@@ -9,6 +9,9 @@ use super::{ExecutionHostId, ResourceLocation};
 use crate::pane::RemotePaneControl;
 use crate::terminal::TerminalId;
 
+const MAX_QUEUED_OUTPUT_DELTA_BYTES: usize = 4 * 1024 * 1024;
+const MAX_QUEUED_OUTPUT_DELTA_COUNT: usize = 4096;
+
 /// Keep journaled input frames below the worker protocol max frame size.
 pub(crate) const MAX_RUNTIME_INPUT_CHUNK_BYTES: usize = 1024 * 1024;
 pub(crate) const MAX_RUNTIME_OP_JOURNAL_OPS: usize = 256;
@@ -50,6 +53,31 @@ impl PendingRuntimeOp {
     }
 }
 
+/// One owner for attach intent, including checkpoint recovery through application.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum AttachIntent {
+    None,
+    NormalPending,
+    CheckpointPending,
+    CheckpointInFlight,
+}
+
+impl AttachIntent {
+    fn pending(self) -> bool {
+        matches!(self, Self::NormalPending | Self::CheckpointPending)
+    }
+
+    fn requires_checkpoint(self) -> bool {
+        matches!(self, Self::CheckpointPending | Self::CheckpointInFlight)
+    }
+}
+
+struct PendingAppliedCheckpoint {
+    terminal_id: TerminalId,
+    revision: OutputRevision,
+    total_bytes: usize,
+}
+
 /// Coordinator-owned remote terminal record. Fields stay private; registry mutates
 /// through typed methods so transition rules stay local to this module.
 pub(crate) struct ManagedRemoteTerminal {
@@ -64,8 +92,7 @@ pub(crate) struct ManagedRemoteTerminal {
     op_seq_ready: bool,
     output_revision: OutputRevision,
     adopt_pending: bool,
-    attach_pending: bool,
-    force_checkpoint_pending: bool,
+    attach_intent: AttachIntent,
     termination_pending: bool,
     tombstone_recorded: bool,
 }
@@ -147,22 +174,46 @@ impl ManagedRemoteTerminal {
     }
 
     pub(crate) fn attach_pending(&self) -> bool {
-        self.attach_pending
+        self.attach_intent.pending()
     }
 
     pub(crate) fn force_checkpoint_pending(&self) -> bool {
-        self.force_checkpoint_pending
+        self.attach_intent.requires_checkpoint()
     }
 
     pub(crate) fn request_checkpoint(&mut self) {
-        self.attach_pending = true;
-        self.force_checkpoint_pending = true;
+        self.attach_intent = AttachIntent::CheckpointPending;
     }
 
     pub(crate) fn set_attach_pending(&mut self, pending: bool) {
-        self.attach_pending = pending;
-        if !pending {
-            self.force_checkpoint_pending = false;
+        if pending {
+            if self.attach_intent == AttachIntent::None {
+                self.attach_intent = AttachIntent::NormalPending;
+            }
+        } else if self.attach_intent == AttachIntent::NormalPending {
+            self.attach_intent = AttachIntent::None;
+        }
+    }
+
+    pub(crate) fn mark_attach_sent(&mut self) {
+        self.attach_intent = match self.attach_intent {
+            AttachIntent::CheckpointPending => AttachIntent::CheckpointInFlight,
+            AttachIntent::NormalPending => AttachIntent::None,
+            other => other,
+        };
+    }
+
+    pub(crate) fn reconnect_attach(&mut self) {
+        self.attach_intent = if self.attach_intent.requires_checkpoint() {
+            AttachIntent::CheckpointPending
+        } else {
+            AttachIntent::NormalPending
+        };
+    }
+
+    pub(crate) fn snapshot_applied(&mut self) {
+        if self.attach_intent.requires_checkpoint() {
+            self.attach_intent = AttachIntent::None;
         }
     }
 
@@ -270,6 +321,8 @@ pub(crate) enum RemoteTerminalEffect {
     },
     Snapshot {
         terminal_id: TerminalId,
+        identity: RuntimeIdentity,
+        revision: OutputRevision,
         data: Vec<u8>,
     },
     StateChanged {
@@ -323,6 +376,12 @@ struct PendingOutputCheckpoint {
     data: Vec<u8>,
 }
 
+struct PendingOutputDelta {
+    base_revision: OutputRevision,
+    revision: OutputRevision,
+    data: Vec<u8>,
+}
+
 /// Coordinator-owned remote terminal registry and pending create/adopt/terminate state.
 pub(crate) struct RemoteTerminalCoordinator {
     remote_terminals: HashMap<TerminalId, ManagedRemoteTerminal>,
@@ -331,10 +390,21 @@ pub(crate) struct RemoteTerminalCoordinator {
     pending_terminations: HashMap<(ExecutionHostId, RequestId), TerminalId>,
     pending_checkpoints: HashMap<(ExecutionHostId, RuntimeIdentity), PendingOutputCheckpoint>,
     pending_checkpoint_bytes: usize,
+    pending_snapshot_applications:
+        HashMap<(ExecutionHostId, RuntimeIdentity), PendingAppliedCheckpoint>,
+    pending_output_deltas: HashMap<(ExecutionHostId, RuntimeIdentity), Vec<PendingOutputDelta>>,
+    pending_delta_count: usize,
+    pending_delta_bytes: usize,
+    blocked_checkpoint_retries: HashSet<TerminalId>,
+    snapshot_budget_bytes: usize,
 }
 
 impl RemoteTerminalCoordinator {
     pub(crate) fn new() -> Self {
+        Self::with_snapshot_budget(MAX_TERMINAL_SNAPSHOT_BYTES)
+    }
+
+    fn with_snapshot_budget(snapshot_budget_bytes: usize) -> Self {
         Self {
             remote_terminals: HashMap::new(),
             pending_creates: HashMap::new(),
@@ -342,7 +412,18 @@ impl RemoteTerminalCoordinator {
             pending_terminations: HashMap::new(),
             pending_checkpoints: HashMap::new(),
             pending_checkpoint_bytes: 0,
+            pending_snapshot_applications: HashMap::new(),
+            pending_output_deltas: HashMap::new(),
+            pending_delta_count: 0,
+            pending_delta_bytes: 0,
+            blocked_checkpoint_retries: HashSet::new(),
+            snapshot_budget_bytes,
         }
+    }
+
+    #[cfg(test)]
+    fn with_snapshot_budget_for_test(snapshot_budget_bytes: usize) -> Self {
+        Self::with_snapshot_budget(snapshot_budget_bytes)
     }
     pub(crate) fn has_host_references(&self, host_id: &ExecutionHostId) -> bool {
         self.remote_terminals
@@ -377,8 +458,11 @@ impl RemoteTerminalCoordinator {
     pub(crate) fn remove(&mut self, terminal_id: &TerminalId) -> Option<ManagedRemoteTerminal> {
         let record = self.remote_terminals.remove(terminal_id)?;
         if let Some(identity) = &record.identity {
-            self.discard_checkpoint(&(record.host_id.clone(), identity.clone()));
+            let key = (record.host_id.clone(), identity.clone());
+            self.discard_checkpoint(&key);
+            self.discard_snapshot_application(terminal_id, &key.0, &key.1);
         }
+        self.blocked_checkpoint_retries.remove(terminal_id);
         Some(record)
     }
 
@@ -413,8 +497,7 @@ impl RemoteTerminalCoordinator {
                 op_seq_ready: true,
                 adopt_pending: false,
                 output_revision: OutputRevision::new(0),
-                attach_pending: false,
-                force_checkpoint_pending: false,
+                attach_intent: AttachIntent::None,
                 termination_pending: false,
                 tombstone_recorded: false,
             },
@@ -441,8 +524,7 @@ impl RemoteTerminalCoordinator {
                 op_seq_ready: false,
                 adopt_pending: true,
                 output_revision: OutputRevision::new(0),
-                attach_pending: false,
-                force_checkpoint_pending: false,
+                attach_intent: AttachIntent::None,
                 termination_pending: false,
                 tombstone_recorded: false,
             },
@@ -467,8 +549,7 @@ impl RemoteTerminalCoordinator {
                 op_seq_ready: false,
                 adopt_pending: false,
                 output_revision: OutputRevision::new(0),
-                attach_pending: false,
-                force_checkpoint_pending: false,
+                attach_intent: AttachIntent::None,
                 termination_pending: true,
                 tombstone_recorded: true,
             });
@@ -574,15 +655,36 @@ impl RemoteTerminalCoordinator {
     pub(crate) fn clear_pending_for_host(&mut self, host_id: &ExecutionHostId) {
         self.pending_adopts
             .retain(|(pending_host_id, _), _| pending_host_id != host_id);
-        self.pending_checkpoints
-            .retain(|(pending_host, _), checkpoint| {
-                if pending_host == host_id {
-                    self.pending_checkpoint_bytes -= checkpoint.total_bytes;
-                    false
-                } else {
-                    true
-                }
-            });
+        let assembly_keys = self
+            .pending_checkpoints
+            .keys()
+            .filter(|(pending_host, _)| pending_host == host_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        for key in assembly_keys {
+            self.discard_checkpoint(&key);
+        }
+        let applied = self
+            .pending_snapshot_applications
+            .iter()
+            .filter(|((pending_host, _), _)| pending_host == host_id)
+            .map(|((pending_host, identity), checkpoint)| {
+                (
+                    checkpoint.terminal_id.clone(),
+                    pending_host.clone(),
+                    identity.clone(),
+                )
+            })
+            .collect::<Vec<_>>();
+        for (terminal_id, pending_host, identity) in applied {
+            self.discard_snapshot_application(&terminal_id, &pending_host, &identity);
+            self.request_checkpoint_after_rejection(&terminal_id, false);
+        }
+        for record in self.remote_terminals.values_mut() {
+            if &record.host_id == host_id && record.attach_intent.requires_checkpoint() {
+                record.reconnect_attach();
+            }
+        }
     }
 
     #[cfg(test)]
@@ -612,8 +714,7 @@ impl RemoteTerminalCoordinator {
             op_seq_ready: true,
             adopt_pending: false,
             output_revision: OutputRevision::new(0),
-            attach_pending: false,
-            force_checkpoint_pending: false,
+            attach_intent: AttachIntent::None,
             termination_pending,
             tombstone_recorded,
         }
@@ -810,7 +911,7 @@ impl RemoteTerminalCoordinator {
                     Some((record.location.clone(), identity.clone()))
                 }
             } else {
-                record.attach_pending = true;
+                record.request_checkpoint();
                 effects.push(RemoteTerminalEffect::Ready {
                     terminal_id: terminal_id.clone(),
                     identity: identity.clone(),
@@ -930,7 +1031,7 @@ impl RemoteTerminalCoordinator {
         record.next_op_seq = last_applied_op_seq.get().saturating_add(1);
         record.op_seq_ready = true;
         record.adopt_pending = false;
-        record.attach_pending = true;
+        record.set_attach_pending(true);
         effects
     }
 
@@ -942,28 +1043,55 @@ impl RemoteTerminalCoordinator {
         revision: OutputRevision,
         data: Vec<u8>,
     ) -> Vec<RemoteTerminalEffect> {
-        let mut effects = Vec::new();
+        let key = (host_id.clone(), identity.clone());
         let Some((terminal_id, record)) = self
             .remote_terminals
-            .iter_mut()
+            .iter()
             .find(|(_, record)| record.matches_runtime(&host_id, &identity))
             .map(|(terminal_id, record)| (terminal_id.clone(), record))
         else {
-            return effects;
+            return Vec::new();
         };
-        if record.output_revision != base_revision {
-            effects.push(RemoteTerminalEffect::Attach {
-                host_id,
-                terminal_id,
-                identity,
-                location: record.location.clone(),
-                resume: AttachResume::Checkpoint,
-            });
-            return effects;
+        if self.pending_snapshot_applications.contains_key(&key) {
+            if self.pending_delta_count >= MAX_QUEUED_OUTPUT_DELTA_COUNT
+                || self.pending_delta_bytes.saturating_add(data.len())
+                    > MAX_QUEUED_OUTPUT_DELTA_BYTES
+            {
+                if let Some(deltas) = self.pending_output_deltas.remove(&key) {
+                    self.pending_delta_count =
+                        self.pending_delta_count.saturating_sub(deltas.len());
+                    self.pending_delta_bytes = self
+                        .pending_delta_bytes
+                        .saturating_sub(deltas.iter().map(|delta| delta.data.len()).sum::<usize>());
+                }
+                if let Some(record) = self.remote_terminals.get_mut(&terminal_id) {
+                    record.request_checkpoint();
+                }
+                return Vec::new();
+            }
+            self.pending_delta_bytes += data.len();
+            self.pending_delta_count += 1;
+            self.pending_output_deltas
+                .entry(key)
+                .or_default()
+                .push(PendingOutputDelta {
+                    base_revision,
+                    revision,
+                    data,
+                });
+            return Vec::new();
         }
+        if record.output_revision != base_revision {
+            if let Some(record) = self.remote_terminals.get_mut(&terminal_id) {
+                record.request_checkpoint();
+            }
+            return Vec::new();
+        }
+        let Some(record) = self.remote_terminals.get_mut(&terminal_id) else {
+            return Vec::new();
+        };
         record.output_revision = revision;
-        effects.push(RemoteTerminalEffect::Output { terminal_id, data });
-        effects
+        vec![RemoteTerminalEffect::Output { terminal_id, data }]
     }
 
     fn handle_output_checkpoint_chunk(
@@ -975,30 +1103,37 @@ impl RemoteTerminalCoordinator {
         offset: u64,
         data: Vec<u8>,
     ) -> Vec<RemoteTerminalEffect> {
-        let key = (host_id, identity);
+        let key = (host_id.clone(), identity.clone());
         let Some((terminal_id, record)) = self
             .remote_terminals
             .iter()
-            .find(|(_, record)| record.matches_runtime(&key.0, &key.1))
+            .find(|(_, record)| record.matches_runtime(&host_id, &identity))
             .map(|(terminal_id, record)| (terminal_id.clone(), record))
         else {
             self.discard_checkpoint(&key);
             return Vec::new();
         };
+        if self.pending_snapshot_applications.contains_key(&key) {
+            return Vec::new();
+        }
         if revision.get() < record.output_revision.get() {
             self.discard_checkpoint(&key);
+            self.request_checkpoint_after_rejection(&terminal_id, false);
             return Vec::new();
         }
         let Ok(total_bytes) = usize::try_from(total_bytes) else {
             self.discard_checkpoint(&key);
+            self.request_checkpoint_after_rejection(&terminal_id, false);
             return Vec::new();
         };
         let Ok(offset) = usize::try_from(offset) else {
             self.discard_checkpoint(&key);
+            self.request_checkpoint_after_rejection(&terminal_id, false);
             return Vec::new();
         };
         if total_bytes == 0 || total_bytes > MAX_TERMINAL_SNAPSHOT_BYTES || data.is_empty() {
             self.discard_checkpoint(&key);
+            self.request_checkpoint_after_rejection(&terminal_id, false);
             return Vec::new();
         }
 
@@ -1007,15 +1142,18 @@ impl RemoteTerminalCoordinator {
             if self
                 .pending_checkpoint_bytes
                 .checked_add(total_bytes)
-                .is_none_or(|bytes| bytes > MAX_TERMINAL_SNAPSHOT_BYTES)
+                .is_none_or(|bytes| bytes > self.snapshot_budget_bytes)
             {
+                self.request_checkpoint_after_rejection(&terminal_id, true);
                 return Vec::new();
             }
             if data.len() > total_bytes {
+                self.request_checkpoint_after_rejection(&terminal_id, false);
                 return Vec::new();
             }
             let mut bytes = data;
             if bytes.try_reserve_exact(total_bytes - bytes.len()).is_err() {
+                self.request_checkpoint_after_rejection(&terminal_id, true);
                 return Vec::new();
             }
             let complete = bytes.len() == total_bytes;
@@ -1033,6 +1171,7 @@ impl RemoteTerminalCoordinator {
             }
         } else {
             let Some(checkpoint) = self.pending_checkpoints.get_mut(&key) else {
+                self.request_checkpoint_after_rejection(&terminal_id, false);
                 return Vec::new();
             };
             if checkpoint.revision != revision
@@ -1041,6 +1180,7 @@ impl RemoteTerminalCoordinator {
                 || data.len() > total_bytes.saturating_sub(offset)
             {
                 self.discard_checkpoint(&key);
+                self.request_checkpoint_after_rejection(&terminal_id, false);
                 return Vec::new();
             }
             checkpoint.data.extend_from_slice(&data);
@@ -1051,17 +1191,46 @@ impl RemoteTerminalCoordinator {
         let Some(checkpoint) = self.pending_checkpoints.remove(&key) else {
             return Vec::new();
         };
-        self.pending_checkpoint_bytes = self
-            .pending_checkpoint_bytes
-            .saturating_sub(checkpoint.total_bytes);
-        let Some(record) = self.remote_terminals.get_mut(&terminal_id) else {
-            return Vec::new();
-        };
-        record.output_revision = checkpoint.revision;
+        self.pending_snapshot_applications.insert(
+            key,
+            PendingAppliedCheckpoint {
+                terminal_id: terminal_id.clone(),
+                revision: checkpoint.revision,
+                total_bytes: checkpoint.total_bytes,
+            },
+        );
         vec![RemoteTerminalEffect::Snapshot {
             terminal_id,
+            identity,
+            revision: checkpoint.revision,
             data: checkpoint.data,
         }]
+    }
+
+    fn request_checkpoint_after_rejection(
+        &mut self,
+        terminal_id: &TerminalId,
+        budget_blocked: bool,
+    ) {
+        if let Some(record) = self.remote_terminals.get_mut(terminal_id) {
+            if !record.termination_pending {
+                record.request_checkpoint();
+                if budget_blocked {
+                    self.blocked_checkpoint_retries.insert(terminal_id.clone());
+                }
+            }
+        }
+    }
+
+    fn wake_blocked_checkpoint_retry(&mut self) {
+        let Some(terminal_id) = self.blocked_checkpoint_retries.iter().next().cloned() else {
+            return;
+        };
+        self.blocked_checkpoint_retries.remove(&terminal_id);
+    }
+
+    pub(crate) fn checkpoint_retry_blocked(&self, terminal_id: &TerminalId) -> bool {
+        self.blocked_checkpoint_retries.contains(terminal_id)
     }
 
     fn discard_checkpoint(&mut self, key: &(ExecutionHostId, RuntimeIdentity)) {
@@ -1069,7 +1238,100 @@ impl RemoteTerminalCoordinator {
             self.pending_checkpoint_bytes = self
                 .pending_checkpoint_bytes
                 .saturating_sub(checkpoint.total_bytes);
+            self.wake_blocked_checkpoint_retry();
         }
+    }
+
+    pub(crate) fn snapshot_pending(
+        &self,
+        terminal_id: &TerminalId,
+        host_id: &ExecutionHostId,
+        identity: &RuntimeIdentity,
+        revision: OutputRevision,
+    ) -> bool {
+        self.pending_snapshot_applications
+            .get(&(host_id.clone(), identity.clone()))
+            .is_some_and(|pending| {
+                &pending.terminal_id == terminal_id && pending.revision == revision
+            })
+    }
+
+    pub(crate) fn acknowledge_snapshot_applied(
+        &mut self,
+        terminal_id: &TerminalId,
+        host_id: &ExecutionHostId,
+        identity: &RuntimeIdentity,
+        revision: OutputRevision,
+    ) -> Option<Vec<RemoteTerminalEffect>> {
+        let key = (host_id.clone(), identity.clone());
+        let pending = self.pending_snapshot_applications.get(&key)?;
+        if &pending.terminal_id != terminal_id
+            || pending.revision != revision
+            || !self
+                .remote_terminals
+                .get(terminal_id)
+                .is_some_and(|record| record.matches_runtime(host_id, identity))
+        {
+            return None;
+        }
+        let pending = self.pending_snapshot_applications.remove(&key)?;
+        self.pending_checkpoint_bytes = self
+            .pending_checkpoint_bytes
+            .saturating_sub(pending.total_bytes);
+        let record = self.remote_terminals.get_mut(terminal_id)?;
+        record.output_revision = revision;
+        record.snapshot_applied();
+
+        let mut effects = Vec::new();
+        if let Some(deltas) = self.pending_output_deltas.remove(&key) {
+            self.pending_delta_count = self.pending_delta_count.saturating_sub(deltas.len());
+            self.pending_delta_bytes = self
+                .pending_delta_bytes
+                .saturating_sub(deltas.iter().map(|delta| delta.data.len()).sum::<usize>());
+            for delta in deltas {
+                let Some(record) = self.remote_terminals.get_mut(terminal_id) else {
+                    break;
+                };
+                if record.output_revision != delta.base_revision {
+                    record.request_checkpoint();
+                    break;
+                }
+                record.output_revision = delta.revision;
+                effects.push(RemoteTerminalEffect::Output {
+                    terminal_id: terminal_id.clone(),
+                    data: delta.data,
+                });
+            }
+        }
+        self.wake_blocked_checkpoint_retry();
+        Some(effects)
+    }
+
+    pub(crate) fn discard_snapshot_application(
+        &mut self,
+        terminal_id: &TerminalId,
+        host_id: &ExecutionHostId,
+        identity: &RuntimeIdentity,
+    ) -> bool {
+        let key = (host_id.clone(), identity.clone());
+        let Some(pending) = self.pending_snapshot_applications.remove(&key) else {
+            return false;
+        };
+        if &pending.terminal_id != terminal_id {
+            self.pending_snapshot_applications.insert(key, pending);
+            return false;
+        }
+        self.pending_checkpoint_bytes = self
+            .pending_checkpoint_bytes
+            .saturating_sub(pending.total_bytes);
+        if let Some(deltas) = self.pending_output_deltas.remove(&key) {
+            self.pending_delta_count = self.pending_delta_count.saturating_sub(deltas.len());
+            self.pending_delta_bytes = self
+                .pending_delta_bytes
+                .saturating_sub(deltas.iter().map(|delta| delta.data.len()).sum::<usize>());
+        }
+        self.wake_blocked_checkpoint_retry();
+        true
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1162,7 +1424,11 @@ impl RemoteTerminalCoordinator {
                 });
             } else {
                 if let Some(record) = self.remote_terminals.get_mut(&terminal_id) {
-                    record.attach_pending = true;
+                    if record.force_checkpoint_pending() {
+                        record.reconnect_attach();
+                    } else {
+                        record.set_attach_pending(true);
+                    }
                 }
                 effects.push(RemoteTerminalEffect::Diagnostic {
                     host_id,
@@ -1455,7 +1721,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             complete.as_slice(),
-            [RemoteTerminalEffect::Snapshot { terminal_id: id, data }]
+            [RemoteTerminalEffect::Snapshot { terminal_id: id, data, .. }]
                 if id == &terminal_id && data == b"abcdef"
         ));
     }
@@ -1534,7 +1800,7 @@ mod tests {
                 .unwrap();
             assert!(matches!(
                 effects.as_slice(),
-                [RemoteTerminalEffect::Snapshot { terminal_id, data }]
+                [RemoteTerminalEffect::Snapshot { terminal_id, data, .. }]
                     if terminal_id == terminal && data == expected
             ));
         }
@@ -1565,8 +1831,187 @@ mod tests {
             .unwrap();
         assert!(matches!(
             effects.as_slice(),
-            [RemoteTerminalEffect::Snapshot { terminal_id, data }]
+            [RemoteTerminalEffect::Snapshot { terminal_id, data, .. }]
                 if terminal_id == &terminal && data == b"new"
         ));
+    }
+
+    #[test]
+    fn completed_checkpoint_keeps_revision_uncommitted_until_runtime_restore() {
+        let (mut coordinator, host, identity, terminal) = coordinator_with_terminal();
+        let effects = coordinator
+            .handle_message(
+                host.clone(),
+                checkpoint_chunk(identity.clone(), &host, 6, 0, b"abcdef"),
+            )
+            .unwrap();
+
+        assert!(matches!(
+            effects.as_slice(),
+            [RemoteTerminalEffect::Snapshot { terminal_id, .. }] if terminal_id == &terminal
+        ));
+        assert_eq!(
+            coordinator.get(&terminal).unwrap().output_revision(),
+            OutputRevision::new(0)
+        );
+    }
+
+    #[test]
+    fn same_batch_delta_waits_for_checkpoint_restore_acknowledgement() {
+        let (mut coordinator, host, identity, terminal) = coordinator_with_terminal();
+        coordinator
+            .handle_message(
+                host.clone(),
+                checkpoint_chunk(identity.clone(), &host, 6, 0, b"abcdef"),
+            )
+            .unwrap();
+        let effects = coordinator
+            .handle_message(
+                host.clone(),
+                WorkerMessage::OutputDelta {
+                    identity: identity.clone(),
+                    location: location(&host),
+                    base_revision: OutputRevision::new(1),
+                    revision: OutputRevision::new(2),
+                    data: b"later".to_vec(),
+                },
+            )
+            .unwrap();
+        assert!(effects.is_empty());
+
+        let continued = coordinator
+            .acknowledge_snapshot_applied(&terminal, &host, &identity, OutputRevision::new(1))
+            .expect("current checkpoint acknowledgement");
+        assert!(matches!(
+            continued.as_slice(),
+            [RemoteTerminalEffect::Output { data, .. }] if data == b"later"
+        ));
+        assert_eq!(
+            coordinator.get(&terminal).unwrap().output_revision(),
+            OutputRevision::new(2)
+        );
+    }
+
+    #[test]
+    fn blocked_quiet_checkpoint_retries_when_aggregate_capacity_is_released() {
+        let mut coordinator = RemoteTerminalCoordinator::with_snapshot_budget_for_test(4);
+        let first_host = host();
+        let second_host = ExecutionHostId::new("ssh:other:1").unwrap();
+        let identity = identity();
+        let first_terminal = TerminalId::alloc();
+        let second_terminal = TerminalId::alloc();
+        coordinator.insert_record_for_test(
+            first_terminal.clone(),
+            RemoteTerminalCoordinator::managed_for_test(
+                first_host.clone(),
+                location(&first_host),
+                Some(identity.clone()),
+                false,
+                false,
+            ),
+        );
+        coordinator.insert_record_for_test(
+            second_terminal.clone(),
+            RemoteTerminalCoordinator::managed_for_test(
+                second_host.clone(),
+                location(&second_host),
+                Some(identity.clone()),
+                false,
+                false,
+            ),
+        );
+
+        let first = coordinator
+            .handle_message(
+                first_host.clone(),
+                checkpoint_chunk(identity.clone(), &first_host, 4, 0, b"one!"),
+            )
+            .unwrap();
+        assert!(matches!(
+            first.as_slice(),
+            [RemoteTerminalEffect::Snapshot { terminal_id, .. }]
+                if terminal_id == &first_terminal
+        ));
+        let rejected = coordinator
+            .handle_message(
+                second_host.clone(),
+                checkpoint_chunk(identity.clone(), &second_host, 4, 0, b"two!"),
+            )
+            .unwrap();
+        assert!(rejected.is_empty());
+        assert!(coordinator.checkpoint_retry_blocked(&second_terminal));
+        assert!(coordinator
+            .get(&second_terminal)
+            .unwrap()
+            .force_checkpoint_pending());
+
+        assert!(coordinator
+            .acknowledge_snapshot_applied(
+                &first_terminal,
+                &first_host,
+                &identity,
+                OutputRevision::new(1),
+            )
+            .is_some());
+        assert!(!coordinator.checkpoint_retry_blocked(&second_terminal));
+        assert!(coordinator.get(&second_terminal).unwrap().attach_pending());
+        assert!(coordinator
+            .get(&second_terminal)
+            .unwrap()
+            .force_checkpoint_pending());
+    }
+
+    #[test]
+    fn stale_snapshot_ack_does_not_commit_a_received_revision() {
+        let (mut coordinator, host, identity, terminal) = coordinator_with_terminal();
+        coordinator
+            .handle_message(
+                host.clone(),
+                checkpoint_chunk(identity.clone(), &host, 6, 0, b"abcdef"),
+            )
+            .unwrap();
+        let wrong_incarnation = RuntimeIdentity::new(
+            super::super::protocol::HostBindingGeneration::new(1),
+            super::super::protocol::WorkerInstanceId::new("worker-a").unwrap(),
+            super::super::protocol::WorkerRuntimeId::new("runtime-a").unwrap(),
+            super::super::protocol::RuntimeIncarnation::new(2),
+        );
+        assert!(coordinator
+            .acknowledge_snapshot_applied(
+                &terminal,
+                &host,
+                &wrong_incarnation,
+                OutputRevision::new(1),
+            )
+            .is_none());
+        assert!(coordinator
+            .acknowledge_snapshot_applied(&terminal, &host, &identity, OutputRevision::new(2),)
+            .is_none());
+        assert_eq!(
+            coordinator.get(&terminal).unwrap().output_revision(),
+            OutputRevision::new(0)
+        );
+        assert!(coordinator.snapshot_pending(&terminal, &host, &identity, OutputRevision::new(1),));
+    }
+
+    #[test]
+    fn unapplied_checkpoint_remains_required_after_restore_failure_and_reconnect() {
+        let (mut coordinator, host, identity, terminal) = coordinator_with_terminal();
+        coordinator
+            .handle_message(
+                host.clone(),
+                checkpoint_chunk(identity.clone(), &host, 6, 0, b"abcdef"),
+            )
+            .unwrap();
+
+        assert!(coordinator.discard_snapshot_application(&terminal, &host, &identity));
+        coordinator.get_mut(&terminal).unwrap().request_checkpoint();
+        coordinator.get_mut(&terminal).unwrap().mark_attach_sent();
+        coordinator.clear_pending_for_host(&host);
+
+        let record = coordinator.get(&terminal).unwrap();
+        assert!(record.attach_pending());
+        assert!(record.force_checkpoint_pending());
+        assert_eq!(record.output_revision(), OutputRevision::new(0));
     }
 }

@@ -5,7 +5,7 @@ meta:
   license: MIT
   endian: le
 doc: |
-  Ghostty terminal snapshot format version 1.
+  Ghostty terminal snapshot format version 2.
 
   A complete snapshot contains an envelope, terminal-wide state, one or two
   renderable screen sequences, one raw standard-Stream CONTINUATION, a READY
@@ -156,7 +156,7 @@ types:
         contents: [0x47, 0x48, 0x4f, 0x53, 0x54, 0x53, 0x4e, 0x50]
       - id: version
         type: u2
-        valid: 1
+        valid: 2
 
   record_header:
     doc: |
@@ -557,9 +557,10 @@ types:
     seq:
       - id: header
         type: screen_header
-      - id: saved_cursor
-        type: saved_cursor
-        if: header.saved_cursor_present == 1
+      - id: graphics_length
+        type: u4
+      - id: graphics_state
+        size: graphics_length
       - id: cursor_hyperlink
         type: hyperlink(true, false)
       - id: trailing_data

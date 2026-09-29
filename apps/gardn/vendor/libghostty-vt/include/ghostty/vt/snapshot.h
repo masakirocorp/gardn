@@ -109,8 +109,8 @@ extern "C" {
  * CRC32C, like every other record. Declared record counts, tags, and strict
  * decoding enforce the stream's ordering and completeness.
  *
- * Snapshot format version 1 is a work in progress and does not yet carry a
- * binary-compatibility guarantee.
+ * Snapshot format version 2 is a work in progress and does not yet carry a
+ * binary-compatibility guarantee. Decoders reject version 1.
  *
  * @see <a href="https://github.com/ghostty-org/ghostty/blob/main/src/terminal/snapshot/main.zig">Snapshot format and Zig codec documentation</a>
  *

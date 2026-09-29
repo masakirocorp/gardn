@@ -79,6 +79,7 @@ pub(crate) struct PaneLaunchEnv {
     socket_path_override: Option<String>,
     /// Optional observer invoked for every drained PTY chunk after terminal parse.
     output_observer: Option<PaneOutputObserver>,
+    capture_kitty_graphics: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +103,7 @@ impl PaneLaunchEnv {
             include_pane_identity: true,
             socket_path_override: None,
             output_observer: None,
+            capture_kitty_graphics: false,
         }
     }
 
@@ -139,6 +141,15 @@ impl PaneLaunchEnv {
     pub(crate) fn with_output_observer(mut self, observer: PaneOutputObserver) -> Self {
         self.output_observer = Some(observer);
         self
+    }
+
+    pub(crate) fn with_graphics_capture(mut self) -> Self {
+        self.capture_kitty_graphics = true;
+        self
+    }
+
+    fn captures_kitty_graphics(&self) -> bool {
+        self.capture_kitty_graphics
     }
 
     fn output_observer(&self) -> Option<PaneOutputObserver> {
@@ -212,6 +223,7 @@ struct SpawnInitialState<'a> {
     windows_powershell_prompt_cwd_reporting: bool,
     resolved_terminal_theme_override: Option<crate::terminal_theme::ResolvedTerminalTheme>,
     output_observer: Option<PaneOutputObserver>,
+    capture_kitty_graphics: bool,
 }
 
 fn active_pending_release(
@@ -716,6 +728,7 @@ pub struct PaneRuntime {
     terminal: Arc<PaneTerminal>,
     io: PaneRuntimeIo,
     current_size: Cell<(u16, u16, u32, u32)>,
+    resize_cache_valid: Cell<bool>,
     child_pid: Arc<AtomicU32>,
     inspect_local_cwd: bool,
     child_wait_completed: Option<Arc<AtomicBool>>,
@@ -1473,6 +1486,7 @@ impl PaneRuntime {
                     resize_tx,
                 },
                 current_size: Cell::new((rows, cols, 0, 0)),
+                resize_cache_valid: Cell::new(true),
                 child_pid,
                 inspect_local_cwd: false,
                 child_wait_completed: None,
@@ -1574,6 +1588,7 @@ impl PaneRuntime {
                 ),
                 resolved_terminal_theme_override: None,
                 output_observer: launch_env.output_observer(),
+                capture_kitty_graphics: launch_env.captures_kitty_graphics(),
             },
         )
     }
@@ -1612,6 +1627,7 @@ impl PaneRuntime {
             "failed to spawn agent profile command pane",
             SpawnInitialState {
                 output_observer: launch_env.output_observer(),
+                capture_kitty_graphics: launch_env.captures_kitty_graphics(),
                 ..SpawnInitialState::default()
             },
         )
@@ -1648,6 +1664,7 @@ impl PaneRuntime {
             SpawnInitialState {
                 resolved_terminal_theme_override: terminal_theme.resolved_override,
                 output_observer: launch_env.output_observer(),
+                capture_kitty_graphics: launch_env.captures_kitty_graphics(),
                 ..SpawnInitialState::default()
             },
         )
@@ -1684,6 +1701,7 @@ impl PaneRuntime {
             "failed to spawn custom command pane",
             SpawnInitialState {
                 output_observer: launch_env.output_observer(),
+                capture_kitty_graphics: launch_env.captures_kitty_graphics(),
                 ..SpawnInitialState::default()
             },
         )
@@ -1728,6 +1746,7 @@ impl PaneRuntime {
             "failed to spawn argv command pane",
             SpawnInitialState {
                 output_observer: launch_env.output_observer(),
+                capture_kitty_graphics: launch_env.captures_kitty_graphics(),
                 ..SpawnInitialState::default()
             },
         )
@@ -1872,6 +1891,7 @@ impl PaneRuntime {
             terminal,
             io,
             current_size: Cell::new((rows, cols, cell_width_px, cell_height_px)),
+            resize_cache_valid: Cell::new(true),
             child_pid,
             inspect_local_cwd: true,
             child_wait_completed: None,
@@ -1911,7 +1931,7 @@ impl PaneRuntime {
                 )
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
         }
-        if crate::kitty_graphics::is_enabled() {
+        if crate::kitty_graphics::is_enabled() || initial_state.capture_kitty_graphics {
             terminal
                 .enable_kitty_graphics(true)
                 .map_err(|e| std::io::Error::other(e.to_string()))?;
@@ -2391,6 +2411,7 @@ impl PaneRuntime {
             terminal,
             io,
             current_size: Cell::new((rows, cols, 0, 0)),
+            resize_cache_valid: Cell::new(true),
             child_pid,
             inspect_local_cwd: true,
             child_wait_completed: Some(child_wait_completed),
@@ -2442,10 +2463,11 @@ impl PaneRuntime {
         let rows = rows.max(2);
         let cols = cols.max(4);
         let size = (rows, cols, cell_width_px, cell_height_px);
-        if self.current_size.get() == size {
+        if self.resize_cache_valid.get() && self.current_size.get() == size {
             return;
         }
         self.current_size.set(size);
+        self.resize_cache_valid.set(true);
         let terminal_responses = self
             .terminal
             .resize(rows, cols, cell_width_px, cell_height_px);
@@ -2685,6 +2707,12 @@ impl PaneRuntime {
         self.content_seq.fetch_add(1, Ordering::AcqRel);
         let result = self.terminal.ghostty.restore_snapshot(bytes);
         if result.is_ok() {
+            if let Some((rows, cols)) = self.terminal.dimensions() {
+                let (_, _, cell_width_px, cell_height_px) = self.current_size.get();
+                self.current_size
+                    .set((rows, cols, cell_width_px, cell_height_px));
+            }
+            self.resize_cache_valid.set(false);
             mark_detection_content_changed(&self.detection_content_seq);
         }
         self.content_seq.fetch_add(1, Ordering::Release);
@@ -2911,6 +2939,7 @@ impl PaneRuntime {
                     resize_tx,
                 },
                 current_size: Cell::new((rows, cols, 0, 0)),
+                resize_cache_valid: Cell::new(true),
                 child_pid: Arc::new(AtomicU32::new(0)),
                 inspect_local_cwd: true,
                 child_wait_completed: None,
@@ -2933,6 +2962,13 @@ impl PaneRuntime {
         self.terminal
             .process_pty_bytes(pane_id, shell_pid, bytes, &tx);
         self.content_seq.fetch_add(1, Ordering::Release);
+    }
+
+    pub(crate) fn test_resize_receiver(&self) -> watch::Receiver<(u16, u16, u32, u32)> {
+        match &self.io {
+            PaneRuntimeIo::TestChannel { resize_tx, .. } => resize_tx.subscribe(),
+            _ => unreachable!("resize test receiver requires a test runtime"),
+        }
     }
 }
 
@@ -3576,6 +3612,7 @@ mod tests {
                 resize_tx,
             },
             current_size: Cell::new((80, 24, 0, 0)),
+            resize_cache_valid: Cell::new(true),
             child_pid: Arc::new(AtomicU32::new(0)),
             inspect_local_cwd: true,
             child_wait_completed: None,
@@ -3607,6 +3644,7 @@ mod tests {
                 resize_tx,
             },
             current_size: Cell::new((80, 24, 0, 0)),
+            resize_cache_valid: Cell::new(true),
             child_pid: Arc::new(AtomicU32::new(0)),
             inspect_local_cwd: true,
             child_wait_completed: None,

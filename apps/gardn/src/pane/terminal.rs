@@ -25,10 +25,9 @@ use super::{
     osc::{
         contains_scrollback_clear_sequence, current_transient_default_color_owner,
         maybe_filter_primary_screen_scrollback_clear, parse_default_color_events,
-        restore_host_terminal_theme_if_needed, write_ansi_palette, write_host_terminal_theme,
-        write_host_terminal_theme_selective, AgentOscStateTracker, DefaultColorEvent,
-        DefaultColorOscTracker, DefaultColorQuery, Osc52Forwarder, OscColorQueryResponder,
-        OscColorSnapshot,
+        restore_host_terminal_theme_if_needed, set_host_terminal_theme, AgentOscStateTracker,
+        DefaultColorEvent, DefaultColorOscTracker, DefaultColorQuery, Osc52Forwarder,
+        OscColorQueryResponder, OscColorSnapshot,
     },
 };
 
@@ -175,6 +174,35 @@ pub(crate) struct GhosttyPaneCore {
     cursor_settle_state: CursorPositionSettleState,
 }
 
+const AUX_CHECKPOINT_MAGIC: &[u8; 4] = b"HKCP";
+const AUX_CHECKPOINT_MAX_BYTES: usize = 512 * 1024;
+
+#[derive(Serialize)]
+struct PaneCheckpointAuxRef<'a> {
+    kitty_keyboard: &'a KittyKeyboardTracker,
+    default_color_tracker: &'a DefaultColorOscTracker,
+    child_default_foreground_changed: bool,
+    child_default_background_changed: bool,
+    osc52_forwarder: &'a Osc52Forwarder,
+    osc_color_query_responder: &'a OscColorQueryResponder,
+    agent_osc_state: &'a AgentOscStateTracker,
+    pty_response_tracker: &'a PtyResponseTracker,
+    decscusr_tracker: &'a DecscusrTracker,
+}
+
+#[derive(Deserialize)]
+struct PaneCheckpointAux {
+    kitty_keyboard: KittyKeyboardTracker,
+    default_color_tracker: DefaultColorOscTracker,
+    child_default_foreground_changed: bool,
+    child_default_background_changed: bool,
+    osc52_forwarder: Osc52Forwarder,
+    osc_color_query_responder: OscColorQueryResponder,
+    agent_osc_state: AgentOscStateTracker,
+    pty_response_tracker: PtyResponseTracker,
+    decscusr_tracker: DecscusrTracker,
+}
+
 pub(crate) struct PaneTerminal {
     pub(crate) ghostty: GhosttyPaneTerminal,
 }
@@ -257,6 +285,10 @@ impl PaneTerminal {
 
     pub fn wheel_routing(&self) -> Option<crate::pane::WheelRouting> {
         self.ghostty.wheel_routing()
+    }
+
+    pub(crate) fn dimensions(&self) -> Option<(u16, u16)> {
+        self.ghostty.dimensions()
     }
 
     pub(crate) fn screen_text_snapshot(
@@ -961,12 +993,7 @@ impl GhosttyPaneTerminal {
                 core.transient_default_color_owner_pgid = None;
             }
             let effective_theme = effective_terminal_theme(&core);
-            write_host_terminal_theme_selective(
-                &mut core.terminal,
-                effective_theme,
-                foreground_unowned,
-                background_unowned,
-            );
+            set_host_terminal_theme(&mut core.terminal, effective_theme);
             let ansi_palette = effective_theme
                 .palette
                 .map(|color| color.map(host_theme_color_to_ghostty));
@@ -1018,17 +1045,12 @@ impl GhosttyPaneTerminal {
                         crate::ghostty::ColorScheme::Light
                     }
                 });
-            write_host_terminal_theme(&mut core.terminal, effective_theme);
-            if let Some(theme) = theme {
-                write_ansi_palette(&mut core.terminal, theme.palette);
-            } else {
-                let ansi_palette = effective_theme
-                    .palette
-                    .map(|color| color.map(host_theme_color_to_ghostty));
-                if let Err(err) = core.terminal.update_default_ansi_palette(ansi_palette) {
-                    error!(%err, "failed to restore host terminal ANSI palette");
-                }
-                core.terminal.write(b"\x1b]104\x1b\\");
+            set_host_terminal_theme(&mut core.terminal, effective_theme);
+            let ansi_palette = effective_theme
+                .palette
+                .map(|color| color.map(host_theme_color_to_ghostty));
+            if let Err(err) = core.terminal.update_default_ansi_palette(ansi_palette) {
+                error!(%err, "failed to apply terminal theme ANSI palette");
             }
             let _ = core.terminal.set_color_scheme(color_scheme);
             core.resolve_ansi_palette = theme.is_some();
@@ -1544,6 +1566,10 @@ impl GhosttyPaneTerminal {
         })
     }
 
+    pub(crate) fn dimensions(&self) -> Option<(u16, u16)> {
+        let core = self.core.lock().ok()?;
+        Some((core.terminal.rows().ok()?, core.terminal.cols().ok()?))
+    }
     pub(crate) fn screen_text_snapshot(
         &self,
     ) -> Option<(
@@ -1924,21 +1950,106 @@ impl GhosttyPaneTerminal {
             .core
             .lock()
             .map_err(|_| std::io::Error::other("terminal snapshot lock poisoned"))?;
-        let data = core.terminal.snapshot_bytes(max_bytes).map_err(|error| {
+        if !core.kitty_keyboard.checkpoint_supported() {
+            return Err(std::io::Error::other(
+                "terminal checkpoint kitty keyboard stack exceeds limit",
+            ));
+        }
+        let aux = bincode::serde::encode_to_vec(
+            PaneCheckpointAuxRef {
+                kitty_keyboard: &core.kitty_keyboard,
+                default_color_tracker: &core.default_color_tracker,
+                child_default_foreground_changed: core.child_default_foreground_changed,
+                child_default_background_changed: core.child_default_background_changed,
+                osc52_forwarder: &core.osc52_forwarder,
+                osc_color_query_responder: &core.osc_color_query_responder,
+                agent_osc_state: &core.agent_osc_state,
+                pty_response_tracker: &core.pty_response_tracker,
+                decscusr_tracker: &core.decscusr_tracker,
+            },
+            bincode::config::standard(),
+        )
+        .map_err(|error| {
             std::io::Error::other(format!(
-                "terminal checkpoint encoding failed within {max_bytes} byte limit: {error}"
+                "terminal auxiliary checkpoint encoding failed: {error}"
             ))
         })?;
+        if aux.len() > AUX_CHECKPOINT_MAX_BYTES {
+            return Err(std::io::Error::other(
+                "terminal auxiliary checkpoint exceeds size limit",
+            ));
+        }
+        let aux_len = u32::try_from(aux.len())
+            .map_err(|_| std::io::Error::other("terminal auxiliary checkpoint is too large"))?;
+        let trailer_len = aux
+            .len()
+            .checked_add(8)
+            .ok_or_else(|| std::io::Error::other("terminal checkpoint size overflow"))?;
+        let native_limit = max_bytes
+            .checked_sub(trailer_len)
+            .ok_or_else(|| std::io::Error::other("terminal checkpoint exceeds byte limit"))?;
+        let mut data = core
+            .terminal
+            .snapshot_bytes(native_limit)
+            .map_err(|error| {
+                std::io::Error::other(format!(
+                    "terminal checkpoint encoding failed within {max_bytes} byte limit: {error}"
+                ))
+            })?;
+        data.try_reserve_exact(trailer_len).map_err(|error| {
+            std::io::Error::other(format!("terminal checkpoint allocation failed: {error}"))
+        })?;
+        data.extend_from_slice(&aux);
+        data.extend_from_slice(&aux_len.to_le_bytes());
+        data.extend_from_slice(AUX_CHECKPOINT_MAGIC);
         Ok((capture_revision(), data))
     }
 
     pub(crate) fn restore_snapshot(&self, bytes: &[u8]) -> std::io::Result<()> {
+        if bytes.len() < 8 || &bytes[bytes.len() - 4..] != AUX_CHECKPOINT_MAGIC {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "terminal checkpoint auxiliary trailer is missing",
+            ));
+        }
+        let len_offset = bytes.len() - 8;
+        let aux_len = u32::from_le_bytes([
+            bytes[len_offset],
+            bytes[len_offset + 1],
+            bytes[len_offset + 2],
+            bytes[len_offset + 3],
+        ]) as usize;
+        if aux_len > AUX_CHECKPOINT_MAX_BYTES || aux_len > len_offset {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "terminal checkpoint auxiliary trailer length is invalid",
+            ));
+        }
+        let aux_offset = len_offset - aux_len;
+        let (aux, consumed): (PaneCheckpointAux, usize) = bincode::serde::decode_from_slice(
+            &bytes[aux_offset..len_offset],
+            bincode::config::standard().with_limit::<AUX_CHECKPOINT_MAX_BYTES>(),
+        )
+        .map_err(|error| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("terminal auxiliary checkpoint decoding failed: {error}"),
+            )
+        })?;
+        if consumed != aux_len {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "terminal checkpoint auxiliary data has trailing bytes",
+            ));
+        }
+
         let mut core = self
             .core
             .lock()
             .map_err(|_| std::io::Error::other("terminal snapshot lock poisoned"))?;
+        let native_bytes = &bytes[..aux_offset];
         let mut terminal =
-            crate::ghostty::Terminal::from_snapshot(bytes, core.terminal.max_scrollback())
+            crate::ghostty::Terminal::from_snapshot(native_bytes, core.terminal.max_scrollback())
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
         terminal.inherit_runtime_callbacks(&core.terminal);
         let pending_responses = self.pending_pty_responses.clone();
@@ -1949,47 +2060,46 @@ impl GhosttyPaneTerminal {
                 }
             })
             .map_err(|error| std::io::Error::other(error.to_string()))?;
-        if crate::kitty_graphics::is_enabled() {
+        if let Some(allow_host_file_media) = core.terminal.kitty_graphics_policy() {
             terminal
-                .enable_kitty_graphics(true)
+                .enable_kitty_graphics(allow_host_file_media)
                 .map_err(|error| std::io::Error::other(error.to_string()))?;
         }
-        let keyboard_state = terminal
-            .kitty_keyboard_state_ansi()
+        let current_palette = core
+            .terminal
+            .default_palette()
             .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let theme = effective_terminal_theme(&core);
+        set_host_terminal_theme(&mut terminal, theme);
+        let mut palette = current_palette;
+        for (index, color) in theme.palette.iter().enumerate() {
+            if let Some(color) = color {
+                palette[index] = host_theme_color_to_ghostty(*color);
+            }
+        }
+        terminal
+            .set_default_ansi_palette(palette)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        let color_scheme = theme.appearance().map(|appearance| match appearance {
+            crate::terminal_theme::ThemeAppearance::Dark => crate::ghostty::ColorScheme::Dark,
+            crate::terminal_theme::ThemeAppearance::Light => crate::ghostty::ColorScheme::Light,
+        });
+        let _ = terminal.set_color_scheme(color_scheme);
         let mut render_state = crate::ghostty::RenderState::new()
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         render_state
             .update(&terminal)
             .map_err(|error| std::io::Error::other(error.to_string()))?;
-        let colors = render_state
-            .colors()
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
-        core.child_default_foreground_changed = core
-            .initial_default_foreground
-            .is_some_and(|initial| initial != colors.foreground);
-        core.child_default_background_changed = core
-            .initial_default_background
-            .is_some_and(|initial| initial != colors.background);
-        let cursor_style = render_state
-            .cursor_visual_style()
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
-        let cursor_blinking = render_state
-            .cursor_blinking()
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
-        core.decscusr_tracker = DecscusrTracker::default();
-        core.decscusr_tracker.observe(&[
-            0x1b,
-            b'[',
-            b'0' + decscusr_cursor_shape(cursor_style, cursor_blinking),
-            b' ',
-            b'q',
-        ]);
+        core.child_default_foreground_changed = aux.child_default_foreground_changed;
+        core.child_default_background_changed = aux.child_default_background_changed;
+        core.decscusr_tracker = aux.decscusr_tracker;
+        core.default_color_tracker = aux.default_color_tracker;
+        core.pty_response_tracker = aux.pty_response_tracker;
+        core.kitty_keyboard = aux.kitty_keyboard;
+        core.osc52_forwarder = aux.osc52_forwarder;
+        core.osc_color_query_responder = aux.osc_color_query_responder;
+        core.agent_osc_state = aux.agent_osc_state;
         core.cursor_settle_state = CursorPositionSettleState::default();
-        core.default_color_tracker = DefaultColorOscTracker::default();
-        core.pty_response_tracker = PtyResponseTracker::default();
-        core.kitty_keyboard = KittyKeyboardTracker::default();
-        core.kitty_keyboard.observe(keyboard_state.as_bytes());
         core.terminal = terminal;
         core.render_state = render_state;
         if let Ok(mut key_encoder) = self.key_encoder.lock() {
@@ -2932,13 +3042,13 @@ fn ghostty_cell_style(
     style.add_modifier(modifiers)
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub(crate) struct PtyResponseTracker {
     state: PtyResponseTrackerState,
     body: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 enum PtyResponseTrackerState {
     #[default]
     Ground,
@@ -3349,12 +3459,18 @@ fn effective_terminal_theme(core: &GhosttyPaneCore) -> crate::terminal_theme::Te
 
 fn apply_cached_host_default_color(core: &mut GhosttyPaneCore, query: DefaultColorQuery) {
     let theme = effective_terminal_theme(core);
-    write_host_terminal_theme_selective(
-        &mut core.terminal,
-        theme,
-        matches!(query, DefaultColorQuery::Foreground),
-        matches!(query, DefaultColorQuery::Background),
-    );
+    let result = match query {
+        DefaultColorQuery::Foreground => core
+            .terminal
+            .set_default_foreground(theme.foreground.map(host_theme_color_to_ghostty)),
+        DefaultColorQuery::Background => core
+            .terminal
+            .set_default_background(theme.background.map(host_theme_color_to_ghostty)),
+        DefaultColorQuery::Cursor => return,
+    };
+    if let Err(error) = result {
+        error!(%error, "failed to restore cached terminal color");
+    }
 }
 
 fn ghostty_default_fg(
@@ -3682,11 +3798,24 @@ mod tests {
             }),
             ..Default::default()
         };
+        let destination_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 0x77,
+                g: 0x88,
+                b: 0x99,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 0x22,
+                g: 0x33,
+                b: 0x44,
+            }),
+            ..Default::default()
+        };
         source.apply_host_terminal_theme(host_theme);
         source.process_pty_bytes(
             PaneId::from_raw(1),
             0,
-            b"\x1b]11;rgb:44/55/66\x1b\\\x1b[6 qKEEP",
+            b"\x1b]10;rgb:12/34/56\x07\x1b]11;rgb:44/55/66\x1b\\\x1b[6 qKEEP",
             &tx,
         );
         let backend = ratatui::backend::TestBackend::new(20, 5);
@@ -3695,13 +3824,18 @@ mod tests {
             .draw(|frame| source.render(frame, Rect::new(0, 0, 20, 5), false))
             .unwrap();
         assert_eq!(
+            source_view.backend().buffer()[(0, 0)].fg,
+            Color::Rgb(0x12, 0x34, 0x56)
+        );
+        assert_eq!(
             source_view.backend().buffer()[(0, 0)].bg,
             Color::Rgb(0x44, 0x55, 0x66)
         );
         let (_, snapshot) = source.snapshot_bytes(1024 * 1024, || ()).unwrap();
         let restored =
-            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx).unwrap();
-        restored.apply_host_terminal_theme(host_theme);
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx.clone())
+                .unwrap();
+        restored.apply_host_terminal_theme(destination_theme);
         restored.restore_snapshot(&snapshot).unwrap();
 
         let backend = ratatui::backend::TestBackend::new(20, 5);
@@ -3711,8 +3845,203 @@ mod tests {
             .unwrap();
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(0, 0)].symbol(), "K");
+        assert_eq!(buffer[(0, 0)].fg, Color::Rgb(0x12, 0x34, 0x56));
         assert_eq!(buffer[(0, 0)].bg, Color::Rgb(0x44, 0x55, 0x66));
-        assert_eq!(restored.cursor_state().unwrap().shape, 6);
+        restored.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b]110\x07\x1b]111\x07", &tx);
+        terminal
+            .draw(|frame| restored.render(frame, Rect::new(0, 0, 20, 5), false))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(0, 0)].fg, Color::Reset);
+        assert_eq!(buffer[(0, 0)].bg, Color::Reset);
+        let response =
+            restored.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b]10;?\x07\x1b]11;?\x07", &tx);
+        assert_eq!(response.terminal_responses.len(), 2);
+        assert!(response.terminal_responses[0].starts_with(b"\x1b]10;rgb:7777/8888/9999"));
+        assert!(response.terminal_responses[1].starts_with(b"\x1b]11;rgb:2222/3333/4444"));
+    }
+
+    #[test]
+    fn terminal_snapshot_keeps_destination_theme_for_unowned_default_colors() {
+        let (tx, _rx) = mpsc::channel(8);
+        let source =
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx.clone())
+                .unwrap();
+        let source_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 0xaa,
+                g: 0xbb,
+                b: 0xcc,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 0x11,
+                g: 0x22,
+                b: 0x33,
+            }),
+            ..Default::default()
+        };
+        let destination_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 0x77,
+                g: 0x88,
+                b: 0x99,
+            }),
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 0x22,
+                g: 0x33,
+                b: 0x44,
+            }),
+            ..Default::default()
+        };
+        source.apply_host_terminal_theme(source_theme);
+        source.process_pty_bytes(PaneId::from_raw(1), 0, b"DEFAULT", &tx);
+        let (_, snapshot) = source.snapshot_bytes(1024 * 1024, || ()).unwrap();
+
+        let restored =
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx.clone())
+                .unwrap();
+        restored.apply_host_terminal_theme(destination_theme);
+        restored.restore_snapshot(&snapshot).unwrap();
+        let backend = ratatui::backend::TestBackend::new(20, 5);
+        let mut view = ratatui::Terminal::new(backend).unwrap();
+        view.draw(|frame| restored.render(frame, Rect::new(0, 0, 20, 5), false))
+            .unwrap();
+        let buffer = view.backend().buffer();
+
+        assert_eq!(buffer[(0, 0)].symbol(), "D");
+        assert_eq!(buffer[(0, 0)].fg, Color::Reset);
+        assert_eq!(buffer[(0, 0)].bg, Color::Reset);
+        let response =
+            restored.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b]10;?\x07\x1b]11;?\x07", &tx);
+        assert_eq!(response.terminal_responses.len(), 2);
+        assert!(response.terminal_responses[0].starts_with(b"\x1b]10;rgb:7777/8888/9999"));
+        assert!(response.terminal_responses[1].starts_with(b"\x1b]11;rgb:2222/3333/4444"));
+    }
+
+    #[test]
+    fn terminal_snapshot_restores_split_modify_other_keys_sequence() {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut native = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        native
+            .enable_snapshot_continuation_tracking(crate::ghostty::MAX_SNAPSHOT_CONTINUATION_BYTES)
+            .unwrap();
+        let source = GhosttyPaneTerminal::new(native, tx.clone()).unwrap();
+        source.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b[>4;", &tx);
+        let (_, snapshot) = source.snapshot_bytes(1024 * 1024, || ()).unwrap();
+
+        let restored =
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx.clone())
+                .unwrap();
+        restored.restore_snapshot(&snapshot).unwrap();
+        restored.process_pty_bytes(PaneId::from_raw(1), 0, b"2m", &tx);
+        assert!(restored.input_state().unwrap().modify_other_keys);
+        let key = crate::input::TerminalKey::new(
+            crossterm::event::KeyCode::Char('a'),
+            crossterm::event::KeyModifiers::SUPER | crossterm::event::KeyModifiers::SHIFT,
+        );
+
+        assert_eq!(
+            restored.encode_terminal_key(key, crate::input::KeyboardProtocol::Legacy),
+            b"\x1b[27;10;97~"
+        );
+    }
+
+    #[test]
+    fn terminal_snapshot_preserves_default_cursor_ownership() {
+        let (tx, _rx) = mpsc::channel(8);
+        let source =
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx.clone())
+                .unwrap();
+        assert_eq!(source.cursor_state().unwrap().shape, 0);
+        let (_, snapshot) = source.snapshot_bytes(1024 * 1024, || ()).unwrap();
+
+        let restored =
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx).unwrap();
+        restored.restore_snapshot(&snapshot).unwrap();
+
+        assert_eq!(restored.cursor_state().unwrap().shape, 0);
+    }
+
+    #[test]
+    fn terminal_snapshot_restores_split_child_default_color_sequence() {
+        let (tx, _rx) = mpsc::channel(8);
+        let mut native = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
+        native
+            .enable_snapshot_continuation_tracking(crate::ghostty::MAX_SNAPSHOT_CONTINUATION_BYTES)
+            .unwrap();
+        let source = GhosttyPaneTerminal::new(native, tx.clone()).unwrap();
+        let source_theme = crate::terminal_theme::TerminalTheme {
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 0x11,
+                g: 0x22,
+                b: 0x33,
+            }),
+            ..Default::default()
+        };
+        let destination_theme = crate::terminal_theme::TerminalTheme {
+            background: Some(crate::terminal_theme::RgbColor {
+                r: 0x77,
+                g: 0x88,
+                b: 0x99,
+            }),
+            ..Default::default()
+        };
+        source.apply_host_terminal_theme(source_theme);
+        source.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b]11;rgb:44/55", &tx);
+        let (_, snapshot) = source.snapshot_bytes(1024 * 1024, || ()).unwrap();
+
+        let restored =
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx.clone())
+                .unwrap();
+        restored.apply_host_terminal_theme(destination_theme);
+        restored.restore_snapshot(&snapshot).unwrap();
+        restored.process_pty_bytes(PaneId::from_raw(1), 0, b"/66\x1b\\X", &tx);
+        let backend = ratatui::backend::TestBackend::new(20, 5);
+        let mut view = ratatui::Terminal::new(backend).unwrap();
+        view.draw(|frame| restored.render(frame, Rect::new(0, 0, 20, 5), false))
+            .unwrap();
+        let buffer = view.backend().buffer();
+
+        assert_eq!(buffer[(0, 0)].symbol(), "X");
+        assert_eq!(buffer[(0, 0)].bg, Color::Rgb(0x44, 0x55, 0x66));
+    }
+
+    #[test]
+    fn terminal_snapshot_rebinds_unowned_palette_but_keeps_child_override() {
+        let (tx, _rx) = mpsc::channel(8);
+        let color = |r, g, b| crate::terminal_theme::RgbColor { r, g, b };
+        let source_theme = crate::terminal_theme::TerminalTheme::default()
+            .with_palette_color(0, color(0x11, 0x22, 0x33))
+            .with_palette_color(1, color(0x44, 0x55, 0x66));
+        let destination_theme = crate::terminal_theme::TerminalTheme::default()
+            .with_palette_color(0, color(0x77, 0x88, 0x99))
+            .with_palette_color(1, color(0xaa, 0xbb, 0xcc));
+        let source =
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx.clone())
+                .unwrap();
+        source.apply_host_terminal_theme(source_theme);
+        source.process_pty_bytes(PaneId::from_raw(1), 0, b"\x1b]4;0;rgb:12/34/56\x07", &tx);
+        let (_, snapshot) = source.snapshot_bytes(1024 * 1024, || ()).unwrap();
+
+        let restored =
+            GhosttyPaneTerminal::new(crate::ghostty::Terminal::new(20, 5, 0).unwrap(), tx.clone())
+                .unwrap();
+        restored.apply_host_terminal_theme(destination_theme);
+        restored.restore_snapshot(&snapshot).unwrap();
+        let result = restored.process_pty_bytes(
+            PaneId::from_raw(1),
+            0,
+            b"\x1b]4;0;?\x07\x1b]4;1;?\x07",
+            &tx,
+        );
+
+        assert_eq!(
+            result.terminal_responses,
+            vec![
+                Bytes::from_static(b"\x1b]4;0;rgb:1212/3434/5656\x1b\\"),
+                Bytes::from_static(b"\x1b]4;1;rgb:aaaa/bbbb/cccc\x1b\\"),
+            ]
+        );
     }
 
     #[test]
@@ -6374,6 +6703,43 @@ mod tests {
         );
         assert!(result.request_render);
         assert_eq!(result.render_delay, Some(KITTY_GRAPHICS_REDRAW_SETTLE));
+    }
+
+    #[test]
+    fn terminal_snapshot_does_not_grant_remote_file_media_access() {
+        use base64::Engine;
+
+        let _kitty_graphics = KittyGraphicsTestGuard::enabled();
+        let dir = std::env::temp_dir().join(format!(
+            "gardn-remote-snapshot-file-medium-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("pixel.rgba");
+        std::fs::write(&path, [255, 0, 0, 255]).unwrap();
+        let (tx, _rx) = mpsc::channel(4);
+        let mut native = crate::ghostty::Terminal::new(10, 5, 0).unwrap();
+        native.enable_kitty_graphics(false).unwrap();
+        let pane = GhosttyPaneTerminal::new(native, tx.clone()).unwrap();
+        let (_, snapshot) = pane.snapshot_bytes(1024 * 1024, || ()).unwrap();
+        pane.restore_snapshot(&snapshot).unwrap();
+        let path =
+            base64::engine::general_purpose::STANDARD.encode(path.as_os_str().as_encoded_bytes());
+        let command = format!("\x1b_Ga=T,f=32,t=f,i=9,p=4,s=1,v=1,c=10,r=5,q=1;{path}\x1b\\");
+
+        let result = pane.process_pty_bytes(PaneId::from_raw(1), 0, command.as_bytes(), &tx);
+        let response = String::from_utf8(result.terminal_responses.concat()).unwrap();
+        let placements = pane
+            .core
+            .lock()
+            .unwrap()
+            .terminal
+            .kitty_image_placements()
+            .unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+
+        assert!(response.contains("EINVAL: unsupported medium"));
+        assert!(placements.is_empty());
     }
 
     #[test]
