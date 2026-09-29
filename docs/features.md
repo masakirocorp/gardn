@@ -117,7 +117,7 @@ Supported built-in detection includes:
 
 - **Manifest rules** — bundled per-agent TOML manifests define screen, OSC title, and OSC progress matching rules for screen-detectable built-in families, including Qwen Code. MastraCode intentionally has no screen manifest because its hook owns lifecycle state. Screen rules can provide strong visible evidence; OSC-only rules are fallback evidence and do not override hook authority as visible UI.
 - **Manifest updates** — Gardn can cache newer remote manifests, reject downgrades or incompatible engine versions, reload local manifests through `gardn server reload-agent-manifests`, and report updated detection rules through the normal toast/update path.
-- **Wrapped-process hints** — Gardn-managed profiles automatically set `GARDN_AGENT=<agent>` from the selected supported agent kind, so host-visible wrappers remain detectable on Linux and macOS. Set the hint explicitly only when launching a wrapper manually inside an arbitrary pane. The hint is process-scoped; avoid exporting it globally. Upstream-branded hint names are not accepted.
+- **Wrapped-process hints** — Gardn-managed profiles automatically set `GARDN_AGENT=<agent>` from the selected supported agent kind, so host-visible wrappers remain detectable on Linux and macOS. Gardn also accepts `HERDR_AGENT` when `GARDN_AGENT` is absent. The canonical variable takes precedence even when its value is empty or invalid. Set hints only for individual processes; do not export them globally.
 
 ### Agent UI
 
@@ -312,15 +312,16 @@ Integration path overrides include `PI_CODING_AGENT_DIR`, `PI_CONFIG_DIR`, `CLAU
 
 Gardn plugin v1 lets local extensions add actions, panes, link handlers, and event hooks through the Gardn socket API and CLI.
 
-Plugin manifests use `gardn-plugin.toml` with `min_gardn_version`, or Herdr v0.8.2 compatibility manifests use `herdr-plugin.toml` with `min_herdr_version`.
+Plugin manifests use `gardn-plugin.toml` with `min_gardn_version`, or Herdr plugin API compatibility manifests use `herdr-plugin.toml` with `min_herdr_version`. Gardn accepts Herdr API requirements through `0.9.0`, independently of Gardn's product version.
 
 Plugins run unsandboxed as the current user. Remote installs show source, build commands, actions, panes, link handlers, and event hooks before install, and require confirmation unless `--yes` is passed.
 
 Installed and linked plugins live in one user-level registry shared by the default and named sessions. Legacy per-session registries migrate into that global registry, and registry entries survive live server handoff.
 `gardn plugin install`, `gardn plugin uninstall`, `gardn plugin link`, and `gardn plugin list` can read or update the registry while no server is running. Runtime operations such as actions, hooks, panes, enable/disable, and `plugin unlink` still require the server.
+`gardn plugin config-dir <plugin_id>` creates and prints the per-plugin configuration directory without a running server or registry entry. It uses the same path as `GARDN_PLUGIN_CONFIG_DIR` and `HERDR_PLUGIN_CONFIG_DIR`.
 Enabled, platform-compatible `[[startup]]` commands run once after server readiness, including after live-handoff replacement. Refreshing plugin manifests does not replay them.
 Plugin panes support overlay, popup, split, tab, and zoomed placement on the coordinator execution host. Popup dimensions accept terminal cells or percentages and are valid only for popup placement. Plugin v1 rejects a pane whose selected Workspace or source pane resolves to an SSH execution host before it creates a pane. Overlay and popup placement use a detached runtime owned by the requesting client. Split, tab, and zoomed placements are normal session panes; their attribution follows pane moves and is removed when tabs, workspaces, layouts, or plugins remove the pane.
-Plugin commands receive protected dialect-compatible context variables. Gardn manifests use `GARDN_*`; Herdr v0.8.2 manifests also receive protected `HERDR_*` aliases that plugin-provided env overrides cannot replace.
+Plugin commands receive protected dialect-compatible context variables. Gardn publishes matching `GARDN_*` and `HERDR_*` names that plugin-provided env overrides cannot replace. Both executable and socket names point to Gardn. Compatibility does not read or write upstream Herdr configuration, state, or sockets.
 
 ## External tools
 

@@ -293,3 +293,66 @@ fn plugin_link_offline_response_matches_live_server_response() {
 
     cleanup_test_base(&base);
 }
+
+#[test]
+fn plugin_config_dir_creates_runtime_config_path_for_sanitized_ids() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let state_home = base.join("state");
+
+    for (plugin_id, component) in [
+        ("example.offline", "example.offline"),
+        ("example:offline", "example_offline"),
+    ] {
+        let output = run_cli(
+            &config_home,
+            &runtime_dir,
+            &state_home,
+            &["plugin", "config-dir", plugin_id],
+        );
+        assert!(
+            output.status.success(),
+            "stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            format!(
+                "{}\n",
+                config_home
+                    .join(app_dir_name())
+                    .join("plugins")
+                    .join(component)
+                    .display()
+            )
+        );
+        let directory = PathBuf::from(String::from_utf8(output.stdout).unwrap().trim());
+        fs::write(directory.join("config.json"), "{}").expect("configuration directory is usable");
+    }
+
+    cleanup_test_base(&base);
+}
+
+#[test]
+fn plugin_config_dir_rejects_missing_extra_and_invalid_ids() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let state_home = base.join("state");
+
+    for args in [
+        &["plugin", "config-dir"][..],
+        &["plugin", "config-dir", "example.plugin", "extra"][..],
+        &["plugin", "config-dir", "../escape"][..],
+    ] {
+        let output = run_cli(&config_home, &runtime_dir, &state_home, args);
+        assert_eq!(output.status.code(), Some(2));
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("usage:")
+                || String::from_utf8_lossy(&output.stderr).contains("invalid plugin id")
+        );
+    }
+
+    cleanup_test_base(&base);
+}

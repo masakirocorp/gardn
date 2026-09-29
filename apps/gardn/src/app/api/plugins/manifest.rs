@@ -5,7 +5,7 @@ use crate::api::schema::{
     PluginPlatform, PluginSourceInfo, PluginSourceKind, PopupSize,
 };
 
-const HERDR_PLUGIN_V1_COMPAT_VERSION: &str = "0.8.2";
+const HERDR_PLUGIN_V1_COMPAT_VERSION: &str = "0.9.0";
 const PLUGIN_ID_MAX_CHARS: usize = 120;
 const PLUGIN_ACTION_ID_MAX_CHARS: usize = 120;
 

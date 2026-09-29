@@ -13,7 +13,7 @@ use crate::api::schema::{
     ResponseResult,
 };
 use crate::app::App;
-pub(super) use manifest::normalize_plugin_id;
+pub(crate) use manifest::normalize_plugin_id;
 use manifest::{
     effective_platforms, ensure_platform_supported, normalize_action_id, normalize_plugin_source,
 };
@@ -171,6 +171,7 @@ impl App {
 
     pub(super) fn handle_plugin_action_invoke(
         &mut self,
+        view: &crate::app::ClientViewState,
         id: String,
         params: PluginActionInvokeParams,
     ) -> String {
@@ -195,7 +196,7 @@ impl App {
         ) {
             return encode_error(id, code, message);
         }
-        let context = self.merge_plugin_context(params.context, &id);
+        let context = self.merge_plugin_context(view, params.context, &id);
         let log = match self.start_plugin_command(
             &plugin,
             Some(action.action_id.clone()),
@@ -1089,7 +1090,7 @@ action = "open"
     }
 
     #[test]
-    fn herdr_v1_manifest_loads_without_gardn_fields() {
+    fn herdr_v1_manifest_accepts_audited_09_api_without_gardn_fields() {
         let root = unique_temp_path("herdr-v1-manifest");
         write_manifest_file(
             &root,
@@ -1098,7 +1099,7 @@ action = "open"
 id = "examples.herdr-v1"
 name = "Herdr v1"
 version = "0.1.0"
-min_herdr_version = "0.8.2"
+min_herdr_version = "0.9.0"
 
 [[startup]]
 command = ["echo", "startup"]
@@ -1122,7 +1123,7 @@ command = ["echo", "popup"]
             .expect("Herdr v1 manifest should load");
 
         assert_eq!(plugin.plugin_id, "examples.herdr-v1");
-        assert_eq!(plugin.min_gardn_version, "0.8.2");
+        assert_eq!(plugin.min_gardn_version, "0.9.0");
         assert_eq!(plugin.startup[0].command, ["echo", "startup"]);
         assert_eq!(plugin.actions[0].id, "status");
         assert!(plugin.manifest_path.ends_with("herdr-plugin.toml"));
@@ -1140,6 +1141,32 @@ command = ["echo", "popup"]
             Some(crate::api::schema::PopupSize::Cells(12))
         );
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn herdr_manifest_rejects_api_versions_beyond_audited_ceiling() {
+        let root = unique_temp_path("herdr-unsupported-api");
+        write_manifest_file(
+            &root,
+            "herdr-plugin.toml",
+            r#"
+id = "examples.future-herdr"
+name = "Future Herdr"
+version = "0.1.0"
+min_herdr_version = "0.9.1"
+
+[[actions]]
+id = "status"
+title = "Status"
+command = ["echo", "status"]
+"#,
+        );
+
+        let error = load_plugin_manifest(&root.display().to_string(), true).unwrap_err();
+        assert_eq!(error.0, "plugin_requires_newer_herdr");
+        assert!(error.1.contains("0.9.1"));
+        assert!(error.1.contains("0.9.0"));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -2968,20 +2995,31 @@ action = "missing"
     }
 
     #[test]
-    fn manifest_action_invoke_builds_default_workspace_context() {
+    fn manifest_action_invoke_uses_selected_pane_context() {
         let mut app = test_app();
-        app.state.workspaces = vec![crate::workspace::Workspace::test_new("issue")];
-        app.state.workspaces[0].identity_cwd = "/tmp/issue".into();
-        app.state.workspaces[0].default_location =
+        app.state.workspaces = vec![
+            crate::workspace::Workspace::test_new("other"),
+            crate::workspace::Workspace::test_new("issue"),
+        ];
+        app.state.workspaces[1].identity_cwd = "/tmp/issue".into();
+        app.state.workspaces[1].default_location =
             crate::execution_host::ResourceLocation::local("/tmp/issue").unwrap();
         app.state.ensure_test_terminals();
-        app.default_client_view.active_workspace = Some(0);
-        app.default_client_view.selected_workspace = 0;
-        app.state.workspaces[0].custom_name = Some("Plugin Work".into());
-        let pane_id = app.state.workspaces[0].terminal_tab(0).unwrap().root_pane;
-        let pane_public = app.public_pane_id(0, pane_id).unwrap();
-        let tab_public = app.public_tab_id(0, 0).unwrap();
-        let workspace_public = app.public_workspace_id(0);
+        app.state.workspaces[1].custom_name = Some("Plugin Work".into());
+        let pane_id = app.state.workspaces[1].terminal_tab(0).unwrap().root_pane;
+        let pane_public = app.public_pane_id(1, pane_id).unwrap();
+        let tab_public = app.public_tab_id(1, 0).unwrap();
+        let workspace_public = app.public_workspace_id(1);
+        let focus = app.handle_api_request(Request {
+            id: "focus-context-pane".into(),
+            method: Method::PaneFocus(crate::api::schema::PaneTarget {
+                pane_id: pane_public.clone(),
+            }),
+        });
+        let ResponseResult::PaneInfo { pane } = response_result(&focus) else {
+            panic!("expected focused pane: {focus}");
+        };
+        assert_eq!(pane.pane_id, pane_public);
         let _ = app.handle_pane_report_agent(
             "report".into(),
             crate::api::schema::PaneReportAgentParams {
@@ -3000,7 +3038,6 @@ action = "missing"
         );
 
         let root = unique_temp_path("plugin-action-context");
-        // write a manifest with a "show" action in pane context
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
             root.join("gardn-plugin.toml"),
@@ -3014,7 +3051,7 @@ min_gardn_version = "0.2.0"
 id = "show"
 title = "Show Context"
 contexts = ["pane"]
-command = ["show-ctx"]
+command = ["echo", "context"]
 "#,
         )
         .unwrap();

@@ -81,7 +81,7 @@ Linking registers an existing directory; it does not copy the directory and does
 gardn plugin link /absolute/path/to/plugin
 ```
 
-The directory (or a direct manifest path) must contain a valid `gardn-plugin.toml`. Use `--disabled` to register without running its actions or event hooks:
+The directory (or a direct manifest path) must contain a valid `gardn-plugin.toml` or compatible `herdr-plugin.toml`. Use `--disabled` to register without running its actions or event hooks:
 
 ```bash
 gardn plugin link /absolute/path/to/plugin --disabled
@@ -95,6 +95,8 @@ gardn plugin list --json
 ```
 
 The registry is global to the current user rather than scoped to one default or named session. If no server is running, `plugin install`, `plugin uninstall`, `plugin link`, and `plugin list` read or update that persisted registry directly. Runtime operations—actions, hooks, panes, enable/disable, and `plugin unlink`—still require a running server.
+
+Use `gardn plugin config-dir PLUGIN_ID` to create and print the plugin's configuration directory. Put plugin-specific configuration there as directed by the plugin author. The command works offline and resolves the same directory supplied to plugin commands, including Herdr-compatible commands.
 
 Enable, disable, or remove the registry entry as needed:
 

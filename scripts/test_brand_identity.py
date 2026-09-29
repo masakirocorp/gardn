@@ -32,8 +32,10 @@ COMPATIBILITY_PATHS = {
     "apps/gardn/src/pane.rs",
     "apps/gardn/src/product_env.rs",
     "crates/gardn-local-api/src/lib.rs",
+    "docs/adr/0053-adopt-gardn-product-identity.md",
     "docs/features.md",
     "website/content/docs/api/reference/extensions-and-control.mdx",
+    "website/content/docs/guides/plugins-and-integrations.mdx",
     "website/content/docs/reference/plugin-manifest.mdx",
 }
 
@@ -77,10 +79,26 @@ def scrub_allowed_provenance(path: Path, text: str) -> str:
     relative_path = path.relative_to(REPO_ROOT).as_posix()
     if relative_path in COMPATIBILITY_PATHS:
         text = re.sub(rf"(?i){RETIRED_UPSTREAM_NAME}(?=_|\b)", "", text)
+    if relative_path == "apps/gardn/src/platform/mod.rs":
+        # Process detection accepts only the agent hint, not upstream storage or sockets.
+        text = re.sub("HER" + r"DR_AGENT\b", "", text)
     return text
 
 
 class BrandIdentityTests(unittest.TestCase):
+    def test_agent_hint_compatibility_keeps_other_upstream_names_forbidden(self) -> None:
+        prefix = "HER" + "DR_"
+        text = scrub_allowed_provenance(
+            REPO_ROOT / "apps/gardn/src/platform/mod.rs",
+            f"{prefix}AGENT=omp\n{prefix}SOCKET_PATH=/tmp/socket\n{prefix}AGENT_STATE_DIR=/tmp/state\n",
+        )
+        violations = [
+            match.group()
+            for _, pattern in FORBIDDEN_CONTENT
+            for match in pattern.finditer(text)
+        ]
+        self.assertEqual(violations, [prefix, prefix])
+
     def test_tracked_paths_use_gardn_identity(self) -> None:
         forbidden_path_parts = (
             "apps/" + RETIRED_CLI,

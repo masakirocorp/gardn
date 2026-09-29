@@ -11,7 +11,7 @@ This page specifies the manifest format accepted by Gardn plugin v1. It describe
 
 ## Manifest file and top-level fields
 
-Gardn also accepts a Herdr v0.8.2 manifest named `herdr-plugin.toml`. It uses `min_herdr_version` instead of `min_gardn_version`. Both compatibility keys are required by their respective dialect and may not require a version newer than their supported runtime.
+Gardn also accepts a Herdr plugin manifest named `herdr-plugin.toml`. It uses `min_herdr_version` instead of `min_gardn_version`. Gardn supports Herdr plugin API requirements through `0.9.0`. This compatibility ceiling is separate from Gardn's product version. Each dialect requires its own compatibility key.
 
 The top-level table has these fields:
 
@@ -152,9 +152,9 @@ Builds and runtime commands use the plugin root as their working directory unles
 
 - `GARDN_WORKSPACE_ID`, `GARDN_TAB_ID`, `GARDN_PANE_ID`, `GARDN_PLUGIN_CLICKED_URL`, and `GARDN_PLUGIN_LINK_HANDLER_ID` when those context values exist.
 
-Herdr v0.8.2 manifests receive equivalent protected `HERDR_*` names. These aliases include `HERDR_ENV`, `HERDR_SOCKET_PATH`, plugin path and identity values, invocation context, executable path, and applicable action, event, workspace, tab, and pane values. Plugin pane environment overrides cannot replace either protected Gardn or Herdr keys.
+Herdr manifests receive equivalent protected `HERDR_*` names. These aliases include `HERDR_ENV`, `HERDR_SOCKET_PATH`, plugin path and identity values, invocation context, executable path, and applicable action, event, workspace, tab, and pane values. Plugin pane environment overrides cannot replace either protected Gardn or Herdr keys. `HERDR_BIN_PATH` and `HERDR_SOCKET_PATH` point to Gardn, not an upstream Herdr installation.
 
-`GARDN_PLUGIN_CONFIG_DIR` and `GARDN_PLUGIN_STATE_DIR` are per-plugin directories for configuration and state. Gardn also supplies `GARDN_ENV=1`.
+`GARDN_PLUGIN_CONFIG_DIR` and `GARDN_PLUGIN_STATE_DIR` are per-plugin directories for configuration and state. `gardn plugin config-dir <plugin_id>` creates and prints the same configuration directory, including when no server is running. Gardn also supplies `GARDN_ENV=1`.
 
 For pane launches, request-supplied `GARDN_*` environment keys that identify the plugin, root, config/state directories, entrypoint, context, or binary are discarded and replaced with protected values. Environment keys must not be empty, contain `=`, or contain NUL bytes; values must not contain NUL bytes. These checks prevent malformed entries, not arbitrary plugin code execution.
 

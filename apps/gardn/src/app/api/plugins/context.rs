@@ -4,10 +4,14 @@ use crate::app::{App, ClientViewState};
 impl App {
     pub(super) fn merge_plugin_context(
         &self,
+        view: &ClientViewState,
         provided: Option<PluginInvocationContext>,
         correlation_id: &str,
     ) -> PluginInvocationContext {
-        let mut context = self.current_plugin_context(correlation_id);
+        let mut context = view
+            .active_workspace
+            .map(|ws_idx| self.plugin_context_for_workspace_for_view(view, ws_idx, correlation_id))
+            .unwrap_or_else(|| empty_plugin_context(correlation_id));
         if let Some(provided) = provided {
             context.workspace_id = provided.workspace_id.or(context.workspace_id);
             context.workspace_label = provided.workspace_label.or(context.workspace_label);

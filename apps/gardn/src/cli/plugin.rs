@@ -29,7 +29,7 @@ pub(super) fn run_plugin_command(args: &[String]) -> std::io::Result<i32> {
         "list" => plugin_list(&args[1..]),
         "unlink" => plugin_unlink(&args[1..]),
         "enable" => plugin_set_enabled(&args[1..], true),
-        "disable" => plugin_set_enabled(&args[1..], false),
+        "config-dir" => plugin_config_dir(&args[1..]),
         "action" => run_plugin_action_command(&args[1..]),
         "log" | "logs" => plugin_log_list(&args[1..]),
         "pane" => run_plugin_pane_command(&args[1..]),
@@ -42,6 +42,25 @@ pub(super) fn run_plugin_command(args: &[String]) -> std::io::Result<i32> {
             Ok(2)
         }
     }
+}
+
+fn plugin_config_dir(args: &[String]) -> std::io::Result<i32> {
+    let Some(plugin_id) = args.first() else {
+        eprintln!("usage: gardn plugin config-dir <plugin_id>");
+        return Ok(2);
+    };
+    if args.len() != 1 {
+        eprintln!("usage: gardn plugin config-dir <plugin_id>");
+        return Ok(2);
+    }
+    let Some(plugin_id) = crate::app::normalize_plugin_id(plugin_id) else {
+        eprintln!("invalid plugin id");
+        return Ok(2);
+    };
+    let path = crate::plugin_paths::plugin_config_dir(&plugin_id);
+    std::fs::create_dir_all(&path)?;
+    println!("{}", path.display());
+    Ok(0)
 }
 
 fn plugin_link(args: &[String]) -> std::io::Result<i32> {
@@ -1634,6 +1653,7 @@ fn print_plugin_help() {
     eprintln!("  gardn plugin unlink <plugin_id>");
     eprintln!("  gardn plugin enable <plugin_id>");
     eprintln!("  gardn plugin disable <plugin_id>");
+    eprintln!("  gardn plugin config-dir <plugin_id>");
     eprintln!("  gardn plugin action <list|invoke>");
     eprintln!("  gardn plugin log list [--plugin ID] [--limit N]");
     eprintln!("  gardn plugin pane <open|focus|close>");

@@ -1,9 +1,10 @@
 use crate::api::schema::InstalledPluginInfo;
 
 pub(super) fn plugin_path_env(plugin: &InstalledPluginInfo) -> Vec<(String, String)> {
-    let component = crate::api::schema::plugin_managed_path_component(&plugin.plugin_id);
-    let config_dir = crate::config::config_dir().join("plugins").join(&component);
-    let state_dir = crate::config::state_dir().join("plugins").join(component);
+    let config_dir = crate::plugin_paths::plugin_config_dir(&plugin.plugin_id);
+    let state_dir = crate::config::state_dir().join("plugins").join(
+        crate::api::schema::plugin_managed_path_component(&plugin.plugin_id),
+    );
 
     let mut env = Vec::new();
     crate::product_env::push(&mut env, "GARDN_PLUGIN_ROOT", plugin.plugin_root.clone());

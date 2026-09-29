@@ -33,6 +33,7 @@ mod theme_sync;
 pub(crate) mod view_state;
 mod window_title;
 
+pub(crate) use api::plugins::normalize_plugin_id;
 pub(crate) use api_helpers::limit_snapshot_lines;
 pub(crate) use input::{rendering_client_may_open_url, FilterMenuRow, GroupMenuAction};
 

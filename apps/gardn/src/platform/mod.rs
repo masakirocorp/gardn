@@ -368,11 +368,21 @@ pub fn process_agent_hint(_pid: u32) -> Option<crate::detect::Agent> {
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 pub(crate) fn parse_agent_env_hint(environ: &[u8]) -> Option<crate::detect::Agent> {
-    environ.split(|&byte| byte == 0).find_map(|record| {
-        let value = record.strip_prefix(b"GARDN_AGENT=")?;
-        let value = std::str::from_utf8(value).ok()?;
-        crate::detect::parse_agent_label(value)
-    })
+    let mut alias_hint = None;
+    for record in environ.split(|&byte| byte == 0) {
+        if let Some(value) = record.strip_prefix(b"GARDN_AGENT=") {
+            let value = std::str::from_utf8(value).ok()?;
+            return crate::detect::parse_agent_label(value);
+        }
+        if let Some(value) = record.strip_prefix(b"HERDR_AGENT=") {
+            if alias_hint.is_none() {
+                alias_hint = std::str::from_utf8(value)
+                    .ok()
+                    .and_then(crate::detect::parse_agent_label);
+            }
+        }
+    }
+    alias_hint
 }
 
 /// The machine's node name, as shown by tmux's `#h`.
@@ -458,10 +468,58 @@ mod tests {
 
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
-    fn gardn_agent_environment_accepts_all_supported_agents() {
+    fn gardn_agent_environment_accepts_pi() {
         assert_eq!(
             parse_agent_env_hint(b"GARDN_AGENT=pi\0"),
             Some(crate::detect::Agent::Pi)
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn herdr_agent_environment_accepts_omp() {
+        assert_eq!(
+            parse_agent_env_hint(b"HERDR_AGENT=omp\0"),
+            Some(crate::detect::Agent::OhMyPi)
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn gardn_agent_takes_precedence_over_herdr_agent_in_either_record_order() {
+        assert_eq!(
+            parse_agent_env_hint(b"GARDN_AGENT=claude\0HERDR_AGENT=omp\0"),
+            Some(crate::detect::Agent::Claude)
+        );
+        assert_eq!(
+            parse_agent_env_hint(b"HERDR_AGENT=omp\0GARDN_AGENT=claude\0"),
+            Some(crate::detect::Agent::Claude)
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn invalid_gardn_agent_does_not_fall_back_to_herdr_agent() {
+        assert_eq!(
+            parse_agent_env_hint(b"GARDN_AGENT=\0HERDR_AGENT=omp\0"),
+            None
+        );
+        assert_eq!(
+            parse_agent_env_hint(b"GARDN_AGENT=not-an-agent\0HERDR_AGENT=omp\0"),
+            None
+        );
+        assert_eq!(
+            parse_agent_env_hint(b"GARDN_AGENT=\xff\0HERDR_AGENT=omp\0"),
+            None
+        );
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn agent_environment_ignores_unrelated_and_malformed_records() {
+        assert_eq!(
+            parse_agent_env_hint(b"PATH=/bin\0GARDN_AGENT\0HERDR_AGENT\0TERM=xterm\0"),
+            None
         );
     }
 

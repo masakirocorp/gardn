@@ -1369,6 +1369,15 @@ impl App {
                 client_view.reconcile(&self.state);
                 crate::api::ApiRequestDisposition::Respond(response)
             }
+            crate::api::schema::Method::PluginActionInvoke(params) => {
+                self.drain_internal_events();
+                client_view.reconcile(&self.state);
+                crate::api::ApiRequestDisposition::Respond(self.handle_plugin_action_invoke(
+                    client_view,
+                    request.id,
+                    params,
+                ))
+            }
             crate::api::schema::Method::PluginPaneOpen(params) => {
                 self.drain_internal_events();
                 let disposition =
@@ -1920,9 +1929,11 @@ impl App {
                 );
             }
             Method::PluginActionInvoke(params) => {
-                return crate::api::ApiRequestDisposition::Respond(
-                    self.handle_plugin_action_invoke(request.id, params),
-                );
+                return self.with_default_client_view(|app, view| {
+                    crate::api::ApiRequestDisposition::Respond(
+                        app.handle_plugin_action_invoke(view, request.id, params),
+                    )
+                });
             }
             Method::PluginLogList(params) => {
                 return crate::api::ApiRequestDisposition::Respond(
