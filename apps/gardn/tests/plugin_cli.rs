@@ -295,6 +295,81 @@ fn plugin_link_offline_response_matches_live_server_response() {
 }
 
 #[test]
+fn plugin_disable_persists_disabled_state() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let state_home = base.join("state");
+    let manifest = write_manifest(&base.join("plugin"), valid_manifest());
+    let server = spawn_server(&config_home, &runtime_dir, &state_home, "disable");
+
+    let linked = run_cli(
+        &config_home,
+        &runtime_dir,
+        &state_home,
+        &[
+            "--session",
+            "disable",
+            "plugin",
+            "link",
+            manifest.to_str().unwrap(),
+        ],
+    );
+    assert!(
+        linked.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+    assert_eq!(
+        parse_json(&linked.stdout)["result"]["plugin"]["enabled"],
+        true
+    );
+
+    let disabled = run_cli(
+        &config_home,
+        &runtime_dir,
+        &state_home,
+        &[
+            "--session",
+            "disable",
+            "plugin",
+            "disable",
+            "example.offline",
+        ],
+    );
+    assert!(
+        disabled.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&disabled.stderr)
+    );
+    assert_eq!(
+        parse_json(&disabled.stdout)["result"]["plugin"]["enabled"],
+        false
+    );
+
+    drop(server);
+    let listed = run_cli(
+        &config_home,
+        &runtime_dir,
+        &state_home,
+        &["--session", "disable", "plugin", "list", "--json"],
+    );
+    assert!(
+        listed.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&listed.stderr)
+    );
+    let plugins = parse_json(&listed.stdout);
+    assert_eq!(
+        plugins["result"]["plugins"][0]["plugin_id"],
+        "example.offline"
+    );
+    assert_eq!(plugins["result"]["plugins"][0]["enabled"], false);
+
+    cleanup_test_base(&base);
+}
+
+#[test]
 fn plugin_config_dir_creates_runtime_config_path_for_sanitized_ids() {
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -345,9 +420,16 @@ fn plugin_config_dir_rejects_missing_extra_and_invalid_ids() {
         &["plugin", "config-dir"][..],
         &["plugin", "config-dir", "example.plugin", "extra"][..],
         &["plugin", "config-dir", "../escape"][..],
+        &["plugin", "config-dir", "."][..],
+        &["plugin", "config-dir", " .. "][..],
     ] {
         let output = run_cli(&config_home, &runtime_dir, &state_home, args);
-        assert_eq!(output.status.code(), Some(2));
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         assert!(
             String::from_utf8_lossy(&output.stderr).contains("usage:")
                 || String::from_utf8_lossy(&output.stderr).contains("invalid plugin id")

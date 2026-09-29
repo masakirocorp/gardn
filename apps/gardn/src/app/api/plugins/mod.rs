@@ -761,7 +761,7 @@ fn invalid_plugin_id(id: String) -> String {
     encode_error(
         id,
         "invalid_plugin_id",
-        "plugin id must be non-empty, <= 120 characters, and contain only ASCII letters, digits, colon, dot, underscore, or hyphen",
+        "plugin id must be non-empty, must not be . or .., must be <= 120 characters, and contain only ASCII letters, digits, colon, dot, underscore, or hyphen",
     )
 }
 
@@ -1295,6 +1295,32 @@ command = ["echo", "overlay"]
         let value: serde_json::Value = serde_json::from_str(&response).unwrap();
         assert_eq!(value["error"]["code"], "invalid_plugin_source");
 
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn manifest_rejects_reserved_directory_ids() {
+        let root = unique_temp_path("plugin-reserved-directory-id");
+        for plugin_id in [".", " .. "] {
+            write_manifest_content(
+                &root,
+                &format!(
+                    r#"
+id = "{plugin_id}"
+name = "Reserved directory"
+version = "0.1.0"
+min_gardn_version = "0.2.0"
+platforms = ["linux", "macos", "windows"]
+"#
+                ),
+            );
+
+            let result = load_plugin_manifest(&root.display().to_string(), true);
+            assert!(
+                matches!(result, Err(("invalid_plugin_id", _))),
+                "reserved plugin id {plugin_id:?} must be rejected: {result:?}"
+            );
+        }
         let _ = std::fs::remove_dir_all(root);
     }
 

@@ -15,20 +15,20 @@ Gardn also accepts a Herdr plugin manifest named `herdr-plugin.toml`. It uses `m
 
 The top-level table has these fields:
 
-| Field               | TOML type        | Required | Meaning                                                                                                                                                                |
-| ------------------- | ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                | string           | yes      | Stable plugin identifier. It is trimmed, must be non-empty, and may contain ASCII letters, digits, `:`, `.`, `_`, and `-`; maximum 120 characters.                     |
-| `name`              | string           | yes      | Human-readable plugin name. It is trimmed and must be non-empty.                                                                                                       |
-| `version`           | string           | yes      | Plugin version label. It is trimmed and must be non-empty; Gardn does not require this field to be a semantic version.                                                 |
-| `min_gardn_version` | string           | yes      | Semantic Gardn version required by the plugin. It must parse as a version and cannot be newer than the running Gardn release.                                          |
-| `description`       | string           | no       | Optional trimmed description. Blank descriptions are discarded.                                                                                                        |
-| `platforms`         | array of strings | no       | Plugin-level platform allowlist: `linux`, `macos`, or `windows`. Omit it when support is not declared; Gardn warns that support is unknown. An empty array is invalid. |
-| `build`             | array of tables  | no       | Build commands run during a remote GitHub install, before the checkout is moved into managed plugin storage.                                                           |
-| `startup`           | array of tables  | no       | Commands run once when an enabled plugin is loaded during server startup.                                                                                              |
-| `actions`           | array of tables  | no       | User-invokable commands, optionally scoped by action context and platform.                                                                                             |
-| `events`            | array of tables  | no       | Lifecycle hook commands.                                                                                                                                               |
-| `panes`             | array of tables  | no       | Terminal pane entrypoints.                                                                                                                                             |
-| `link_handlers`     | array of tables  | no       | URL-pattern handlers that dispatch an existing action.                                                                                                                 |
+| Field               | TOML type        | Required | Meaning                                                                                                                                                                                   |
+| ------------------- | ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`                | string           | yes      | Stable plugin identifier. It is trimmed, must be non-empty, and may contain ASCII letters, digits, `:`, `.`, `_`, and `-`; maximum 120 characters. The values `.` and `..` are not valid. |
+| `name`              | string           | yes      | Human-readable plugin name. It is trimmed and must be non-empty.                                                                                                                          |
+| `version`           | string           | yes      | Plugin version label. It is trimmed and must be non-empty; Gardn does not require this field to be a semantic version.                                                                    |
+| `min_gardn_version` | string           | yes      | Semantic Gardn version required by the plugin. It must parse as a version and cannot be newer than the running Gardn release.                                                             |
+| `description`       | string           | no       | Optional trimmed description. Blank descriptions are discarded.                                                                                                                           |
+| `platforms`         | array of strings | no       | Plugin-level platform allowlist: `linux`, `macos`, or `windows`. Omit it when support is not declared; Gardn warns that support is unknown. An empty array is invalid.                    |
+| `build`             | array of tables  | no       | Build commands run during a remote GitHub install, before the checkout is moved into managed plugin storage.                                                                              |
+| `startup`           | array of tables  | no       | Commands run once when an enabled plugin is loaded during server startup.                                                                                                                 |
+| `actions`           | array of tables  | no       | User-invokable commands, optionally scoped by action context and platform.                                                                                                                |
+| `events`            | array of tables  | no       | Lifecycle hook commands.                                                                                                                                                                  |
+| `panes`             | array of tables  | no       | Terminal pane entrypoints.                                                                                                                                                                |
+| `link_handlers`     | array of tables  | no       | URL-pattern handlers that dispatch an existing action.                                                                                                                                    |
 
 `min_gardn_version` is required. It must be a semantic version and cannot be newer than the running Gardn release.
 

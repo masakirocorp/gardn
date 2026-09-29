@@ -29,6 +29,7 @@ pub(super) fn run_plugin_command(args: &[String]) -> std::io::Result<i32> {
         "list" => plugin_list(&args[1..]),
         "unlink" => plugin_unlink(&args[1..]),
         "enable" => plugin_set_enabled(&args[1..], true),
+        "disable" => plugin_set_enabled(&args[1..], false),
         "config-dir" => plugin_config_dir(&args[1..]),
         "action" => run_plugin_action_command(&args[1..]),
         "log" | "logs" => plugin_log_list(&args[1..]),

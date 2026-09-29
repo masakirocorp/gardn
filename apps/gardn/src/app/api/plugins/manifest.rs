@@ -700,6 +700,7 @@ pub(super) fn normalize_action_id(value: &str) -> Option<String> {
 fn normalize_identifier(value: &str, max_chars: usize) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()
+        && !matches!(value, "." | "..")
         && value.chars().count() <= max_chars
         && value
             .bytes()
